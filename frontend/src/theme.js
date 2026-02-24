@@ -51,7 +51,7 @@ export const THEME = {
   redBorder:     "#EF9A9A",
 
   // ── Status: Warning ────────────────────────────────────────────
-  amber:         "#F57F17",
+  amber:         "#E65100",
   amberBg:       "#FFFDE7",
   amberBorder:   "#FFCC80",
 

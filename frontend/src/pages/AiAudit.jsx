@@ -38,7 +38,7 @@ const COLORS = {
   red: "#C62828",
   redBg: "#FFEBEE",
   redBorder: "#EF9A9A",
-  amber: "#F57F17",
+  amber: "#E65100",
   amberBg: "#FFFDE7",
   amberBorder: "#FFCC80",
   blue: "#1565C0",

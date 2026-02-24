@@ -2,9 +2,9 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 
 const tabs = [
-    { id: 'flow', path: '/help/flow', label: 'How It Flows' },
-    { id: 'gates', path: '/help/gates', label: 'Gate Rules' },
-    { id: 'roles', path: '/help/roles', label: 'Role Access' },
+    { id: 'flow', path: '/help/flow', label: 'Full Flow' },
+    { id: 'gates', path: '/help/gates', label: 'Gate System' },
+    { id: 'roles', path: '/help/roles', label: 'Who Can Do What' },
 ];
 
 const contentByTab = {
