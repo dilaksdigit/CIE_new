@@ -1,0 +1,62 @@
+openapi: 3.0.0
+info:
+  title: CIE API
+  version: 2.3.2
+servers:
+  - url: /api
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+paths:
+  /auth/login:
+    post:
+      summary: Authenticate user
+      requestBody:
+        required: true
+      responses:
+        '200':
+          description: Login success
+        '401':
+          description: Invalid credentials
+
+  /v1/skus:
+    get:
+      summary: List all SKUs
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: SKU list
+
+  /v1/queue/today:
+    get:
+      summary: Writer queue for current day
+      description: AI-prioritized queue used by /writer/queue screen.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Queue list for today
+
+  /dashboard/summary:
+    get:
+      summary: Dashboard summary KPIs
+      description: Includes effort allocation and aggregate KPIs consumed by writer stats cards.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Summary payload
+
+  /audit-results/weekly-scores:
+    get:
+      summary: Weekly reviewer KPI scores
+      description: Returns weekly score records used by review KPI and AI audit trend views.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Weekly score rows

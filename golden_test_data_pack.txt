@@ -1,0 +1,609 @@
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 1 
+ 
+CIE GOLDEN TEST DATA PACK 
+Doc 4b: JSON Fixtures + Acceptance Tests for Developer Validation 
+v2.3.2  |  February 2026  |  10 Gold-Set SKUs  |  70+ Acceptance Tests 
+  
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 2 
+0. Purpose & Usage 
+This pack contains 10 fully worked SKU records as importable JSON, with exact expected 
+outputs at every CIE pipeline stage (L0-L6). The developer uses these fixtures to validate every 
+component of the system against known-good outputs. No component passes acceptance 
+without matching these exact values. 
+ 
+Fixture files to create: golden_test_data.json (all 10 SKUs), plus per-stage expected outputs. 
+Usage: Import golden_test_data.json into the test database. Run each pipeline component. 
+Assert outputs match expected values exactly. 
+Coverage: 5 Hero, 3 Support, 1 Harvest, 1 Kill. 4 Cables, 2 Lampshades, 2 Bulbs, 1 Pendant 
+Set, 1 Floor Lamp. 
+ 
+0.1 SKU Summary 
+# SKU Code Product Tier Category Cluster Primary Intent 
+1 CBL-BLK-3C-1M Black Braided Pendant 
+Cable 3-Core 1m E27 
+Hero Cables CLU-CBL-
+P-E27 
+Compatibility 
+2 CBL-GLD-3C-1M Gold Braided Pendant 
+Cable 3-Core 1m E27 
+Hero Cables CLU-CBL-
+P-E27 
+Inspiration 
+3 CBL-WHT-2C-3M White Round Flex Cable 
+2-Core 3m 
+Support Cables CLU-CBL-
+EXT 
+Specification 
+4 CBL-RED-3C-2M Red Twisted Pendant 
+Cable 3-Core 2m E27 
+Harvest Cables CLU-CBL-
+P-E27 
+Specification 
+5 SHD-TPE-DRM-35 Fabric Drum Shade 
+Taupe 35cm E27/B22 
+Hero Shades CLU-
+SHD-FAB 
+Problem-Solving 
+6 SHD-GLS-CNE-20 Opal Glass Cone Shade 
+20cm E27 
+Hero Shades CLU-
+SHD-GLS 
+Comparison 
+7 BLB-LED-E27-4W LED Filament Bulb E27 
+4W 2700K 
+Support Bulbs CLU-BLB-
+LED 
+Compatibility 
+8 BLB-LED-B22-8W LED GLS Bulb B22 8W 
+4000K 
+Support Bulbs CLU-BLB-
+LED 
+Specification 
+9 PND-SET-BRS-3L Brass 3-Light Pendant 
+Cluster Set 
+Hero Pendants CLU-
+PND-CLU 
+Problem-Solving 
+10 FLR-ARC-BLK-175 Black Arc Floor Lamp 
+175cm E27 
+Kill Floor CLU-FLR-
+ARC 
+N/A (Kill) 
+  
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 3 
+1. Fixture #1: CBL-BLK-3C-1M (Hero Cable) 
+This is the reference Hero SKU. Every field is fully populated. All gates pass. This fixture 
+validates the complete happy path. 
+1.1 Input JSON (Canonical Record) 
+{ 
+  "sku_code": "CBL-BLK-3C-1M", 
+  "product_name": "Black Braided Pendant Cable Set 3-Core 1m E27", 
+  "tier": "Hero", 
+  "category": "Cables", 
+  "identity": { 
+    "product_class": "Decorative Lighting Cable", 
+    "product_type": "Pendant Cable Set", 
+    "material_primary": "Braided Fabric over PVC", 
+    "colour": "Black", 
+    "core_count": 3, 
+    "style": "Braided", 
+    "length_m": 1.0, 
+    "fitting_type": "E27 Screw", 
+    "certifications": ["BS 7671", "CE"], 
+    "weight_kg": 0.18, 
+    "ip_rating": null 
+  }, 
+  "use_case": { 
+    "cluster_id": "CLU-CBL-P-E27", 
+    "cluster_intent": "Connect and power a pendant light fitting safely and stylishly", 
+    "primary_intent": "Compatibility", 
+    "secondary_intents": ["Installation/How-To", "Specification"], 
+    "best_for": [ 
+      "Standard ceiling pendant installations", 
+      "Kitchen island lighting", 
+      "Bedroom pendant upgrades", 
+      "Replacing old flex cable" 
+    ], 
+    "not_for": [ 
+      "Bathroom installations (not IP-rated)", 
+      "Outdoor use", 
+      "Heavy industrial fixtures over 5kg" 
+    ], 
+    "comparison_anchors": [ 
+      { 
+        "competitor": "Generic PVC flex", 
+        "our_advantage": "Braided fabric finish adds design element", 
+        "evidence": "4.7 avg review vs 3.9 for PVC alternatives" 
+      } 
+    ] 
+  }, 
+  "commercial": { 
+    "contribution_margin_pct": 62.0, 
+    "cppc": 0.18, 
+    "velocity_90d": 847, 
+    "return_rate_pct": 2.1, 
+    "composite_score": 88.4, 
+    "price_gbp": 12.99, 
+    "cost_gbp": 4.94 
+  }, 
+  "content": { 
+    "shopify_title": "Pendant Cable Set for Ceiling Lights - Safe Wiring Made Simple | 3-Core 
+Braided 1m E27", 
+    "feed_title": "Black Braided Pendant Cable Set 3-Core 1m with E27 Holder for Ceiling Light 
+Installation", 
+    "meta_description": "3-core braided pendant cable set with E27 holder. Rated to 60W. 
+Compatible with LED and CFL. Ideal for standard 2.4m ceilings. BS 7671 compliant. Free UK 
+delivery.", 
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 4 
+    "ai_answer_block": "A 3-core braided pendant cable set with E27 holder connects a ceiling 
+rose to a lampshade safely. Rated to 60W, compatible with LED and CFL bulbs. Choose 1m for 
+standard 2.4m ceilings or 1.5m for period properties with higher ceilings.", 
+    "ai_answer_block_chars": 287, 
+    "ppc_headlines": [ 
+      "Pendant Cable Set E27 | Safe", 
+      "Braided Ceiling Light Cable", 
+      "Easy DIY Pendant Wiring Kit" 
+    ], 
+    "alt_text": "Black braided 3-core pendant cable set with E27 lamp holder for ceiling 
+lights", 
+    "quotable_facts": [ 
+      "Rated to 3A/60W, compatible with all LED and CFL bulbs", 
+      "BS 7671 compliant wiring for DIY installation", 
+      "1m length suits standard UK ceiling height of 2.4m" 
+    ] 
+  }, 
+  "authority": { 
+    "expert_statement": "Wiring compliant with BS 7671 (IET Wiring Regulations, 18th Edition). 
+Cable rated to 3A/60W. Suitable for DIY installation with existing ceiling rose.", 
+    "wikidata_entities": [ 
+      { "qid": "Q174102", "label": "Electrical cable" }, 
+      { "qid": "Q193514", "label": "Pendant light" } 
+    ], 
+    "certifications_detail": ["BS 7671:2018 (18th Edition IET Wiring Regs)", "CE marked"] 
+  }, 
+  "faqs": [ 
+    { "question": "Can I use this cable with an LED bulb?", "answer": "Yes, this cable set is 
+compatible with all LED, CFL, and incandescent bulbs up to 60W with an E27 screw fitting.", 
+"intent_tag": "Compatibility" }, 
+    { "question": "How do I wire a pendant cable to my ceiling rose?", "answer": "Connect the 
+three cores (live, neutral, earth) to the matching terminals in your ceiling rose. Turn off 
+power at the consumer unit first. Full instructions included.", "intent_tag": 
+"Installation/How-To" }, 
+    { "question": "What is the maximum weight this cable can support?", "answer": "The cable 
+and E27 holder support lampshades up to 2kg. For heavier shades, use a chain suspension kit.", 
+"intent_tag": "Specification" } 
+  ] 
+} 
+ 
+1.2 Expected Outputs by Pipeline Stage 
+L0: Commercial Triage 
+GIVEN/WHEN/THEN: Tier Calculation 
+GIVEN commercial data: margin=62%, cppc=0.18, velocity=847, returns=2.1% 
+WHEN composite score calculated: (62*0.4)+(1/0.18*0.25)+(847*0.2)+((1-0.021)*0.15) 
+THEN composite_score >= top 20% threshold 
+AND tier = 'Hero' 
+AND effort_cap = 'Unlimited' 
+L1: Vision AI Extract 
+GIVEN/WHEN/THEN: Vision Extraction 
+GIVEN product image of CBL-BLK-3C-1M 
+WHEN processed through POST /vision/extract_attributes 
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 5 
+THEN product_class = 'Decorative Lighting Cable' 
+AND core_count = 3 
+AND colour = 'Black' 
+AND style = 'Braided' 
+AND overall_confidence >= 0.90 
+AND model_version is recorded in audit log 
+L2: Semantic Clustering + Intent 
+GIVEN/WHEN/THEN: Cluster Assignment 
+GIVEN identity attributes: product_type='Pendant Cable Set', fitting='E27' 
+WHEN processed through POST /nlp/embed 
+THEN embedding vector length = 768 (or model dimension) 
+AND cosine_similarity(embedding, CLU-CBL-P-E27.centroid) >= 0.72 
+AND cluster_id = 'CLU-CBL-P-E27' 
+L3: Gate Validation 
+GIVEN/WHEN/THEN: All 7 Gates 
+GIVEN complete fixture record for CBL-BLK-3C-1M 
+WHEN gate validation runs: 
+THEN G1 (Cluster ID): PASS - 'CLU-CBL-P-E27' exists in master cluster list 
+AND G2 (Primary Intent): PASS - 'Compatibility' is valid enum value 
+AND G3 (Secondary Intents): PASS - 2 intents, both differ from primary, count <= 3 
+AND G4 (AI Answer Block): PASS - 287 chars (250-300 range), contains 'compatible' 
+(stemmed from Compatibility) 
+AND G5 (Best-For/Not-For): PASS - 4 best-for (>=2), 3 not-for (>=1) 
+AND G6 (SKU Tier): PASS - 'Hero' is valid enum 
+AND G7 (Expert Authority): PASS - expert_statement is non-empty, tier is Hero 
+AND overall_gate_status = 'ALL_PASS' 
+AND submit_enabled = true 
+L4: Title Engine 
+GIVEN/WHEN/THEN: Title Generation 
+GIVEN cluster_intent='Connect and power...', primary_intent='Compatibility', 
+  attributes: style=Braided, length=1m, fitting=E27, core_count=3 
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 6 
+WHEN title engine processes: 
+THEN shopify_title starts with intent phrase (not attribute) 
+AND shopify_title = 'Pendant Cable Set for Ceiling Lights - Safe Wiring Made Simple | 3-
+Core Braided 1m E27' 
+AND shopify_title length <= 70 chars 
+AND feed_title length <= 150 chars 
+AND title does NOT start with colour or material (attribute-stacking = FAIL) 
+L5: Channel Governor 
+GIVEN/WHEN/THEN: Channel Decisions 
+GIVEN tier=Hero, margin=62%, competition=Moderate 
+WHEN channel governor runs: 
+THEN google_sge = 'COMPETE', readiness_score = 92 
+AND amazon = 'COMPETE', readiness_score = 78 
+AND ai_assistants = 'COMPETE', readiness_score = 85 
+AND own_website = 'COMPETE', readiness_score = 95 
+AND active_channels = 4 
+AND min_readiness (primary channel) >= 85 
+L6: Content Output Validation 
+GIVEN/WHEN/THEN: Content Blocks 
+GIVEN complete canonical record 
+WHEN POST /content/draft_blocks processes: 
+THEN ai_answer_block chars >= 250 AND <= 300 
+AND ai_answer_block contains primary intent keyword 
+AND ai_answer_block does NOT start with brand name 
+AND meta_description chars >= 150 AND <= 160 
+AND ppc_headlines count = 3, each <= 30 chars 
+AND alt_text chars <= 125 
+AND faqs count >= 3 (Hero requirement) 
+AND json_ld is valid JSON-LD with @context, @type='Product', material.sameAs present 
+Maturity Score 
+GIVEN/WHEN/THEN: Maturity Calculation 
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 7 
+GIVEN all fields complete for CBL-BLK-3C-1M 
+WHEN maturity calculated: 
+THEN core_fields_score = 40/40 (Cluster, Intent, Answer Block, Best/Not-For all present) 
+AND authority_score = 20/20 (Expert statement + Wikidata + Certs) 
+AND channel_readiness_score = 22/25 (avg 87.5 across 4 channels) 
+AND ai_visibility_score = 11/15 (citation rate 75%) 
+AND total_maturity = 93/100 = GOLD 
+AND maturity_level = 'Gold' 
+  
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 8 
+2. Fixture #10: FLR-ARC-BLK-175 (Kill SKU) 
+This fixture validates the Kill tier blocking behaviour. No content fields should be editable. No 
+effort should be permitted. 
+2.1 Input JSON 
+{ 
+  "sku_code": "FLR-ARC-BLK-175", 
+  "product_name": "Black Arc Floor Lamp 175cm E27", 
+  "tier": "Kill", 
+  "category": "Floor Lamps", 
+  "identity": { 
+    "product_class": "Floor Lamp", 
+    "product_type": "Arc Floor Lamp", 
+    "material_primary": "Steel", 
+    "colour": "Black", 
+    "core_count": null, 
+    "style": null, 
+    "length_m": null, 
+    "fitting_type": "E27 Screw", 
+    "certifications": ["CE"], 
+    "weight_kg": 8.5, 
+    "height_cm": 175, 
+    "ip_rating": null 
+  }, 
+  "use_case": { 
+    "cluster_id": "CLU-FLR-ARC", 
+    "cluster_intent": null, 
+    "primary_intent": null, 
+    "secondary_intents": [], 
+    "best_for": [], 
+    "not_for": [] 
+  }, 
+  "commercial": { 
+    "contribution_margin_pct": -4.2, 
+    "cppc": 2.85, 
+    "velocity_90d": 3, 
+    "return_rate_pct": 22.0, 
+    "composite_score": 8.1, 
+    "price_gbp": 49.99, 
+    "cost_gbp": 52.09 
+  }, 
+  "content": {}, 
+  "authority": {}, 
+  "faqs": [] 
+} 
+ 
+2.2 Expected Outputs 
+GIVEN/WHEN/THEN: Kill SKU Blocking 
+GIVEN SKU FLR-ARC-BLK-175 with tier='Kill' 
+WHEN editor opens SKU Edit page (S2): 
+THEN tier_banner = RED, text = 'KILL SKU: ZERO content effort permitted' 
+AND all content fields are DISABLED (greyed out) 
+AND only Identity tab visible (read-only) 
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 9 
+AND Submit button is HIDDEN 
+AND Save Draft button saves identity-only changes 
+AND content_effort_cap = 0 hours 
+AND any API call to POST /content/draft_blocks returns 403 with 'Kill tier - content 
+generation blocked' 
+AND channel_governor returns all channels = 'SKIP' 
+AND maturity_calculation returns 'N/A - Kill tier excluded' 
+AND ai_audit excludes this SKU from question sets 
+AND if staff logs >0 minutes against this SKU, system creates policy_violation alert 
+  
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 10 
+3. Fixtures #2-9: Compact Expected Output Tables 
+For space efficiency, fixtures 2-9 are shown as expected output tables rather than full JSON. 
+The full JSON for all 10 SKUs is in the companion file golden_test_data.json. 
+3.1 Gate Validation Expected Results 
+SKU G1 G2 G3 G4 G5 G6 G7 Result Submit? Notes 
+CBL-
+BLK-
+3C-1M 
+PASS PASS PASS PASS PASS PASS PASS 7/7 YES Hero reference 
+CBL-
+GLD-
+3C-1M 
+PASS PASS PASS PASS PASS PASS PASS 7/7 YES Hero alternate 
+CBL-
+WHT-
+2C-3M 
+PASS PASS PASS PASS PASS PASS PASS 7/7 YES Support 
+CBL-
+RED-
+3C-2M 
+PASS PASS N/A N/A N/A PASS N/A 3/3 AUTO Harvest - 
+reduced gates 
+SHD-
+TPE-
+DRM-35 
+PASS PASS PASS PASS PASS PASS PASS 7/7 YES Hero shade 
+SHD-
+GLS-
+CNE-20 
+PASS PASS PASS FAIL PASS PASS PASS 6/7 NO G4 fail: 
+answer=242ch 
+BLB-
+LED-
+E27-4W 
+PASS PASS PASS PASS PASS PASS PASS 7/7 YES Support bulb 
+BLB-
+LED-
+B22-8W 
+PASS PASS PASS PASS FAIL PASS PASS 6/7 NO G5 fail: 0 not-
+for 
+PND-
+SET-
+BRS-3L 
+PASS PASS PASS PASS PASS PASS PASS 7/7 YES Hero pendant 
+FLR-
+ARC-
+BLK-
+175 
+N/A N/A N/A N/A N/A PASS N/A N/A HIDDEN Kill - no 
+validation 
+ 
+3.2 Channel Governor Expected Results 
+SKU Google Amazon AI Asst Website Active Avg 
+Score 
+Status 
+CBL-BLK-3C-
+1M 
+COMPETE 
+92 
+COMPETE 
+78 
+COMPETE 
+85 
+COMPETE 
+95 
+4/4 87.5 Hero target met 
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 11 
+CBL-GLD-3C-
+1M 
+COMPETE 
+89 
+COMPETE 
+82 
+COMPETE 
+88 
+COMPETE 
+94 
+4/4 88.3 Hero target met 
+CBL-WHT-
+2C-3M 
+COMPETE 
+76 
+SKIP COMPETE 
+71 
+COMPETE 
+88 
+3/4 78.3 Support OK 
+CBL-RED-3C-
+2M 
+COMPETE 
+52 
+SKIP SKIP COMPETE 
+65 
+2/4 58.5 Harvest minimal 
+SHD-TPE-
+DRM-35 
+COMPETE 
+94 
+COMPETE 
+86 
+COMPETE 
+90 
+COMPETE 
+96 
+4/4 91.5 Hero target met 
+SHD-GLS-
+CNE-20 
+COMPETE 
+88 
+COMPETE 
+74 
+COMPETE 
+82 
+COMPETE 
+91 
+4/4 83.8 Amazon needs 
+work 
+BLB-LED-
+E27-4W 
+COMPETE 
+72 
+COMPETE 
+68 
+COMPETE 
+74 
+COMPETE 
+85 
+4/4 74.8 Support OK 
+BLB-LED-
+B22-8W 
+COMPETE 
+70 
+SKIP COMPETE 
+65 
+COMPETE 
+82 
+3/4 72.3 AI Asst low 
+PND-SET-
+BRS-3L 
+COMPETE 
+91 
+COMPETE 
+84 
+COMPETE 
+87 
+COMPETE 
+93 
+4/4 88.8 Hero target met 
+FLR-ARC-
+BLK-175 
+SKIP SKIP SKIP SKIP 0/4 N/A Kill - all skip 
+ 
+3.3 Maturity Score Expected Results 
+SKU Core (40) Auth (20) Channel (25) AI Vis (15) Total Level 
+CBL-BLK-3C-1M 40 20 22 11 93 Gold 
+CBL-GLD-3C-
+1M 
+40 20 22 12 94 Gold 
+CBL-WHT-2C-
+3M 
+36 16 20 8 80 Gold 
+CBL-RED-3C-
+2M 
+20 5 15 0 40 Silver 
+SHD-TPE-DRM-
+35 
+40 20 23 13 96 Gold 
+SHD-GLS-CNE-
+20 
+35 18 21 10 84 Gold 
+BLB-LED-E27-
+4W 
+34 14 19 7 74 Silver 
+BLB-LED-B22-
+8W 
+32 14 18 6 70 Silver 
+PND-SET-BRS-
+3L 
+40 20 22 12 94 Gold 
+FLR-ARC-BLK-
+175 
+N/A N/A N/A N/A N/A Excluded 
+  
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 12 
+4. Edge Case Acceptance Tests 
+These tests validate boundary conditions and error handling. The developer must implement 
+each one. 
+4.1 Answer Block Edge Cases 
+Answer Block: Character Boundaries 
+GIVEN ai_answer_block with exactly 249 characters 
+WHEN G4 validation runs THEN result = FAIL, message = 'Answer Block too short (249/250 
+min)' 
+ 
+GIVEN ai_answer_block with exactly 250 characters 
+WHEN G4 validation runs THEN result = PASS 
+ 
+GIVEN ai_answer_block with exactly 300 characters 
+WHEN G4 validation runs THEN result = PASS 
+ 
+GIVEN ai_answer_block with exactly 301 characters 
+WHEN G4 validation runs THEN result = FAIL, message = 'Answer Block too long (301/300 
+max)' 
+4.2 Intent Validation Edge Cases 
+Intent: Invalid Combinations 
+GIVEN primary_intent = 'Comparison' AND secondary_intents = ['Comparison', 
+'Specification'] 
+WHEN G3 validation runs THEN result = FAIL, message = 'Secondary intent cannot match 
+Primary' 
+ 
+GIVEN primary_intent = 'Problem-Solving' AND secondary_intents = [] 
+WHEN G3 validation runs AND tier = 'Hero' 
+THEN result = FAIL, message = 'Hero/Support SKUs require minimum 1 secondary intent' 
+ 
+GIVEN primary_intent = 'Problem-Solving' AND secondary_intents = ['A', 'B', 'C', 'D'] (4 
+items) 
+WHEN G3 validation runs THEN result = FAIL, message = 'Maximum 3 secondary intents 
+allowed' 
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 13 
+ 
+GIVEN primary_intent = 'Custom Intent Not In Taxonomy' 
+WHEN G2 validation runs THEN result = FAIL, message = 'Intent not in approved taxonomy' 
+4.3 Tier Transition Edge Cases 
+Tier: SKU Moves from Support to Kill 
+GIVEN SKU BLB-LED-B22-8W currently tier='Support' with content 
+WHEN ERP sync recalculates composite_score < bottom 10% threshold 
+AND tier changes to 'Kill' 
+THEN all content fields become read-only 
+AND existing content preserved (not deleted) but flagged 'Kill - frozen' 
+AND channel_governor sets all channels to SKIP 
+AND any pending review queue items are auto-rejected with 'Tier changed to Kill' 
+AND notification sent to editor and PH 
+4.4 Fail-Soft Edge Cases (from v2.3.2) 
+AI Service Unavailable 
+GIVEN Python AI service returns 503 or timeout 
+WHEN editor submits content for Hero SKU 
+THEN G4 AI-dependent checks degrade to manual validation 
+AND vector distance check is SKIPPED (not failed) 
+AND content is saved with flag 'ai_validation_pending = true' 
+AND system queues re-validation for when service recovers 
+AND editor sees yellow warning: 'AI validation temporarily unavailable. Content saved but 
+pending AI review.' 
+AND audit log records 'FAIL_SOFT: ai_service_unavailable, validation_deferred' 
+4.5 Concurrent Edit Edge Cases 
+Two Editors Save Same SKU 
+GIVEN Editor A opens CBL-BLK-3C-1M at T=0 
+AND Editor B opens CBL-BLK-3C-1M at T=1 
+AND Editor A saves changes at T=2 (version increments to v2) 
+WHEN Editor B tries to save at T=3 (their base version is v1) 
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 14 
+THEN system detects version conflict (v1 != current v2) 
+AND shows conflict resolution modal with both versions 
+AND Editor B must choose: Overwrite, Merge, or Discard 
+AND chosen action is logged in audit trail 
+  
+CIE GOLDEN TEST DATA PACK | Doc 4b | CONFIDENTIAL 
+Page 15 
+5. Companion Files 
+The developer receives these files alongside this document: 
+golden_test_data.json: Complete JSON array of all 10 SKU records in the format shown in 
+Section 1.1. Import directly into PostgreSQL via the /api/admin/import-fixtures endpoint. 
+expected_outputs.json: Per-stage expected outputs for all 10 SKUs. Structure: { sku_code: { 
+gate_results: {...}, channel_decisions: {...}, maturity: {...}, title_engine: {...} } } 
+acceptance_tests.yaml: All Given/When/Then tests in machine-readable format for integration 
+into the test suite. 
+ 
+Total acceptance tests in this pack: 72 (across 10 SKUs x 6 pipeline stages + 12 edge case 
+tests). 

@@ -1,0 +1,183 @@
+[
+    {
+        "sku_code": "CBL-BLK-3C-1M",
+        "title": "Black Braided Pendant Cable Set 3-Core 1m E27",
+        "short_description": "Premium 3-core braided fabric cable set with E27 cleaning holder. Ideal for creating custom pendant lights. Length: 1 meter. Color: Black. Certified for safety and durability.",
+        "tier": "HERO",
+        "primary_cluster_id": "CLU-CBL-P-E27",
+        "primary_intent": "Compatibility",
+        "secondary_intents": [
+            "Installation/How-To",
+            "Specification"
+        ],
+        "best_for": "Standard ceiling pendant installations, Kitchen island lighting, Bedroom pendant upgrades, Replacing old flex cable",
+        "not_for": "Bathroom installations (not IP-rated), Outdoor use, Heavy industrial fixtures over 5kg",
+        "ai_answer_block": "A premium 3-core braided pendant cable set with E27 holder connects a ceiling rose to a lampshade safely. Rated to 60W, compatible with LED and CFL bulbs. Choose 1m for standard ceiling heights. The braided fabric finish adds a vintage aesthetic while ensuring robust safety. Double insulated for peace of mind. Easy to trim to size. Perfect for DIY projects.",
+        "margin_percent": 62.0,
+        "erp_cppc": 0.18,
+        "annual_volume": 847,
+        "erp_return_rate_pct": 2.1
+    },
+    {
+        "sku_code": "LMP-LED-E27-6W",
+        "title": "E27 LED Globe Bulb 6W Warm White",
+        "short_description": "Energy-efficient 6W LED globe bulb with E27 screw base. Produces a warm white light (2700K). Equivalent to 60W incandescent. Long lifespan of 15,000 hours.",
+        "tier": "HERO",
+        "primary_cluster_id": "CLU-LMP-G-E27",
+        "primary_intent": "Problem-Solving",
+        "secondary_intents": [
+            "Comparison",
+            "Specification"
+        ],
+        "best_for": "Living rooms, Bedrooms, Hallways, Table lamps",
+        "not_for": "Dimmable fixtures (unless specified), Enclosed fixtures without ventilation",
+        "ai_answer_block": "This E27 LED Globe Bulb 6W offers a highly efficient lighting solution for your home. With a warm white color temperature of 2700K, it provides a cozy atmosphere perfect for living areas. Replacing a traditional 60W bulb, it saves over 85% on energy costs. The standard E27 Edison screw base ensures wide compatibility with existing fixtures.",
+        "margin_percent": 58.0,
+        "erp_cppc": 0.12,
+        "annual_volume": 1200,
+        "erp_return_rate_pct": 1.5
+    },
+    {
+        "sku_code": "LMP-GLS-E27-4W",
+        "title": "E27 LED Filament GLS Bulb 4W Amber",
+        "short_description": "Vintage-style E27 LED filament bulb with amber glass. 4W power consumption. Creates a decorative look with warm ambient lighting. Perfect for exposed bulb fixtures.",
+        "tier": "HERO",
+        "primary_cluster_id": "CLU-LMP-G-E27",
+        "primary_intent": "Inspiration",
+        "secondary_intents": [
+            "Compatibility",
+            "Specification"
+        ],
+        "best_for": "Decorative pendants, Industrial style lamps, Restaurants, Bars",
+        "not_for": "Task lighting (low brightness), High humidity areas",
+        "ai_answer_block": "Create a stunning vintage look with this E27 LED Filament GLS Bulb. The amber glass and visible filament design mimic classic carbon filament bulbs while using only 4W of power. Ideal for decorative lighting where the bulb is visible, it adds warmth and character to any room. Compatible with standard E27 sockets. Not dimmable. A perfect blend of style and efficiency.",
+        "margin_percent": 65.0,
+        "erp_cppc": 0.20,
+        "annual_volume": 950,
+        "erp_return_rate_pct": 2.5
+    },
+    {
+        "sku_code": "SWT-DIM-LED-1G",
+        "title": "1-Gang LED Dimmer Switch White",
+        "short_description": "High-quality 1-gang dimmer switch optimized for LED lighting. Smooth dimming curve without flicker. Push on/off rotary control. Classic white finish.",
+        "tier": "HERO",
+        "primary_cluster_id": "CLU-ACC-SWT",
+        "primary_intent": "Compatibility",
+        "secondary_intents": [
+            "Installation",
+            "Troubleshooting"
+        ],
+        "best_for": "Dimmable LED bulbs, Living rooms, Dining rooms",
+        "not_for": "Non-dimmable bulbs, loads exceeding 100W LED",
+        "ai_answer_block": "Upgrade your lighting control with this 1-Gang LED Dimmer Switch. Specifically designed to handle the low load of LED bulbs, it prevents common issues like flickering and buzzing. The trailing edge technology ensures a smooth dimming range from 0-100%. Easy to install in standard 25mm back boxes. Features a clean white finish to match any utility decor.",
+        "margin_percent": 55.0,
+        "erp_cppc": 0.25,
+        "annual_volume": 600,
+        "erp_return_rate_pct": 3.0
+    },
+    {
+        "sku_code": "SOC-USB-BLK-2G",
+        "title": "2-Gang Switched Socket with USB Black",
+        "short_description": "Modern 2-gang 13A switched socket with integrated dual USB charging ports (2.1A shared). Black matte finish. Screwless flat plate design for a sleek look.",
+        "tier": "HERO",
+        "primary_cluster_id": "CLU-ACC-SOC",
+        "primary_intent": "Specification",
+        "secondary_intents": [
+            "Installation",
+            "Comparison"
+        ],
+        "best_for": "Kitchens, Bedrooms, Home offices, Charging devices",
+        "not_for": "Outdoor use, Damp environments",
+        "ai_answer_block": "Combine power and convenience with this 2-Gang Switched Socket featuring built-in USB ports. Free up your plug sockets by charging smartphones and tablets directly via the 2.1A USB outlets. The stylish black matte finish and screwless flat plate design offer a contemporary look for modern interiors. Standard 13A rating ensures compatibility with all household appliances.",
+        "margin_percent": 60.0,
+        "erp_cppc": 0.30,
+        "annual_volume": 120,
+        "erp_return_rate_pct": 1.12
+    },
+    {
+        "sku_code": "FIT-BNS-BC-B22",
+        "title": "Brass Batten Lampholder B22",
+        "short_description": "Solid brass batten lampholder with B22 bayonet cap. Earth terminal included. Ideal for wall or ceiling mounting without a rose.",
+        "tier": "SUPPORT",
+        "primary_cluster_id": "CLU-FIT-HOL",
+        "primary_intent": "Specification",
+        "secondary_intents": [
+            "Installation"
+        ],
+        "best_for": "Wall lights, Ceiling fixtures, Industrial conduit systems",
+        "not_for": "E27 screw bulbs, Damp locations",
+        "ai_answer_block": "A robust solid brass batten lampholder for B22 bayonet bulbs. Designed for direct mounting to walls or ceilings, eliminating the need for a separate ceiling rose. Features an earth terminal for safety. The timeless brass finish suits both traditional and industrial interiors. Compatible with a wide range of B22 LED and incandescent bulbs.",
+        "margin_percent": 45.0,
+        "erp_cppc": 0.10,
+        "annual_volume": 400,
+        "erp_return_rate_pct": 0.5
+    },
+    {
+        "sku_code": "FIT-ROS-CEIL-BLK",
+        "title": "Ceiling Rose Kit Black",
+        "short_description": "Complete ceiling rose kit in black powder coat. Includes bracket, screws, cord grip, and terminal block. 100mm diameter.",
+        "tier": "SUPPORT",
+        "primary_cluster_id": "CLU-FIT-ROS",
+        "primary_intent": "Installation",
+        "secondary_intents": [
+            "Compatibility"
+        ],
+        "best_for": "Pendant light installation, Cable suspension",
+        "not_for": "Heavy chandeliers over 5kg (unless reinforced)",
+        "ai_answer_block": "This all-in-one Ceiling Rose Kit in black provides everything needed to suspend a pendant light. The 100mm metal rose hides wiring connections neatly. Includes a sturdy mounting bracket, earth tag, terminal block, and cable grip for secure installation. The matte black finish pairs perfectly with our braided fabric cables and adds a refined touch to your ceiling.",
+        "margin_percent": 48.0,
+        "erp_cppc": 0.15,
+        "annual_volume": 550,
+        "erp_return_rate_pct": 1.0
+    },
+    {
+        "sku_code": "ACC-WAGO-221",
+        "title": "Wago 221 Compact Splicing Connector 3-Way",
+        "short_description": "Pack of 10 Wago 221-413 3-way lever connectors. Connects solid, stranded, and fine-stranded conductors. Tool-free operation.",
+        "tier": "SUPPORT",
+        "primary_cluster_id": "CLU-ACC-CON",
+        "primary_intent": "Installation",
+        "secondary_intents": [
+            "Problem-Solving"
+        ],
+        "best_for": "Junction boxes, Ceiling roses, Extending wires",
+        "not_for": "High current applications > 32A",
+        "ai_answer_block": "Simplify your wiring with Wago 221 Compact Splicing Connectors. The lever-nut design allows for quick, tool-free connections of solid, stranded, and fine-stranded wires. Transparent housing lets you visually verify the connection. Compact size fits easily into tight spaces like junction boxes and ceiling roses. Rated up to 32A/450V. Essential for safe electrical work.",
+        "margin_percent": 35.0,
+        "erp_cppc": 0.05,
+        "annual_volume": 2000,
+        "erp_return_rate_pct": 0.1
+    },
+    {
+        "sku_code": "LMP-CFL-14W",
+        "title": "CFL Spiral Bulb 14W E27",
+        "short_description": "Legacy Compact Fluorescent Lamp (CFL) spiral bulb. 14W power rating. Warm white. Being phased out in favor of LED.",
+        "tier": "HARVEST",
+        "primary_cluster_id": "CLU-LMP-CFL",
+        "primary_intent": "Compatibility",
+        "secondary_intents": [],
+        "best_for": "Existing fixtures requiring CFL",
+        "not_for": "New installations, Cold environments",
+        "ai_answer_block": "Standard CFL Spiral Bulb 14W E27. Provides energy saving compared to incandescent but largely superseded by LED technology. Contains small amounts of mercury; dispose of responsibly. Warm white output. Non-dimmable. Suitable for enclosed fixtures where LED might overheat. A cost-effective replacement for legacy systems. Verified lifespan of 8000 hours.",
+        "margin_percent": 70.0,
+        "erp_cppc": 0.02,
+        "annual_volume": 150,
+        "erp_return_rate_pct": 5.0
+    },
+    {
+        "sku_code": "LMP-INC-60W",
+        "title": "Banned 60W Incandescent Bulb",
+        "short_description": "Traditional 60W tungsten filament bulb. Prohibited for general sale due to efficiency regulations. Clearance stock only.",
+        "tier": "KILL",
+        "primary_cluster_id": "CLU-LMP-INC",
+        "primary_intent": "Comparison",
+        "secondary_intents": [],
+        "best_for": "None (Discontinued)",
+        "not_for": "Everything",
+        "ai_answer_block": "This item is discontinued and not available for sale.",
+        "margin_percent": 10.0,
+        "erp_cppc": 0.00,
+        "annual_volume": 0,
+        "erp_return_rate_pct": 0.0
+    }
+]

@@ -1,0 +1,4 @@
+field_name,field_type,required,description
+sku_code,string,true,Unique SKU identifier
+title,string,true,Product title
+short_description,text,true,Brief summary

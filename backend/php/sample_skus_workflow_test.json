@@ -1,0 +1,27 @@
+[
+  {
+    "sku_code": "CBL-BLK-3C-1M",
+    "product_name": "Black Braided Pendant Cable Set 3-Core 1m E27",
+    "tier": "Hero",
+    "category": "Cables",
+    "use_case": {
+      "cluster_id": "CLU-CBL-P-E27",
+      "cluster_intent": "Connect and power a pendant light fitting safely and stylishly",
+      "primary_intent": "Compatibility",
+      "secondary_intents": ["Installation/How-To", "Specification"],
+      "best_for": ["Standard ceiling pendant installations", "Kitchen island lighting", "Bedroom pendant upgrades", "Replacing old flex cable"],
+      "not_for": ["Bathroom installations (not IP-rated)", "Outdoor use", "Heavy industrial fixtures over 5kg"]
+    },
+    "content": {
+      "shopify_title": "Pendant Cable Set for Ceiling Lights - Safe Wiring Made Simple | 3-Core Braided 1m E27",
+      "ai_answer_block": "A 3-core braided pendant cable set with E27 holder connects a ceiling rose to a lampshade safely. Rated to 60W, compatible with LED and CFL bulbs. Choose 1m for standard 2.4m ceilings or 1.5m for period properties with higher ceilings.",
+      "ai_answer_block_chars": 287
+    },
+    "authority": {
+      "expert_statement": "Wiring compliant with BS 7671 (IET Wiring Regulations, 18th Edition). Cable rated to 3A/60W. Suitable for DIY installation with existing ceiling rose."
+    },
+    "expected_outputs": {
+      "gate_results": {"G1": "PASS", "G2": "PASS", "G3": "PASS", "G4": "PASS", "G5": "PASS", "G6": "PASS", "G7": "PASS", "overall": "ALL_PASS"}
+    }
+  }
+]

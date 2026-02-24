@@ -1,0 +1,46 @@
+[2026-02-19 09:45:03] laravel.EMERGENCY: Unable to create configured logger. Using emergency logger. {"exception":"[object] (InvalidArgumentException(code: 0): Log [] is not defined. at C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Log/LogManager.php:212)
+[stacktrace]
+#0 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Log/LogManager.php(137): Illuminate/Log/LogManager->resolve(NULL, NULL)
+#1 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Log/LogManager.php(124): Illuminate/Log/LogManager->get(NULL)
+#2 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Log/LogManager.php(681): Illuminate/Log/LogManager->driver()
+#3 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(317): Illuminate/Log/LogManager->error('The \"\" director...', Array)
+#4 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(278): Illuminate/Foundation/Exceptions/Handler->reportThrowable(Object(Symfony/Component/Finder/Exception/DirectoryNotFoundException))
+#5 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(523): Illuminate/Foundation/Exceptions/Handler->report(Object(Symfony/Component/Finder/Exception/DirectoryNotFoundException))
+#6 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(203): Illuminate/Foundation/Console/Kernel->reportException(Object(Symfony/Component/Finder/Exception/DirectoryNotFoundException))
+#7 C:/Dilaksan/CIE/CIE/backend/php/artisan(22): Illuminate/Foundation/Console/Kernel->handle(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#8 {main}
+"} 
+[2026-02-19 09:45:03] laravel.ERROR: The "" directory does not exist. {"exception":"[object] (Symfony\\Component\\Finder\\Exception\\DirectoryNotFoundException(code: 0): The \"\" directory does not exist. at C:/Dilaksan/CIE/CIE/backend/php/vendor/symfony/finder/Finder.php:651)
+[stacktrace]
+#0 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/LoadConfiguration.php(86): Symfony/Component/Finder/Finder->in('')
+#1 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/LoadConfiguration.php(63): Illuminate/Foundation/Bootstrap/LoadConfiguration->getConfigurationFiles(Object(Illuminate/Foundation/Application))
+#2 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/LoadConfiguration.php(39): Illuminate/Foundation/Bootstrap/LoadConfiguration->loadConfigurationFiles(Object(Illuminate/Foundation/Application), Object(Illuminate/Config/Repository))
+#3 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(286): Illuminate/Foundation/Bootstrap/LoadConfiguration->bootstrap(Object(Illuminate/Foundation/Application))
+#4 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(447): Illuminate/Foundation/Application->bootstrapWith(Array)
+#5 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(199): Illuminate/Foundation/Console/Kernel->bootstrap()
+#6 C:/Dilaksan/CIE/CIE/backend/php/artisan(22): Illuminate/Foundation/Console/Kernel->handle(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#7 {main}
+"} 
+[2026-02-19 09:45:08] laravel.EMERGENCY: Unable to create configured logger. Using emergency logger. {"exception":"[object] (InvalidArgumentException(code: 0): Log [] is not defined. at C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Log/LogManager.php:212)
+[stacktrace]
+#0 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Log/LogManager.php(137): Illuminate/Log/LogManager->resolve(NULL, NULL)
+#1 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Log/LogManager.php(124): Illuminate/Log/LogManager->get(NULL)
+#2 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Log/LogManager.php(681): Illuminate/Log/LogManager->driver()
+#3 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(317): Illuminate/Log/LogManager->error('The \"\" director...', Array)
+#4 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Exceptions/Handler.php(278): Illuminate/Foundation/Exceptions/Handler->reportThrowable(Object(Symfony/Component/Finder/Exception/DirectoryNotFoundException))
+#5 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(523): Illuminate/Foundation/Exceptions/Handler->report(Object(Symfony/Component/Finder/Exception/DirectoryNotFoundException))
+#6 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(203): Illuminate/Foundation/Console/Kernel->reportException(Object(Symfony/Component/Finder/Exception/DirectoryNotFoundException))
+#7 C:/Dilaksan/CIE/CIE/backend/php/artisan(22): Illuminate/Foundation/Console/Kernel->handle(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#8 {main}
+"} 
+[2026-02-19 09:45:08] laravel.ERROR: The "" directory does not exist. {"exception":"[object] (Symfony\\Component\\Finder\\Exception\\DirectoryNotFoundException(code: 0): The \"\" directory does not exist. at C:/Dilaksan/CIE/CIE/backend/php/vendor/symfony/finder/Finder.php:651)
+[stacktrace]
+#0 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/LoadConfiguration.php(86): Symfony/Component/Finder/Finder->in('')
+#1 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/LoadConfiguration.php(63): Illuminate/Foundation/Bootstrap/LoadConfiguration->getConfigurationFiles(Object(Illuminate/Foundation/Application))
+#2 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/LoadConfiguration.php(39): Illuminate/Foundation/Bootstrap/LoadConfiguration->loadConfigurationFiles(Object(Illuminate/Foundation/Application), Object(Illuminate/Config/Repository))
+#3 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Application.php(286): Illuminate/Foundation/Bootstrap/LoadConfiguration->bootstrap(Object(Illuminate/Foundation/Application))
+#4 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(447): Illuminate/Foundation/Application->bootstrapWith(Array)
+#5 C:/Dilaksan/CIE/CIE/backend/php/vendor/laravel/framework/src/Illuminate/Foundation/Console/Kernel.php(199): Illuminate/Foundation/Console/Kernel->bootstrap()
+#6 C:/Dilaksan/CIE/CIE/backend/php/artisan(22): Illuminate/Foundation/Console/Kernel->handle(Object(Symfony/Component/Console/Input/ArgvInput), Object(Symfony/Component/Console/Output/ConsoleOutput))
+#7 {main}
+"} 

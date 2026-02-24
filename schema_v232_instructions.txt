@@ -1,0 +1,58 @@
+CATALOG INTELLIGENCE ENGINE — CABLE CANONICAL SCHEMA v2.3.2
+PURPOSE
+This workbook is the single source of truth for every cable SKU in your catalog.
+Every product must resolve into this schema BEFORE any content or channel decision is made.
+Content is a BYPRODUCT of decisions — never the starting point.
+WHAT'S NEW IN v2.3.2 (HARDENING EDITION)
+1. HARD ENFORCEMENT GATES (G1–G7 + G6.1)
+   Every SKU must pass ALL applicable gates before publish. System returns 400 error on failure. Zero override.
+   G1: Cluster_ID must match master list. G2: Primary Intent from locked 9-intent taxonomy.
+   G3: 1-3 Secondary Intents, unique, different from Primary. G4: Answer Block 250-300 chars with intent keyword.
+   G5: Min 2 Best-For + 1 Not-For. G6: SKU Tier Tag required. G6.1: Tier-locked intent fields.
+   G7: Expert Authority required for Hero/Support. VECTOR: Cosine similarity ≥ 0.72.
+2. SKU TIER ENFORCEMENT
+   Hero: All 9 intents enabled, unlimited effort, full schema + Wikidata + JSON-LD.
+   Support: Primary + max 2 Secondary, 2 hrs/SKU/quarter, basic schema.
+   Harvest: Specification + 1 other only, 30 min/quarter, Maintenance Mode (G4/G5/G7 suspended).
+   Kill: ALL fields disabled, 0 hours, any edit = policy violation.
+3. CITATION DECAY SELF-HEALING LOOP
+   Week 1 zero = yellow_flag. Week 2 = alert. Week 3 = auto_brief generated. Week 4 = escalated.
+   System auto-generates content refresh briefs with failing questions + competitor answers.
+4. QUERY FAMILY MAPPING
+   Cables: Primary = Wiring + Compatibility (8 Qs). Secondary = Installation (7 Qs). Other (5 Qs).
+   20-question audit set locked for 90 days. Tested weekly across ChatGPT, Gemini, Perplexity, Google SGE.
+5. READINESS SCORING (0-100 per channel)
+   Hero SKUs must reach ≥85 on primary channel, ≥70 on all active channels within 30 days.
+SHEET GUIDE
+CANONICAL SCHEMA — Master product data + CIE enforcement fields (tier, gates, decay, readiness)
+AI MAPPING — AI-optimized answer blocks, quotable facts, comparison anchors per cluster
+CHANNEL GOVERNOR — COMPETE/SKIP decisions per channel with readiness scores (0-100)
+CONTENT OUTPUT — Generated content per SKU for Shopify, Shopping feeds, Amazon, PPC
+CONTROLLED VOCAB — All enums, allowed values, and CIE v2.3.1 gate codes
+MATURITY TRACKER — Per-SKU gate pass/fail status, decay tracking, readiness scores
+SEMANTIC CLUSTERS — Cluster definitions with query family mapping
+AI EVALUATION SET — 20 locked questions with weekly 0-3 scoring across 4 AI engines
+NON-NEGOTIABLE RULES
+1. Title = Intent → Cluster → Attributes. NEVER in reverse.
+2. Kill-tier SKUs: ZERO effort. Any edit = policy violation.
+3. >60% content hours on Hero SKUs. Measured weekly.
+4. Answer Block: 250-300 chars, must contain primary intent keyword. No marketing fluff.
+5. No publish without ALL gates passing. No override. No exceptions.
+v2.3.2 HARDENING PATCHES (6 cross-engine-validated additions)
+PATCH 1: FAIL-SOFT VECTOR VALIDATION
+   Embedding API failures no longer block saves. New 'pending' gate status allows save but blocks publish.
+   Retry queue processes pending validations every 5 minutes with exponential backoff.
+PATCH 2: AI AUDIT DEGRADATION RULES
+   Minimum 3/4 engine quorum required for audit to advance decay timer.
+   2/4 engines = scores recorded but decay PAUSED. ≤1 engine = run FAILED, decay FROZEN.
+PATCH 3: DECOMPOSED AI READINESS SCORING
+   AI Assistants readiness broken into 6 components: Answer Block (25%), FAQ Coverage (20%),
+   Safety Depth (15%), Cross-SKU Comparison (15%), Structured Data (15%), Citation Score (10%).
+PATCH 4: MANDATORY FAQ TEMPLATES PER PRODUCT CLASS
+   Standard question sets per product class. Hero/Support must answer all required FAQs.
+   FAQ answers auto-generate FAQPage schema for Hero SKUs. Direct citability multiplier.
+PATCH 5: CLUSTER GOVERNANCE PLAYBOOK
+   Formal workflow for cluster changes. Quarterly cadence. Max 15 clusters/category.
+   <3 SKUs after 90 days triggers auto-review flag.
+PATCH 6: TIER-MODE UX COPY & BANNERS
+   CMS banners explain each tier to editors. Tooltips on hidden fields. Kill-tier block messaging.

@@ -1,0 +1,2 @@
+-- DEPRECATED: All columns are already defined in 004_create_skus_table.sql
+-- This file is kept for reference only and should not be executed

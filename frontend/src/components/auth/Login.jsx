@@ -1,0 +1,118 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
+import useStore from '../../store/index';
+import { authApi } from '../../services/api';
+import { getHomeForRole } from '../../lib/authRouting';
+
+const Login = () => {
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const navigate = useNavigate();
+    const location = useLocation();
+    const setLogin = useStore((state) => state.login);
+
+    useEffect(() => {
+        if (location.state?.message) {
+            setSuccess(location.state.message);
+        }
+    }, [location]);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setError('');
+
+        try {
+            const response = await authApi.login(username, password);
+            const { user, token } = response.data?.data || {};
+            if (!user || !token) {
+                setError('Invalid credentials. Please try again.');
+                return;
+            }
+            setLogin(user, token);
+            navigate(getHomeForRole(user), { replace: true });
+        } catch (err) {
+            setError('Invalid credentials. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="login-page">
+            <div className="login-box">
+                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                    <div
+                        className="sidebar-logo-icon"
+                        style={{ width: 42, height: 42, fontSize: '1.2rem', borderRadius: 6 }}
+                    >
+                        C
+                    </div>
+                </div>
+                <h2>CIE Global Content</h2>
+                <div className="login-sub">Secure access</div>
+
+                {error && <div className="error-msg">{error}</div>}
+                {success && (
+                    <div
+                        style={{
+                            padding: 10,
+                            background: 'var(--green-bg)',
+                            border: '1px solid var(--green)',
+                            borderRadius: 4,
+                            color: 'var(--green)',
+                            marginBottom: 14,
+                            fontSize: '0.85rem',
+                        }}
+                    >
+                        {success}
+                    </div>
+                )}
+
+                <form onSubmit={handleSubmit}>
+                    <div className="mb-14">
+                        <label className="field-label">Username</label>
+                        <input
+                            type="text"
+                            className="field-input"
+                            placeholder="Enter username"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            required
+                            autoComplete="username"
+                        />
+                    </div>
+                    <div className="mb-20">
+                        <label className="field-label">Password</label>
+                        <input
+                            type="password"
+                            className="field-input"
+                            placeholder="••••••••"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required
+                            autoComplete="current-password"
+                        />
+                    </div>
+
+                    <button type="submit" className="btn btn-primary" disabled={loading}>
+                        {loading ? 'Signing in...' : 'Sign in'}
+                    </button>
+                </form>
+
+                <div style={{ marginTop: 18, textAlign: 'center', fontSize: '0.9rem', color: 'var(--text-dim)' }}>
+                    Don&apos;t have an account?{' '}
+                    <Link to="/register" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>
+                        Sign up
+                    </Link>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default Login;

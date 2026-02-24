@@ -1,0 +1,610 @@
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 1 
+ 
+CIE v2.3.2 
+CATALOG INTELLIGENCE ENGINE 
+User Testing Guide, 20 Business Questions & Benefits Report 
+For: Operations, Marketing, Finance & Leadership Teams 
+February 2026  |  Version 2.3.2  |  BUSINESS USER EDITION 
+  
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 2 
+Part 1: What CIE Does For You (Plain English) 
+The Catalog Intelligence Engine is your product content command centre. It controls how every 
+product in your catalogue is described, classified, priced for content effort, published across 
+channels, and measured for AI visibility. It replaces guesswork with enforcement and hope with 
+numbers. 
+ 
+1.1 The Problem It Solves 
+Before CIE, your 120+ staff could publish any product with any title, any description, spending 
+any amount of time on it, with zero proof it was working. Content was disconnected from margin 
+data. Nobody could tell you which SKUs were getting AI citations and which were invisible. Staff 
+rework was high because there were no quality gates. 
+ 
+1.2 What Changes After CIE 
+Before CIE After CIE Measurable Impact 
+Anyone can publish anything 7 enforcement gates must pass 
+before publish. No override. 
+0% non-compliant SKUs live 
+All SKUs get equal effort Hero/Support/Harvest/Kill tiering 
+wired to ERP margin data 
+>60% of content hours on Hero 
+SKUs 
+Titles are attribute-stuffed Titles are intent-first: problem 
+solved > attributes 
++10-20% CTR on Hero product 
+pages 
+No AI visibility tracking Weekly 20-question AI audit per 
+category 
+>70% AI citation rate for Hero 
+SKUs 
+Content disconnected from 
+finance 
+Every brief includes margin, 
+CPPC, velocity 
+Zero effort on Kill/NNV SKUs 
+No one knows if rework is 
+happening 
+Gate failures tracked, rework 
+rate reported 
+-25% staff rework rate 
+  
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 3 
+Part 2: 20 Questions Your Business Users Will Ask 
+These are the real questions your ops, marketing, finance, and leadership teams will throw at 
+CIE once it is live. Each question includes what the system should show, how to verify it, and 
+what a PASS vs FAIL looks like. 
+ 
+Category A: Dashboard & Daily Operations 
+ 
+Q1: "Show me which of my Hero SKUs are NOT being cited by ChatGPT or Gemini this 
+week." 
+Asked By: Commercial Director / Marketing Lead 
+What to Test: Open the AI Visibility Audit screen. Filter by Tier = Hero, Citation Score = 0. 
+The system should return a list of Hero SKUs with zero AI citations from the 
+latest weekly audit. 
+PASS: Dashboard shows a filterable list with SKU name, category, last audit date, 
+and per-engine scores (ChatGPT, Gemini, Perplexity, Google SGE). Export 
+to CSV button works. 
+FAIL: No filter available, or data is stale (more than 7 days old), or the dashboard 
+shows all SKUs without tier distinction. 
+ 
+Q2: "What is the readiness score for our top 10 cables on Amazon vs our own 
+website?" 
+Asked By: Channel Manager / Head of E-commerce 
+What to Test: Open the Channel Readiness dashboard. Filter Category = Cables, sort by 
+Commercial Priority Score descending, view top 10. Each SKU should show 
+a score out of 100 for Amazon and Own Website. 
+PASS: System shows per-channel readiness scores (0-100) with a colour-coded 
+breakdown: green (85+), amber (70-84), red (<70). Clicking a SKU reveals 
+which specific components (Answer Block, Schema, Best-For, etc.) are 
+missing. 
+FAIL: Readiness score is binary (done/not done), or there is no per-channel split, 
+or the score does not break down into component parts. 
+ 
+Q3: "How much content time did my team spend on Kill-tier SKUs last week?" 
+Asked By: Operations Director / Finance Director 
+What to Test: Open Staff KPI screen. Filter by Tier = Kill, time range = last 7 days. System 
+should show total hours logged against Kill SKUs per team member. 
+PASS: Report shows 0 hours against Kill SKUs (because the system blocks it). If 
+any hours show, it flags a policy violation with the staff member's name, the 
+SKU, and the timestamp. 
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 4 
+FAIL: No report available, or the system cannot distinguish effort by tier, or Kill 
+SKU work is not blocked. 
+ 
+Q4: "Which staff member has the highest gate-failure rate this month?" 
+Asked By: Content Lead / HR / Operations Director 
+What to Test: Open the Audit Trail screen. Filter by date range = current month, group by 
+staff member, sort by rejection count descending. 
+PASS: Table shows each staff member, total submissions, total rejections, rejection 
+rate %, and the most common gate failed (e.g., G4 = AI Answer Block). 
+Clicking a name drills into their specific rejections. 
+FAIL: No audit trail exists, or gate failures are not attributed to individual staff, or 
+there is no drill-down. 
+ 
+Q5: "I want to see every SKU in the Lampshades category sorted by profitability. 
+Which ones should we push harder?" 
+Asked By: Portfolio Holder / Commercial Director 
+What to Test: Open SKU List screen. Filter Category = Lampshades, sort by Commercial 
+Priority Score (which combines margin, CPPC, velocity, return rate). System 
+shows tier tag next to each SKU. 
+PASS: SKUs are colour-coded by tier (green=Hero, yellow=Support, 
+orange=Harvest, red=Kill). Commercial Priority Score is visible. Clicking a 
+Hero SKU shows its full content readiness, AI citation history, and channel 
+scores. 
+FAIL: No profitability data visible, or SKUs cannot be sorted by commercial value, 
+or tier tags are missing. 
+  
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 5 
+Category B: Enforcement & Quality Gates 
+ 
+Q6: "What happens if I try to publish a product without an AI Answer Block?" 
+Asked By: Content Team Member / New Starter 
+What to Test: Edit any SKU. Clear the AI Answer Block field. Try to save or publish. The 
+system must block the save with a clear error message. 
+PASS: System returns a blocking error: 'Gate G4 Failed: AI Answer Block is 
+mandatory. Must be 250-300 characters and contain the Primary Intent 
+keyword.' The save is rejected. The SKU status does not change. 
+FAIL: System saves the SKU without an Answer Block, or shows a soft warning 
+that can be dismissed, or allows publishing with incomplete data. 
+ 
+Q7: "Can I manually override the tier assigned to a SKU? For example, move a Kill SKU 
+to Hero?" 
+Asked By: Portfolio Holder / Team Leader 
+What to Test: Open a Kill-tier SKU. Try to change the tier tag to Hero. The system should 
+require dual sign-off (Finance Director + Commercial Director). 
+PASS: System prevents single-user tier override. A request is submitted that 
+requires approval from both Finance Director and Commercial Director. Until 
+approved, the tier remains unchanged. Full audit trail logged. 
+FAIL: Any user can change tiers freely, or override requires only one approver, or 
+there is no audit log of the change. 
+ 
+Q8: "I wrote a product title starting with the brand name and colour. Will the system 
+accept it?" 
+Asked By: Content Writer 
+What to Test: Edit a Hero SKU. Enter title: 'BrandX Blue Fabric Drum Lampshade 30cm 
+E27 Pendant'. Save. The system should flag this as attribute-stacking and 
+reject it. 
+PASS: System rejects with message: 'Title must be intent-first. Start with the 
+problem this product solves, not the brand or physical attributes. Example: 
+Warm Glare-Free Lighting for Living Rooms | Fabric Drum Shade 30cm 
+E27.' Vector distance validation also fires if the title embedding is too far 
+from the cluster intent. 
+FAIL: System accepts the attribute-stuffed title without complaint, or the error 
+message is too vague to guide correction. 
+ 
+Q9: "A product is a Harvest SKU. Can I still write a full 9-intent content stack for it?" 
+Asked By: Content Writer / Content Lead 
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 6 
+What to Test: Open a Harvest-tier SKU. Check which intent fields are available for editing. 
+PASS: System only shows Specification intent field active. Intent fields 3-9 are 
+physically disabled (greyed out, not clickable). Tooltip says: 'Harvest-tier 
+SKUs are limited to Specification intent only. Effort cap: 30 minutes per 
+quarter.' 
+FAIL: All 9 intent fields are editable for Harvest SKUs, or there is no visual 
+distinction between tier content depth limits. 
+ 
+Q10: "I entered a product description that talks about what the product IS, not what 
+problem it solves. Does the system catch this?" 
+Asked By: Content Writer / QA Tester 
+What to Test: Edit a Hero SKU description. Write: 'This is a 35cm taupe fabric drum 
+lampshade made from polyester cotton blend with a chrome-finish E27 ring 
+fitting.' Save. 
+PASS: System runs vector distance validation. Cosine similarity between 
+description embedding and cluster intent embedding is below 0.72 
+threshold. Save rejected: 'Description does not align with Cluster Intent. 
+Rewrite to address the problem this product solves, not its physical 
+attributes.' 
+FAIL: Description is accepted because there is no semantic check, or the 
+threshold is too permissive and lets attribute-heavy descriptions pass. 
+  
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 7 
+Category C: AI Visibility & Citation Tracking 
+ 
+Q11: "How do I know if Perplexity is actually recommending our products when 
+customers ask about lampshades?" 
+Asked By: Marketing Director / SEO Lead 
+What to Test: Open AI Visibility Audit. Select Category = Lampshades. View the latest 
+weekly audit results for Perplexity specifically. 
+PASS: Dashboard shows 20 locked questions for Lampshades category, with per-
+question scores (0-3) for Perplexity. Aggregate citation rate is displayed. 
+Trend chart shows week-over-week movement. Questions where score = 0 
+are highlighted in red with the actual AI response snippet. 
+FAIL: No per-engine breakdown, or questions are not fixed/locked (changed week 
+to week making trends unmeasurable), or no response snippets are 
+captured. 
+ 
+Q12: "A Hero SKU has had zero AI citations for 3 weeks. What does the system do 
+automatically?" 
+Asked By: Content Lead / Operations Director 
+What to Test: Check the Citation Decay alert system. Find a Hero SKU that has scored 0 
+for 3 consecutive weekly audits. 
+PASS: System has automatically generated a Content Refresh Brief in the content 
+team queue. The brief includes: the specific failing questions, the current 
+Answer Block text, the target cluster intent, a 7-day deadline, and the 
+assigned content owner. If not actioned within 7 days, it auto-escalates to 
+Commercial Director. 
+FAIL: No automated brief is generated, or the team only gets a notification email 
+that is easy to ignore, or there is no escalation path. 
+ 
+Q13: "What is our overall AI citation rate across all Hero SKUs, and is it improving?" 
+Asked By: CEO / Board / Commercial Director 
+What to Test: Open the executive dashboard. View the aggregate AI citation rate for all 
+Hero SKUs across all categories and all AI engines. 
+PASS: Single number displayed prominently: e.g., '73% AI Citation Rate (Hero 
+SKUs) - Week 8'. Trend line showing weekly progression. Target line at 
+70%. Breakdown by category and by engine available via drill-down. 
+FAIL: No aggregate view exists, or data is more than 7 days stale, or there is no 
+trend visualisation. 
+ 
+Category D: Commercial, Finance & ROI 
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 8 
+ 
+Q14: "Show me the CPPC for every cable SKU and tell me which ones are losing 
+money on every click." 
+Asked By: Finance Director / Paid Media Lead 
+What to Test: Open SKU List. Filter Category = Cables. View CPPC column alongside 
+Contribution Margin. Sort by CPPC descending. 
+PASS: Dashboard shows CPPC (Cost Per Product Click) from ad platform synced 
+via ERP, alongside margin. SKUs where CPPC exceeds contribution margin 
+are flagged red with a 'Negative ROI' warning. These should be Kill-tier or 
+flagged for review. 
+FAIL: CPPC data is not synced from ERP/ad platform, or there is no visual flag for 
+negative ROI products. 
+ 
+Q15: "What percentage of our total content hours went to Hero SKUs this week? Are 
+we meeting the 60% target?" 
+Asked By: Operations Director / Finance Director 
+What to Test: Open Staff KPI dashboard. View the content effort allocation chart for 
+current week. 
+PASS: Pie/bar chart shows: Hero = X%, Support = Y%, Harvest = Z%, Kill = 0%. If 
+Hero is below 55%, a red alert is visible with auto-escalation to Commercial 
+Director. Historical trend shows week-over-week allocation. 
+FAIL: No effort tracking by tier, or effort is tracked in a separate system not 
+connected to CIE, or there is no threshold alert. 
+ 
+Q16: "I want to delist 50 SKUs that are bleeding money. Can the system identify them 
+for me?" 
+Asked By: Commercial Director / Finance Director 
+What to Test: Open SKU List. Filter Tier = Kill. Sort by Contribution Margin ascending 
+(most negative first). 
+PASS: System shows all Kill-tier SKUs with: margin %, CPPC, 90-day velocity, 
+return rate, and days since last sale. 'Export for Delisting Review' button 
+generates a ready-to-action CSV with all relevant fields. 
+FAIL: No Kill-tier filter, or financial data is missing/stale, or no export functionality. 
+  
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 9 
+Category E: Workflow, Integration & Automation 
+ 
+Q17: "When ERP updates a product's margin data, does CIE automatically re-tier the 
+SKU?" 
+Asked By: IT / Operations Director 
+What to Test: Change a SKU's margin data in ERP (simulate a significant margin drop). 
+Wait for the next sync cycle (monthly). Check if CIE recalculates the 
+Commercial Priority Score and adjusts the tier. 
+PASS: After ERP sync, the SKU's Commercial Priority Score is recalculated. If the 
+new score drops the SKU from Hero to Support (or lower), the tier updates 
+automatically. The tier change is logged in the audit trail with reason: 'Auto 
+re-tiered due to ERP margin update.' 
+FAIL: Tier stays unchanged after ERP data updates, requiring manual re-tiering, 
+or the sync does not happen on schedule. 
+ 
+Q18: "I published content for a Hero lampshade in CIE. Does it automatically push to 
+Shopify and Amazon?" 
+Asked By: Channel Manager / Content Lead 
+What to Test: Complete all 7 gates for a Hero SKU in CIE. Check if the content appears in 
+Shopify metafields and Amazon backend within the expected timeframe. 
+PASS: CIE triggers N8N workflow on publish. Shopify metafields are updated with: 
+intent-first title, AI Answer Block, Best-For/Not-For, JSON-LD. Amazon feed 
+file is generated with backend search terms mapped from intents. Per-
+channel readiness score updates to reflect deployment. 
+FAIL: Content sits in CIE only and must be manually copy-pasted to each channel, 
+or the N8N workflow fails silently with no error reporting. 
+ 
+Q19: "Can I bulk-update the cluster assignment for 200 SKUs at once, or do I have to 
+do them one by one?" 
+Asked By: SEO Governor / Data Operations 
+What to Test: Open Bulk Operations screen. Select 200 SKUs. Attempt to reassign to a 
+new Cluster_ID. 
+PASS: Bulk operations screen allows multi-select with CSV upload option. Cluster 
+reassignment requires SEO Governor approval. System validates each SKU 
+against the new cluster's semantic contract and reports which pass/fail 
+before committing. Audit trail logs all 200 changes. 
+FAIL: No bulk operations exist, or bulk changes bypass validation gates, or there 
+is no approval workflow for mass changes. 
+ 
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 10 
+Q20: "What reports can I pull for the Monday boardroom review? Can I get a one-page 
+summary?" 
+Asked By: CEO / Commercial Director / Operations Director 
+What to Test: Open the Executive Report generator. Select date range = last 7 days. 
+PASS: System generates a one-page PDF/dashboard with 8 KPIs: (1) Publish gate 
+bypass rate (target: 0%), (2) Content hours on Hero SKUs (target: >60%), 
+(3) AI citation rate for Hero SKUs (target: >70%), (4) Average CTR for Hero 
+SKUs, (5) Staff rework rate (target: -25%), (6) SKU tier coverage (target: 
+100%), (7) Hero readiness score on primary channels (target: >85), (8) Kill 
+SKU effort (target: 0 hours). Red/green indicators. No narrative required — 
+numbers only. 
+FAIL: No executive summary exists, or reports require manual compilation from 
+multiple screens, or KPIs are not calculated automatically. 
+  
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 11 
+Part 3: How to User Test CIE (Step-by-Step) 
+This is the acceptance testing playbook your non-technical team members follow to verify the 
+system works before go-live. No coding knowledge required. Each test takes 5-15 minutes. 
+ 
+3.1 Testing Phases 
+Phase What You Test Who Tests Duration 
+Phase 1 Enforcement Gates: Can 
+bad data get through? 
+Content writers + QA team Day 1-2 (2 hours) 
+Phase 2 Tier Logic: Does the 
+system treat Hero vs Kill 
+SKUs differently? 
+Portfolio Holders + Finance Day 2-3 (2 hours) 
+Phase 3 AI Audit: Does the citation 
+tracking work? 
+SEO/AI Ops team Day 3-5 (3 hours) 
+Phase 4 Dashboards & Reports: 
+Can leadership see what 
+they need? 
+Commercial Director + Ops Day 5-6 (2 hours) 
+Phase 5 Integration: Does content 
+flow to 
+Shopify/Amazon/feeds? 
+Channel Managers + IT Day 6-8 (3 hours) 
+ 
+3.2 Phase 1: Break the Gates (Content Writers) 
+Goal: Try to publish non-compliant content. Every attempt should be blocked. 
+ 
+Test 1.1 — Missing Cluster ID 
+Action: Create a new SKU. Leave Cluster_ID blank. Try to save. 
+Expected: System blocks with error: 'Gate G1: Cluster_ID is required.' 
+Log result: PASS if blocked. FAIL if saved without cluster. 
+ 
+Test 1.2 — Missing Primary Intent 
+Action: Edit a SKU. Remove the Primary Intent field. Try to save. 
+Expected: System blocks: 'Gate G2: Exactly 1 Primary Intent required.' 
+ 
+Test 1.3 — Answer Block Too Short 
+Action: Edit a Hero SKU. Write an AI Answer Block with only 100 characters. Save. 
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 12 
+Expected: System blocks: 'Gate G4: AI Answer Block must be 250-300 characters. Current: 
+100.' 
+ 
+Test 1.4 — Answer Block Without Intent Keyword 
+Action: Write a 280-character Answer Block for a Problem-Solving SKU, but do not include any 
+problem-solving language. Save. 
+Expected: System blocks: 'Gate G4: Answer Block must contain the Primary Intent keyword.' 
+ 
+Test 1.5 — Attribute-Stacking Title 
+Action: Write title: 'Blue Fabric 35cm Drum Lampshade E27 Pendant Ceiling' (pure attributes, 
+no intent). Save. 
+Expected: System blocks with vector distance validation and/or G2 gate failure. Error guides 
+user to intent-first format. 
+ 
+Test 1.6 — Publish with Missing Best-For/Not-For 
+Action: Edit a SKU. Leave Best-For empty. Try to publish. 
+Expected: System blocks: 'Gate G5: Minimum 2 Best-For and 1 Not-For entries required.' 
+ 
+3.3 Phase 2: Test Tier Logic (Portfolio Holders) 
+ 
+Test 2.1 — Kill SKU Content Block 
+Action: Open a Kill-tier SKU. Try to create new content or edit the description. 
+Expected: System prevents editing with message: 'Kill-tier SKU. Zero content effort authorised. 
+Flag for delisting review.' All content fields are disabled. 
+ 
+Test 2.2 — Harvest SKU Intent Limit 
+Action: Open a Harvest-tier SKU. Try to add a Problem-Solving intent or write an AI Answer 
+Block. 
+Expected: Only Specification intent field is editable. All other intent fields and the AI Answer 
+Block are greyed out/disabled. 
+ 
+Test 2.3 — Tier Override Requires Dual Approval 
+Action: As a Portfolio Holder, try to change a Harvest SKU to Hero. 
+Expected: System creates an approval request routed to Finance Director AND Commercial 
+Director. Tier does not change until both approve. 
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 13 
+ 
+3.4 Phase 3: Test AI Audit (SEO/AI Ops) 
+ 
+Test 3.1 — Run a Sample Audit 
+Action: Select the Cables category. Trigger a manual audit run with the 20 locked questions 
+against ChatGPT. 
+Expected: System submits questions, captures responses, and returns scores (0-3) per 
+question. Aggregate citation rate is calculated automatically. 
+ 
+Test 3.2 — Citation Decay Trigger 
+Action: Simulate 3 consecutive weeks of zero citations for a Hero SKU (use test data). 
+Expected: System auto-generates a Content Refresh Brief in the content queue with failing 
+questions, current Answer Block, and 7-day deadline. 
+ 
+3.5 Phase 4: Test Dashboards (Leadership) 
+ 
+Test 4.1 — Executive One-Page Report 
+Action: Open the executive dashboard. Request a weekly summary. 
+Expected: 8 KPIs displayed with red/green indicators. Data is from the last 7 days. No manual 
+compilation needed. 
+ 
+Test 4.2 — Drill from KPI to Individual SKU 
+Action: Click on the 'AI Citation Rate' KPI. Drill into the categories, then into individual SKUs. 
+Expected: 3-level drill-down works: aggregate > category > individual SKU. Each level shows 
+relevant detail without needing to switch screens. 
+ 
+3.6 Phase 5: Test Integration (Channel Managers) 
+ 
+Test 5.1 — Shopify Metafield Sync 
+Action: Publish a fully gate-compliant Hero SKU in CIE. Check Shopify within 15 minutes. 
+Expected: Shopify product page shows: updated title, AI Answer Block in a custom metafield, 
+Best-For/Not-For in metafields, JSON-LD schema in page source. 
+ 
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 14 
+Test 5.2 — Amazon Feed Export 
+Action: Publish a Hero SKU. Check the Amazon feed export. 
+Expected: Feed file includes: intent-mapped backend search terms, gate-compliant title, bullet 
+points derived from Best-For entries. 
+  
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 15 
+Part 4: Benefits & ROI — What CIE Delivers 
+Every benefit below ties directly to a measurable outcome. No hand-waving. No 'strategic 
+alignment' fluff. Numbers. 
+ 
+4.1 Revenue & Profit Impact 
+Benefit How CIE Delivers It Expected Impact 
+Higher conversion on 
+Hero SKUs 
+Intent-first titles match what 
+buyers actually search for. AI 
+Answer Blocks get cited in AI 
+shopping assistants. 
++10-20% CTR. +5-15% 
+conversion rate on Hero product 
+pages within 90 days. 
+Zero wasted spend on Kill 
+SKUs 
+System physically blocks content 
+effort on negative-margin 
+products. Staff cannot spend time 
+on NNV SKUs. 
+100% elimination of content hours 
+on products that lose money. 
+Immediate cost saving. 
+AI-driven product 
+discovery 
+Weekly AI citation audits prove 
+your products are being 
+recommended by ChatGPT, 
+Gemini, Perplexity. Citation decay 
+triggers auto-fix content. 
+>70% AI citation rate for Hero 
+SKUs. New revenue channel: 
+customers finding you through AI, 
+not just Google. 
+Margin-aware resource 
+allocation 
+>60% of content hours 
+automatically directed to highest-
+margin SKUs via tier 
+enforcement. 
+Content ROI increases because 
+effort tracks profit, not volume. 
+Faster delisting decisions Kill-tier dashboard with margin, 
+velocity, and return data in one 
+view. Export-ready CSV for 
+delisting review. 
+Quicker removal of profit-draining 
+SKUs. Cleaner catalogue = better 
+AOV. 
+ 
+4.2 Operational Efficiency 
+Benefit How CIE Delivers It Expected Impact 
+Reduced rework 7 enforcement gates catch errors 
+at submission, not after 
+publishing. Staff know 
+immediately what is wrong and 
+how to fix it. 
+-25% staff rework rate. Fewer 
+revision cycles. Faster time-to-
+live. 
+Self-healing content Citation decay loop auto-
+generates refresh briefs when 
+content stops performing. No 
+manager has to notice or chase. 
+Content never silently degrades. 
+System catches it and acts within 
+3 weeks. 
+One-click boardroom 
+reporting 
+8 KPIs auto-calculated weekly. 
+Executive dashboard ready for 
+Hours saved per week in report 
+compilation. Leadership decisions 
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 16 
+Monday review. Zero manual 
+report building. 
+made on real-time data, not gut 
+feel. 
+Create once, deploy 
+everywhere 
+Content published in CIE auto-
+syncs to Shopify, Amazon feeds, 
+and own website via N8N 
+workflows. 
+Eliminates manual copy-paste 
+across channels. Single source of 
+truth. Channel consistency. 
+Staff accountability 
+without micromanagement 
+Gate failure rates, effort 
+allocation, and submission quality 
+are tracked per person. The 
+system holds people accountable 
+— managers do not have to. 
+Mini-CEO culture: staff own their 
+output. Managers manage 
+exceptions, not day-to-day 
+compliance. 
+ 
+4.3 Strategic & Competitive Advantage 
+Benefit How CIE Delivers It Expected Impact 
+AI-ready catalogue Structured data (JSON-LD, 
+Wikidata sameAs), intent-first 
+content, and Answer Blocks make 
+your products machine-readable 
+for AI shopping agents. 
+First-mover advantage as AI 
+shopping grows. Competitors still 
+doing keyword stuffing will be 
+invisible. 
+Scalable to 10,000+ SKUs Enforcement gates, tier 
+automation, and bulk operations 
+mean the system works the same 
+at 500 SKUs or 50,000. 
+No need to hire proportionally 
+more content staff as catalogue 
+grows. System scales, headcount 
+does not. 
+Data-driven culture shift Every decision (what to write, 
+where to focus, when to delist) is 
+backed by margin, velocity, 
+CPPC, and AI citation data. 
+Eliminates 'gut feel' and 'blah 
+blah' decision-making. The 
+boardroom runs on numbers. 
+Proofpoint for investors & 
+partners 
+Automated KPI dashboard with 
+audit trails proves operational 
+excellence. Measurable ROI on 
+content spend. 
+Stronger position in investor 
+pitches, partnership discussions, 
+and due diligence reviews. 
+  
+CIE v2.3.2 | USER TESTING & BENEFITS GUIDE | CONFIDENTIAL 
+Page 17 
+Part 5: Success Metrics — How You Know It Is 
+Working 
+Pin this to the boardroom wall. Review weekly. No narrative needed — just green or red. 
+ 
+Metric Target Danger 
+Zone Measured By Frequency 
+Gate bypass rate 0% Any > 0% System audit logs Daily 
+Content hours on Hero 
+SKUs 
+>60% <55% Task logs + CIE Weekly 
+AI citation rate (Hero) >70% <50% AI audit 
+dashboard 
+Weekly 
+Hero CTR improvement +10-20% Flat or 
+declining 
+GSC + channels Monthly 
+Staff rework rate -25% Increasing Gate rejection 
+logs 
+Monthly 
+SKU tier coverage 100% <90% ERP sync report Monthly 
+Hero readiness (primary 
+channel) 
+>85/100 <70 CIE dashboard Weekly 
+Kill SKU content effort 0 hours Any > 0 Task logs Weekly 
+ 
+THE BOTTOM LINE 
+CIE turns your catalogue from a cost centre into a profit engine. Every SKU earns its place or gets 
+cut. Every content hour is directed at money-making products. Every week, you get proof it is working 
+— or proof of exactly what needs fixing. No blah blah. Results or revision. 
+ 

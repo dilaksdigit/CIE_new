@@ -1,0 +1,70 @@
+# OpenAPI snippet for POST /api/v1/sku/validate (CIE v2.3.1)
+# Use with FastAPI: app.openapi() generates full spec including this endpoint.
+
+paths:
+  /api/v1/sku/validate:
+    post:
+      summary: Validate SKU payload against 8 gates
+      description: |
+        Runs G1–G7 and G6.1 in order. Harvest tier suspends G4, G5, G7.
+        Kill tier runs only G1 and G6. Returns 200 if all pass, 400 with all failures.
+      operationId: sku_validate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuValidateRequest'
+      responses:
+        '200':
+          description: All gates passed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkuValidateResponsePass'
+        '400':
+          description: One or more gates failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkuValidateResponseFail'
+
+components:
+  schemas:
+    SkuValidateRequest:
+      type: object
+      required: []
+      properties:
+        sku_id: { type: string, nullable: true }
+        cluster_id: { type: string, nullable: true }
+        tier: { type: string, nullable: true }
+        primary_intent: { type: string, nullable: true }
+        secondary_intents: { type: array, items: { type: string }, default: [] }
+        title: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        answer_block: { type: string, nullable: true }
+        best_for: { type: array, items: { type: string }, default: [] }
+        not_for: { type: array, items: { type: string }, default: [] }
+        expert_authority: { type: string, nullable: true }
+        action: { type: string, enum: [save, publish], default: save }
+
+    FailureItem:
+      type: object
+      required: [error_code, detail, user_message]
+      properties:
+        error_code: { type: string }
+        detail: { type: string }
+        user_message: { type: string }
+
+    SkuValidateResponsePass:
+      type: object
+      properties:
+        status: { type: string, enum: [pass] }
+        message: { type: string }
+
+    SkuValidateResponseFail:
+      type: object
+      properties:
+        status: { type: string, enum: [fail] }
+        failures: { type: array, items: { $ref: '#/components/schemas/FailureItem' } }
+        message: { type: string }

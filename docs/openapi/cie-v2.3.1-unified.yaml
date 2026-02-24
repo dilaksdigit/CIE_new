@@ -1,0 +1,372 @@
+# CIE v2.3.1 Unified API Specification
+# Core endpoints 7.1 + Pre-publish validation 7.2 + Error codes 7.3
+# See docs/UNIFIED_API_SPEC_7.1.md for implementation status.
+
+openapi: '3.0.3'
+info:
+  title: CIE v2.3.1 - Catalog Intelligence Engine
+  version: '2.3.1'
+  description: |
+    Pre-publish enforcement gates, semantic validation, AI citation audit,
+    and tier management for 120+ staff e-commerce operations.
+
+    ## Architecture
+    - PHP CMS (frontend/admin) calls Python Engine (validation/AI/embeddings)
+    - All validation is server-side. No client-side-only checks.
+    - Every mutation creates an audit_log entry.
+
+    ## Authentication
+    Internal bearer tokens per service. No public access.
+
+servers:
+  - url: https://cie.internal.example.com/api/v1
+    description: Production
+  - url: https://cie-staging.internal.example.com/api/v1
+    description: Staging
+  - url: http://localhost:8000
+    description: Local FastAPI (main — all Python endpoints)
+  - url: http://localhost:8080/api/v1
+    description: Local PHP (CMS)
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Enforcement
+    description: Pre-publish validation gates (G1-G7 + G6.1 + Vector)
+  - name: Semantic
+    description: Embedding generation and cosine similarity checks
+  - name: Taxonomy
+    description: Intent taxonomy and cluster management
+  - name: Readiness
+    description: Per-channel readiness scoring
+  - name: AI Audit
+    description: Weekly AI citation audit and decay monitoring
+  - name: ERP Integration
+    description: ERP data sync and tier recomputation
+
+paths:
+  /sku/validate:
+    post:
+      summary: Pre-publish validation (G1-G7 + G6.1 + Vector)
+      description: |
+        Called on every Save/Publish action. Returns pass/fail per gate.
+        Must respond within 500ms. Body contains sku_id, cluster_id, tier, etc.
+      tags: [Enforcement]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuValidateRequest'
+      responses:
+        '200':
+          description: All gates pass
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResponse'
+        '400':
+          description: One or more gates failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResponse'
+
+  /sku/{sku_id}/readiness:
+    get:
+      summary: Get per-channel readiness scores (0-100)
+      tags: [Readiness]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+
+  /sku/embed:
+    post:
+      summary: Generate embedding vector for text
+      tags: [Semantic]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  maxLength: 5000
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vector: { type: array, items: { type: number } }
+                  dimensions: { type: integer, example: 1536 }
+                  model: { type: string, example: text-embedding-3-small }
+
+  /sku/similarity:
+    post:
+      summary: Compute cosine similarity vs cluster intent vector
+      tags: [Semantic]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [description, cluster_id]
+              properties:
+                description: { type: string }
+                cluster_id: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimilarityResponse'
+
+  /taxonomy/intents:
+    get:
+      summary: Get locked 9-intent taxonomy, optionally filtered by tier
+      tags: [Taxonomy]
+      parameters:
+        - name: tier
+          in: query
+          schema:
+            type: string
+            enum: [hero, support, harvest, kill]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intents: { type: array, items: { $ref: '#/components/schemas/Intent' } }
+                  tier_rules: { $ref: '#/components/schemas/TierRules' }
+
+  /clusters:
+    get:
+      summary: Get all active clusters
+      tags: [Taxonomy]
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clusters: { type: array, items: { $ref: '#/components/schemas/Cluster' } }
+
+  /audit/run:
+    post:
+      summary: Trigger weekly AI citation audit for a category
+      tags: [AI Audit]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category]
+              properties:
+                category: { type: string, enum: [cables, lampshades, bulbs, pendants, floor_lamps] }
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  run_id: { type: string, format: uuid }
+                  status: { type: string, example: running }
+                  estimated_duration_minutes: { type: integer }
+
+  /audit/results/{category}:
+    get:
+      summary: Get latest audit results with decay status
+      tags: [AI Audit]
+      parameters:
+        - name: category
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditResults'
+
+  /brief/generate:
+    post:
+      summary: Auto-generate content refresh brief (Week 3 decay)
+      tags: [AI Audit]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sku_id, failing_questions]
+              properties:
+                sku_id: { type: string }
+                failing_questions: { type: array, items: { type: string } }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  brief_id: { type: string, format: uuid }
+                  deadline: { type: string, format: date }
+                  assigned_to: { type: string }
+
+  /erp/sync:
+    post:
+      summary: Receive ERP data push and recompute tiers
+      tags: [ERP Integration]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ErpSyncPayload'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sync_date: { type: string, format: date-time }
+                  skus_processed: { type: integer }
+                  tier_changes: { type: integer }
+                  auto_promotions: { type: integer }
+                  errors: { type: array, items: { type: string } }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Internal service token
+
+  schemas:
+    SkuValidateRequest:
+      type: object
+      properties:
+        sku_id: { type: string }
+        cluster_id: { type: string }
+        tier: { type: string, enum: [hero, support, harvest, kill] }
+        primary_intent: { type: string }
+        secondary_intents: { type: array, items: { type: string }, maxItems: 3 }
+        title: { type: string, maxLength: 250 }
+        description: { type: string }
+        answer_block: { type: string, minLength: 250, maxLength: 300 }
+        best_for: { type: array, items: { type: string }, minItems: 2 }
+        not_for: { type: array, items: { type: string }, minItems: 1 }
+        expert_authority: { type: string }
+        action: { type: string, enum: [save, publish] }
+
+    ValidationResponse:
+      type: object
+      properties:
+        status: { type: string, enum: [pass, fail] }
+        gates: { type: object }
+        vector_check:
+          type: object
+          properties:
+            cosine_similarity: { type: number }
+            threshold: { type: number }
+            status: { type: string, enum: [pass, fail] }
+        publish_allowed: { type: boolean }
+
+    SimilarityResponse:
+      type: object
+      properties:
+        cosine_similarity: { type: number }
+        threshold: { type: number }
+        status: { type: string, enum: [pass, fail] }
+        message: { type: string }
+
+    ReadinessResponse:
+      type: object
+      properties:
+        sku_id: { type: string }
+        channels:
+          type: array
+          items:
+            type: object
+            properties:
+              channel: { type: string }
+              score: { type: integer, minimum: 0, maximum: 100 }
+              components: { type: object }
+
+    Intent:
+      type: object
+      properties:
+        intent_id: { type: integer }
+        intent_key: { type: string }
+        label: { type: string }
+        definition: { type: string }
+        tier_access: { type: array, items: { type: string } }
+
+    TierRules:
+      type: object
+      properties:
+        hero: { type: object }
+        support: { type: object }
+        harvest: { type: object }
+        kill: { type: object }
+
+    Cluster:
+      type: object
+      properties:
+        cluster_id: { type: string }
+        category: { type: string }
+        intent_statement: { type: string }
+        is_active: { type: boolean }
+
+    AuditResults:
+      type: object
+      properties:
+        run_id: { type: string }
+        category: { type: string }
+        run_date: { type: string }
+        aggregate_citation_rate: { type: number }
+        pass_fail: { type: string }
+        results: { type: array }
+        decay_alerts: { type: array }
+
+    ErpSyncPayload:
+      type: object
+      required: [sync_date, skus]
+      properties:
+        sync_date: { type: string, format: date-time }
+        skus:
+          type: array
+          items:
+            type: object
+            properties:
+              sku_id: { type: string }
+              contribution_margin_pct: { type: number }
+              cppc: { type: number }
+              velocity_90d: { type: integer }
+              return_rate_pct: { type: number }

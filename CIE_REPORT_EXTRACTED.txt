@@ -1,0 +1,1177 @@
+Complete  CIE  v2.3.2  System  Analysis  -  
+Full
+ 
+Documentation
+ 
+Summary
+ 
+Executive  Overview  
+The  Catalog  Intelligence  Engine  (CIE)  v2.3.2  is  an  enterprise  product  content  management  
+system
+ 
+designed
+ 
+to
+ 
+solve
+ 
+three
+ 
+critical
+ 
+problems
+ 
+at
+ 
+scale:
+ 
+1.  Content  effort  disconnected  from  profit  -  Staff  waste  hours  on  low-margin  SKUs  while  
+high-margin
+ 
+products
+ 
+languish
+ 2.  No  enforceable  quality  floor  -  SOPs  and  checklists  decay;  non-compliant  content  slips  
+through
+ 3.  No  AI  visibility  measurement  -  Companies  build  citation-ready  content  on  faith  without  
+proof
+ 
+it
+ 
+works
+ 
+CIE  replaces  manual  processes  with  hard-enforced  gates,  automatic  tier-based  resource  
+allocation,
+ 
+and
+ 
+a
+ 
+self-healing
+ 
+AI
+ 
+audit
+ 
+loop
+ 
+that
+ 
+measures
+ 
+and
+ 
+fixes
+ 
+content
+ 
+performance
+ 
+automatically.
+ 
+ 
+Part  1:  Core  Enforcement  Framework  (v2.3.1)  
+1.1  The  Eight  Enforcement  Gates  
+Every  SKU  must  pass  ALL  applicable  gates  before  publish.  System  returns  HTTP  400  error  on  
+failure.
+ 
+Zero
+ 
+override
+ 
+capability.
+ 
+Gate  Rule  Validation  Override  
+G1:  Cluster  ID  Valid  Cluster_ID  from  approved  semantic  contract  
+Exact  match  to  master  list  
+NONE  
+G2:  Primary  Intent  Exactly  1  Primary  Intent  from  locked  9-intent  taxonomy  
+Enum  check  NONE  
+G3:  Secondary  Intents  
+Min  1,  max  3  Secondary  Intents;  must  differ  from  Primary  
+Count  +  uniqueness  
+NONE  
+G4:  AI  Answer  Block  
+250-300  chars;  must  contain  Primary  Intent  keyword  
+Char  count  +  keyword  
+NONE  
+G5:  Best-For  /  Not-For  
+Min  2  Best-For  and  1  Not-For  entries  Count  validation  NONE  
+G6:  SKU  Tier  Tag  Must  be  tagged:  Hero,  Support,  Harvest,  or  Kill  
+Enum  check  NONE  
+G6.1:  Tier-Locked  Intents  
+Intents  restricted  by  tier;  fields  physically  removed  from  UI  
+Tier-to-field  mapping  
+NONE  
+G7:  Expert  Authority  
+Hero  +  Support  SKUs  require  min  1  credentialed  statement  
+Non-empty  check  NONE  
+VECTOR:  Similarity  
+Description  cosine  similarity  ≥  0.72  vs  cluster  intent  vector  
+Vector  computation  NONE  
+1.2  The  Nine  Intent  Taxonomy  (LOCKED)  
+These  are  the  ONLY  valid  intent  values.  No  additions  without  quarterly  taxonomy  review.  
+#  Intent  Type  Definition  Example  Query  
+1  Problem-Solving  User  has  a  problem,  needs  product  to  solve  it  
+"how  to  light  a  low  ceiling  room"  
+2  Comparison  User  evaluating  alternatives  "fabric  vs  glass  lampshade"  
+3  Compatibility  User  confirming  fit  with  existing  setup  
+"will  E27  pendant  fit  B22  bulb"  
+4  Specification  User  needs  technical  details  "pendant  cable  max  wattage"  
+5  Installation  /  How-To  
+User  needs  help  installing  "how  to  wire  a  ceiling  pendant"  
+6  Troubleshooting  User  has  an  issue,  needs  fix  "pendant  light  flickering"  
+7  Inspiration  /  Style  User  browsing  for  design  ideas  "modern  pendant  ideas  for  kitchen"  
+8  Regulatory  /  Safety  User  needs  compliance  info  "is  this  pendant  bathroom  rated"  
+9  Replacement  /  Refill  
+User  replacing  a  component  "replacement  glass  shade  for  floor  lamp"  
+ 
+ 
+ 
+ 
+ 
+1.3  SKU  ROI  Tiering  Matrix  
+Every  SKU  is  classified  into  exactly  ONE  tier.  Tier  determines  content  investment,  promotion  
+priority,
+ 
+resource
+ 
+allocation,
+ 
+AND
+ 
+which
+ 
+intent
+ 
+fields
+ 
+are
+ 
+available
+ 
+(G6.1).
+ 
+Tier  Criteria  Content  Depth  Effort  Cap  Intent  Fields  Available  
+HERO  Top  20%  margin,  high  velocity,  strategic  
+Full  CIE:  all  9  intents,  full  schema,  JSON-LD,  Wikidata,  E-E-A-T  
+Unlimited  All  9  enabled  
+SUPPORT  Positive  margin,  moderate  velocity  
+Primary  +  2  Secondary,  Answer  Block,  Best-For,  basic  schema  
+2  hrs/SKU/quarter  
+Primary  +  2  max  
+HARVEST  Low  margin  OR  declining,  still  net-positive  
+Specification  only.  Maintenance  Mode.  
+30  min/SKU/quarter  
+Spec  +  1  only  
+KILL  Negative  margin,  no  net  value  
+ZERO.  Flag  for  delisting.  0  hrs  =  violation  All  disabled  
+Commercial  Priority  Score  Formula:  
+Score  =  (Margin%  ×  0.4)  +  (1/CPPC  ×  0.25)  +  (Velocity  ×  0.2)  +  ((1  -  Return%)  ×  0.15)   
+Tier  Assignment:  
+●  Top  20%  composite  score  =  Hero  ●  Middle  50%  =  Support  ●  Next  20%  =  Harvest  ●  Bottom  10%  =  Kill  
+Auto-Promotion  Rule:  If  Harvest  SKU  velocity  increases  >30%  in  any  quarter,  auto-promotes  
+to
+ 
+Support
+ 
+for
+ 
+full
+ 
+gate
+ 
+treatment.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+1.4  Tier-Locked  Intent  Fields  (G6.1)  
+This  gate  prevents  waste  by  physically  removing  intent  fields  from  the  UI  based  on  SKU  tier.  
+SKU  Tier  Enabled  Intent  Fields  Disabled  Intent  Fields  Max  Effort  
+HERO  All  9  intents  available  None  disabled  Unlimited  
+SUPPORT  Primary  +  up  to  2  Secondary  (any  from  9)  
+Fields  4-9  hidden  after  2  Secondaries  selected  
+2  hrs/SKU/quarter  
+HARVEST  Specification  +  1  other  (Problem-Solving  or  Compatibility  only)  
+Fields  2,5,6,7,8,9  removed  from  UI  
+30  min/SKU/quarter  
+KILL  NONE  —  all  intent  fields  removed  
+All  9  fields  removed  from  UI  
+0  hrs.  Any  edit  =  violation.  
+Harvest  Maintenance  Mode:  Ring-fenced  gate  relaxation  for  legacy  SKUs.  
+●  G4  (Answer  Block),  G5  (Best-For/Not-For),  G7  (Expert  Authority)  are  SUSPENDED  ●  Only  G1,  G2,  G3,  G6,  G6.1  apply  ●  Harvest  SKU  can  only  ENTER  via  quarterly  tier  review  (Finance  +  PH  sign-off)  ●  Cannot  be  manually  moved  to  Harvest  to  avoid  gate  requirements  ●  If  velocity  increases  >30%,  auto-promotes  to  Support  ●  Audited  monthly:  >4  quarters  in  Harvest  without  review  triggers  escalation  
+1.5  Title  Construction  Rule  (NON-NEGOTIABLE)  
+Titles  derived  from:  Intent  →  Cluster  →  Attributes .  NEVER  in  reverse.  
+CORRECT:  
+"Warm  Diffused  Pendant  Lighting  for  Low  Ceilings  |  Fabric  Drum  Shade  30cm  E27"   
+WRONG:  
+"Blue  Fabric  Drum  Lampshade  30cm  E27  Pendant"   
+Rule:  First  segment  must  address  user's  intent/problem.  Attributes  after  pipe  separator.  
+Violation
+ 
+=
+ 
+G2
+ 
+gate
+ 
+failure
+ 
+=
+ 
+publish
+ 
+blocked.
+ 
+ 
+ 
+ 
+1.6  Answer  Block  Enforcement  (G4)  
+Rule  Validation  
+Must  be  250-300  characters  System  rejects  <250  or  >300  
+Must  contain  Primary  Intent  keyword  Exact  or  stemmed  match  
+Must  be  direct  answer  to  question  Not  marketing  copy  
+Must  NOT  start  with  brand  name  Start  with  problem/solution  
+PASS  Example:  
+"For  low-ceiling  rooms  needing  warm,  diffused  light,  a  fabric  drum  shade  fitted  to  an  E27   pendant  cord  set  spreads  illumination  evenly  without  glare.  Choose  30-40cm  for  rooms  under  
+2.4m."
+  
+FAIL  Example:  
+"Our  beautiful  fabric  drum  shade  is  available  in  6  colours  and  ships  free."   
+(Marketing,  no  intent  keyword,  no  problem-solution)  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Part  2:  AI  Visibility  Measurement  +  Self-Healing  Loop  
+2.1  The  20-Question  Audit  (Per  Category)  
+For  each  major  category,  20  fixed  questions  representing  real  customer  queries.  Locked  for  90  
+days
+ 
+minimum.
+ 
+Tested
+ 
+weekly
+ 
+across
+ 
+ChatGPT,
+ 
+Gemini,
+ 
+Perplexity,
+ 
+and
+ 
+Google
+ 
+AI
+ 
+Overview.
+ 
+Query  Family  Mapping  by  Category:  
+Category  Primary  Query  Family  
+Secondary  Query  Family  
+Question  Distribution  
+AI  KPI  Target  
+Cables  Wiring  +  Compatibility  
+Installation  8  Primary,  7  Secondary,  5  Other  
+>75%  citation  
+Lampshades  
+Problem-Solving  +  Style  
+Comparison  +  Replacement  
+8  Primary,  7  Secondary,  5  Other  
+>70%  citation  
+Bulbs  Compatibility  +  Specification  
+Troubleshooting  8  Primary,  7  Secondary,  5  Other  
+>80%  citation  
+Pendants  Inspiration  +  Problem-Solving  
+Regulatory  +  Installation  
+8  Primary,  7  Secondary,  5  Other  
+>70%  citation  
+2.2  Scoring  Rubric  (0-3)  
+Score  
+Label  Definition  
+0  Not  Present  Product/brand  not  mentioned  in  AI  response  
+1  Cited  Mentioned  as  one  of  several  options  
+2  Summarised  
+AI  summarises  our  content  or  recommends  with  context  
+3  Selected  AI  selects  as  primary/best  recommendation  
+Pass  Bar:  Aggregate  citation  rate  (score  ≥1)  must  be  ≥70%  for  Hero  SKUs.  New  categories  get  
+90-day
+ 
+ramp.
+ 
+ 
+ 
+ 
+ 
+ 
+2.3  Citation  Decay  Trigger  —  The  Self-Healing  Loop  
+For  any  Hero  SKU,  consecutive  weeks  of  zero  citations  triggers  an  automatic  escalation  path.  
+Week  Condition  Action  Owner  
+Week  1  
+Hero  SKU  scores  0  on  any  question  where  it  previously  scored  ≥1  
+FLAG:  Yellow  flag  in  dashboard.  No  action  required  yet.  
+System  (automatic)  
+Week  2  
+Same  SKU  scores  0  again  on  same  question(s)  
+ALERT:  Notification  sent  to  Content  Owner  +  SEO  Governor.  
+System  →  Content  Owner  
+Week  3  
+Third  consecutive  0  on  same  question(s)  
+AUTO-BRIEF:  System  generates  Content  Refresh  Brief  with:  failing  questions,  current  Answer  Block,  competitor  answers,  7-day  deadline.  
+System  →  Content  Queue  
+Week  4  
+Refresh  not  completed  OR  score  still  0  after  refresh  
+ESCALATE:  Revenue  risk  flag  to  Commercial  Director.  SKU  added  to  emergency  sprint.  
+Commercial  Director  
+Auto-Brief  Contents  (Generated  by  System  at  Week  3):  
+1.  SKU  ID  +  Name  +  Tier  +  Current  Margin  2.  Failing  question(s)  with  current  score  =  0  3.  Current  AI  Answer  Block  (what  the  AI  engines  are  NOT  picking  up)  4.  Top  3  competitor  answers  for  the  same  question  (scraped  from  AI  responses)  5.  Suggested  revision  direction  (generated  by  LLM  based  on  gap  analysis)  6.  Deadline:  7  calendar  days  from  brief  generation  7.  Success  criteria:  Score  ≥1  on  next  weekly  audit  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Part  3:  Operating  Rules  &  Pipeline  Ownership  
+3.1  Pipeline  Layer  Ownership  
+Every  pipeline  layer  has  ONE  owner,  ONE  deliverable,  ONE  KPI.  Mini-CEOs  own  their  layer.  
+Layer  Owner  Deliverable  KPI  
+L0:  Commercial  Triage  
+Finance  +  PH  
+SKU  tier  tag  applied  to  every  active  SKU  
+100%  SKUs  tiered  within  5  days  of  activation  
+L1:  Semantic  Clustering  
+SEO/AI  Governor  
+Cluster_ID  assigned,  intent  taxonomy  locked  
+0%  cluster  overrides  without  Governor  sign-off  
+L2:  Schema  +  Entity  
+Dev  +  SEO  JSON-LD,  Wikidata  sameAs,  structured  data  
+100%  Hero  SKUs  with  full  schema  in  14  days  
+L3:  Content  Creation  
+Content  Team  
+Answer  Block,  Best-For/Not-For,  intent-driven  titles  
+G1-G7  pass  rate  >98%.  Time  within  tier  cap.  
+L4:  Authority  +  E-E-A-T  
+Product  Specialists  
+Expert  Authority,  safety  certs,  credentialed  statements  
+100%  Hero/Support  with  Expert  Authority  
+L5:  Channel  Deploy  
+Channel  Managers  
+Per-channel  readiness  score,  feed  optimisation  
+Hero  SKUs  >85  readiness  on  primary  channels  
+L6:  AI  Visibility  Audit  
+AI  Ops  +  Admin  
+Weekly  citation  check,  question  audit,  pass/fail  
+>70%  AI  citation  rate  for  Hero  SKUs  in  90  days             
+ 
+ 
+ 
+Part  4:  Developer  Technical  Specification  
+4.1  System  Architecture  ┌──────────────┐                 Monthly  Push                 ┌──────────────────┐  │                                     │  ───────────────────→  │                                               │  │  ERP                             │                    Margin,  CPPC,            │  Python  Engine                      │  │  (Source)                       │                    Velocity,  Returns        │  (CIE  Core)                            │  │                                     │  ←───────────────────  │                                               │  └──────────────┘                    Tier  assignments        │  -  Validation                            │                                                                                                │  -  Embeddings                       │  ┌──────────────┐                   Real-time  API              │  -  Audit  Engine                       │  │                                     │  ───────────────────→  │  -  Brief  Gen                            │  │  PHP  CMS                   │                      Validate  on  save        │                                               │  │  (Frontend)                  │  ←───────────────────   │                                               │  │                                     │                    Pass/Fail  +  errors       └──────────────────┘  └──────────────┘                                                                              │                            │                                                                                          │  Weekly                            │  Publish                                                                             │  Scheduled                           ▼                                                                                         ▼  ┌──────────────┐                                                           ┌───────────────┐  │  Storefront                     │                                                           │  AI  Audit  Runner              │  │  (Channels)                   │                                                           │  (ChatGPT,  Gem,             │  └──────────────┘                                                           │  Perplexity)                      │                                                                                                    └───────────────┘   
+4.2  Core  API  Endpoints  (OpenAPI  3.0)  
+Base  URL:  https://cie.internal.example.com/api/v1  
+Method  Endpoint  Purpose  Service  
+POST  /sku/{sku_id}/validate 
+Pre-publish  validation  (G1-G7  +  Vector).  Returns  pass/fail  with  error  codes.  Must  respond  within  500ms.  
+PHP  →  Python  
+POST  /sku/{sku_id}/publish 
+Publish  SKU  to  channels.  Only  succeeds  if  all  gates  pass.  Creates  audit_log  entry.  
+PHP  
+POST  /sku/{sku_id}/embed Generate  embedding  for  description  text.  Returns  vector.  
+PHP  →  Python  
+POST  /sku/{sku_id}/similarity 
+Compute  cosine  similarity  between  description  and  cluster  intent.  
+PHP  →  Python  
+GET  /taxonomy/intents?tier=X 
+Return  locked  intent  enum  list  filtered  by  SKU  tier.  
+Python  →  PHP  
+GET  /clusters Return  master  cluster  list  with  IDs  and  intent  vectors.  
+Python  →  PHP  
+POST  /audit/run Trigger  AI  citation  audit  for  a  category's  20  questions.  
+Python  (scheduled)  
+GET  /audit/results/{category} 
+Return  latest  audit  scores  +  decay  status  per  SKU.  
+Python  →  PHP  
+POST  /brief/generate Auto-generate  content  refresh  brief  (Week  3  decay  trigger).  
+Python  (auto)  
+GET  /sku/{id}/readiness Return  per-channel  readiness  scores  (0-100).  
+PHP  
+POST  /erp/sync Receive  ERP  data  push:  margin,  CPPC,  velocity,  returns.  Recompute  tiers.  
+ERP  →  Python  →  PHP  
+4.3  Pre-Publish  Validation  Endpoint  Detail  
+Request:  POST  /api/v1/sku/validate  
+{    "sku_id":  "SKU-CABLE-001",    "cluster_id":  "CLU-CABLE-PENDANT-E27",    "tier":  "hero",    "primary_intent":  "compatibility",    "secondary_intents":  ["installation",  "specification"],    "title":  "Pendant  Cable  Set  for  Ceiling  Lights...",    "description":  "A  3-core  braided  pendant  cable...",    "answer_block":  "A  3-core  braided  pendant  cable  set...",    "best_for":  ["Standard  ceiling  pendant  installations",  "Kitchen  island  lighting"],    "not_for":  ["Bathroom  installations  (not  IP-rated)"],    "expert_authority":  "Compliant  with  BS  7671...",    "action":  "publish"  }   
+Response:  200  OK (All  Gates  Pass)  
+{    "status":  "pass",    "gates":  {      "G1_cluster_id":  {  "status":  "pass",  "detail":  "Cluster  ID  valid"  },      "G2_primary_intent":  {  "status":  "pass",  "detail":  "Valid  enum  value"  },      "G3_secondary_intents":  {  "status":  "pass",  "detail":  "2  valid,  unique,  distinct  from  primary"  },      "G4_answer_block":  {  "status":  "pass",  "detail":  "287  chars,  keyword  present"  },      "G5_best_not_for":  {  "status":  "pass",  "detail":  "2  best-for,  1  not-for"  },      "G6_tier_tag":  {  "status":  "pass",  "detail":  "hero"  },  
+    "G6_1_tier_lock":  {  "status":  "pass",  "detail":  "All  intents  permitted  for  hero"  },      "G7_expert_authority":  {  "status":  "pass",  "detail":  "Non-empty  for  hero  tier"  }    },    "vector_check":  {  "cosine_similarity":  0.87,  "threshold":  0.72,  "status":  "pass"  },    "publish_allowed":  true  }   
+Response:  400  Bad  Request (Gate  Failure)  
+{    "status":  "fail",    "gates":  {      "G4_answer_block":  {        "status":  "fail",        "error_code":  "CIE_G4_CHAR_LIMIT",        "detail":  "Answer  block  is  312  chars.  Must  be  250-300.",        "user_message":  "Your  AI  Answer  Block  is  too  long  (312  chars).  Shorten  to  250-300  
+characters."
+     },      "G6_1_tier_lock":  {        "status":  "fail",        "error_code":  "CIE_G6_1_TIER_INTENT_BLOCKED",        "detail":  "Harvest  tier  SKU  attempted  troubleshooting  intent.",        "user_message":  "This  SKU  is  Harvest  tier.  Only  Specification  +  1  other  intent  allowed."      }    },    "publish_allowed":  false  }     
+4.4  Error  Code  Reference  
+Error  Code  Gate  Description  
+CIE_G1_INVALID_CLUSTER  G1  Cluster  ID  not  in  approved  master  list  
+CIE_G2_INVALID_INTENT  G2  Primary  intent  not  in  locked  9-intent  enum  
+CIE_G3_SECONDARY_COUNT  G3  Too  few  (<1)  or  too  many  (>3)  secondary  intents  
+CIE_G3_SECONDARY_DUPLICATE  G3  Secondary  intent  same  as  primary  
+CIE_G4_CHAR_LIMIT  G4  Answer  block  outside  250-300  character  range  
+CIE_G4_KEYWORD_MISSING  G4  Answer  block  missing  primary  intent  keyword  
+CIE_G5_BESTFOR_COUNT  G5  Fewer  than  2  best-for  or  0  not-for  entries  
+CIE_G6_MISSING_TIER  G6  SKU  has  no  tier  assignment  
+CIE_G6_1_TIER_INTENT_BLOCKED  G6.1  Intent  field  not  permitted  for  this  SKU's  tier  
+CIE_G6_1_KILL_EDIT_BLOCKED  G6.1  Kill-tier  SKU:  all  edits  blocked  
+CIE_G7_AUTHORITY_MISSING  G7  Hero/Support  SKU  missing  expert  authority  block  
+CIE_VEC_SIMILARITY_LOW  Vector  Description  cosine  similarity  below  0.72  threshold   
+Part  5:  Database  Schema  
+5.1  Core  Tables  (15+  tables  total)  
+cluster_master  -  One  row  per  semantic  cluster  
+Field  Type  Nullable  Constraint/Notes  
+cluster_id  VARCHAR(50)  NO  PK.  Format:  CLU-{CATEGORY}-{TYPE}-{SUBTYPE}.  Immutable.  
+category  ENUM  NO  Values:  cables,  lampshades,  bulbs,  pendants,  floor_lamps,  ceiling_lights,  accessories  
+intent_statement  
+VARCHAR(500)  NO  Human-readable  intent.  e.g.  'Connect  and  power  a  pendant  light  safely  and  stylishly'  
+intent_vector  VECTOR(1536)  NO  Embedding  of  intent_statement.  Model:  text-embedding-3-small  
+is_active  BOOLEAN  NO  Soft  delete.  Inactive  clusters  block  new  SKU  assignments.  
+created_at  TIMESTAMP  NO  Immutable  
+updated_at  TIMESTAMP  NO  Auto-updated  on  change  
+ 
+ 
+ 
+sku_master  -  One  row  per  SKU  
+Field  Type  Nullable  Constraint/Notes  
+sku_id  VARCHAR(50)  NO  PK.  Format:  SKU-{CATEGORY}-{SEQ}.  Immutable.  
+cluster_id  VARCHAR(50)  NO  FK→cluster_master.cluster_id.  G1  gate.  
+tier  ENUM  NO  Values:  hero,  support,  harvest,  kill.  G6  gate.  Set  by  ERP  sync.  
+primary_intent_id  SMALLINT  NO  FK→intent_taxonomy.intent_id.  G2  gate.  Must  be  in  tier_access.  
+status  ENUM  NO  Values:  draft,  ready,  published,  archived.  Transition  to  'published'  requires  ALL  gates  pass.  
+erp_margin_pct  DECIMAL(5,2)  YES  From  ERP  sync.  Used  in  tier  calculation.  
+erp_cppc  DECIMAL(8,4)  YES  Cost  per  product  click  from  ERP/Ad  platform.  
+erp_velocity_90d  INTEGER  YES  90-day  unit  sales  from  ERP.  
+erp_return_rate_pct  DECIMAL(5,2)  YES  Return  rate  from  ERP.  
+commercial_score  DECIMAL(8,4)  YES  Computed:  (margin 0.4)+(1/cppc 0.25)+(vel*0.2)+((1-ret)*0.15)  
+decay_status  ENUM  NO  Values:  none,  yellow_flag,  alert,  auto_brief,  escalated.  Citation  decay  tracker.  
+decay_consecutive_zeros  
+SMALLINT  NO  Count  of  consecutive  weeks  with  score=0  on  any  tracked  question.  
+created_at  TIMESTAMP  NO  Immutable  
+updated_at  TIMESTAMP  NO  Auto-updated  
+ 
+ 
+ 
+ 
+intent_taxonomy  -  Exactly  9  rows.  LOCKED.  
+Field  Type  Example  Nullable  
+intent_id  SMALLINT  1  NO  (PK,  1-9,  Immutable)  
+intent_key  VARCHAR(30)  problem_solving  NO  (Unique,  snake_case,  used  in  API)  
+label  VARCHAR(50)  Problem-Solving  NO  (Display  label  in  CMS  UI)  
+definition  VARCHAR(200)  User  has  a  problem...  NO  (Shown  as  tooltip)  
+tier_access  
+JSON  ARRAY  ["hero","support","harvest"]  NO  (Which  tiers  can  use  this  intent.  G6.1  enforcement)  
+sku_secondary_intents  -  Junction  table.  1-3  rows  per  SKU.  
+Field  Type  Nullable  Constraint  
+sku_id  VARCHAR(50)  NO  PK(composite),  FK→sku_master.sku_id  
+intent_id  SMALLINT  NO  PK(composite),  FK→intent_taxonomy.intent_id.  Must  differ  from  sku_master.primary_intent_id.  
+ordinal  SMALLINT  NO  1-3.  Display  order.  
+Max  rows  constraint:  
+●  Hero:  max  3  secondary  intents  ●  Support:  max  2  secondary  intents  ●  Harvest:  max  1  secondary  intent  ●  Kill:  0  rows  allowed  (insert  blocked  at  API  level)  
+sku_content  -  One  row  per  SKU.  All  content  fields  subject  to  gate  validation.  
+Field  Type  Nullable  Gate  Constraint  
+sku_id  VARCHAR(50)  NO  -  PK,  FK→sku_master.sku_id  
+title  VARCHAR(250)  
+NO  G2  Must  follow  intent→cluster→attributes  pattern  
+description  TEXT  NO  Vector  
+Cosine  similarity  ≥  0.72  vs  cluster  intent  vector  
+answer_block  VARCHAR(300)  
+CONDITIONAL  
+G4  Required  for  hero/support.  250-300  chars.  Must  contain  primary  intent  keyword.  NULL  for  harvest/kill.  
+best_for  JSON  ARRAY  CONDITIONAL  
+G5  Required  for  hero/support.  Min  2  entries.  
+not_for  JSON  ARRAY  CONDITIONAL  
+G5  Required  for  hero/support.  Min  1  entry.  
+expert_authority  
+TEXT  CONDITIONAL  
+G7  Required  for  hero/support.  Must  reference  standard/cert.  NULL  for  harvest/kill.  
+wikidata_uri  VARCHAR(100)  
+YES  -  Hero  SKUs:  recommended.  Format:  https://www.wikidata.org/entity/Q{ID}  
+material_id  VARCHAR(20)  YES  -  FK→material_wikidata.material_id  
+vector_similarity  
+DECIMAL(6,4)  YES  -  Last  computed  cosine  similarity.  Updated  on  every  save  attempt.  
+updated_at  TIMESTAMP  NO  -  Auto-updated  on  content  change  
+sku_gate_status  -  One  row  per  gate  per  SKU.  Recalculated  on  every  save/publish  attempt.  
+Field  Type  Nullable  Notes  
+sku_id  VARCHAR(50)  NO  PK(composite),  FK→sku_master  
+gate_code  ENUM  NO  PK(composite).  Values:  G1,G2,G3,G4,G5,G6,G6_1,G7,VECTOR  
+status  ENUM  NO  Values:  pass,  fail,  not_applicable,  pending  (v2.3.2)  
+error_code  VARCHAR(40)  YES  e.g.  CIE_G4_CHAR_LIMIT.  NULL  if  pass.  
+error_message  
+VARCHAR(500)  YES  User-facing  message.  NULL  if  pass.  
+checked_at  TIMESTAMP  NO  When  this  gate  was  last  evaluated  
+ 
+ 
+ 
+ 
+ 
+ 
+audit_log  (IMMUTABLE)  -  Append-only.  No  UPDATE  or  DELETE  permitted.  
+Field  Type  Notes  
+log_id  UUID  PK  
+entity_type  VARCHAR(30)  sku,  cluster,  tier,  content,  gate,  audit  
+entity_id  VARCHAR(50)  The  ID  of  what  changed  
+action  ENUM  create,  update,  delete,  publish,  validate,  tier_change,  gate_pass,  gate_fail,  audit_run,  brief_generated,  escalation,  login,  permission_change  
+field_name  VARCHAR(50)  Which  field  changed  (NULL  for  non-field  actions)  
+old_value  TEXT  -  
+new_value  TEXT  -  
+actor_id  VARCHAR(100)  User  ID  or  'SYSTEM'  
+actor_role  VARCHAR(30)  content_editor,  seo_governor,  admin,  system,  etc.  
+ip_address  VARCHAR(45)  -  
+user_agent  
+VARCHAR(300)  -  
+timestamp  TIMESTAMP  Immutable  
+Database-level  enforcement:  REVOKE  UPDATE,  DELETE  ON  audit_log  FROM  ALL  
+ai_audit_runs  -  One  row  per  weekly  audit  execution  
+Field  Type  Notes  
+run_id  UUID  PK  
+category  ENUM  cables,  lampshades,  bulbs,  pendants,  floor_lamps  
+run_date  DATE  -  
+status  ENUM  running,  completed,  failed  
+total_questions  SMALLINT  -  
+aggregate_citation_rate  
+DECIMAL(5,4)  e.g.  0.7500  =  75%  
+pass_fail  ENUM  pass,  fail,  pending  
+engines_available  SMALLINT  v2.3.2:  number  of  engines  that  responded  
+quorum_met  BOOLEAN  v2.3.2:  3/4  minimum  for  decay  advancement  
+created_at  TIMESTAMP  -  
+ai_audit_results  -  One  row  per  question  per  engine  per  run  
+Field  Type  Notes  
+result_id  UUID  PK  
+run_id  UUID  FK→ai_audit_runs(run_id)  
+question_id  VARCHAR(20)  FK→ai_golden_queries(question_id)  
+engine  ENUM  chatgpt,  gemini,  perplexity,  google_sge  
+score  SMALLINT  0-3  CHECK  constraint  
+response_snippet  TEXT  First  500  chars  of  AI  response  
+cited_sku_id  VARCHAR(50)  FK→sku_master(sku_id)  
+created_at  TIMESTAMP  -  
+UNIQUE(run_id,  question_id,  engine)  
+-  -  
+ai_golden_queries  -  The  locked  20-question  sets  
+Field  Type  Notes  
+question_id  VARCHAR(20)  PK.  e.g.  CAB-Q01  
+category  ENUM  cables,  lampshades,  bulbs,  pendants,  floor_lamps  
+question_text  VARCHAR(500)  -  
+intent_type  SMALLINT  FK→intent_taxonomy(intent_id)  
+query_family  ENUM  primary,  secondary,  other  
+target_tier  ENUM  hero,  support  
+target_skus  JSON  Array  of  sku_ids  
+success_criteria  
+VARCHAR(300)  -  
+locked_until  DATE  Cannot  change  before  this  date  
+is_active  BOOLEAN  -  
+material_wikidata  -  Reference  table.  Maintained  by  SEO  Governor.  
+Field  Type  Example  Notes  
+material_id  VARCHAR(20)  MAT-BORO-GLASS  PK  
+material_name  
+VARCHAR(100)  Borosilicate  Glass  -  
+wikidata_qid  VARCHAR(20)  Q190117  -  
+wikidata_uri  VARCHAR(100)  https://www.wikidata.org/entity/Q190117  -  
+ai_signal  VARCHAR(300)  Signals  heat  resistance  Why  this  matters  for  AI  
+is_active  BOOLEAN  true  -  
+Seed  data  includes:  Borosilicate  Glass,  Opal  Glass,  Cotton  Fabric,  Brass,  Polycarbonate  
+ 
+Part  6:  v2.3.2  Hardening  Patches  
+PATCH  1:  Fail-Soft  Vector  Validation  
+Problem:  If  OpenAI  embedding  API  goes  down,  saves  get  blocked  →  staff  can't  work.  
+Solution:  
+●  New  gate  status:  pending (allows  save,  blocks  publish)  ●  Retry  queue  processes  pending  validations  every  5  min  with  exponential  backoff  ●  Staff  can  continue  working;  publish  unlocks  when  vector  check  completes  
+Implementation:  
+--  Add  to  sku_gate_status  table  ALTER  TABLE  sku_gate_status     MODIFY  COLUMN  status  ENUM('pass',  'fail',  'pending',  'not_applicable');   --  Add  retry  queue  table  CREATE  TABLE  validation_retry_queue  (    id  UUID  PRIMARY  KEY,    sku_id  VARCHAR(50)  NOT  NULL,    gate_code  VARCHAR(10)  NOT  NULL,    retry_count  INT  DEFAULT  0,    next_retry_at  TIMESTAMP,    created_at  TIMESTAMP  DEFAULT  NOW()  );   
+API  Response  Change:  
+{    "vector_check":  {      "status":  "pending",      "queued_for_retry":  true,      "message":  "Embedding  API  unavailable.  Queued  for  retry  in  5  minutes."    }  }   
+PATCH  2:  AI  Audit  Degradation  Rules  
+Problem:  If  Perplexity  is  down,  should  we  still  count  zeros  and  trigger  decay?  
+Solution:  Minimum  3/4  engine  quorum  required  for  audit  to  advance  decay  timer.  
+Engines  Available  
+Decay  Behavior  
+4/4  engines  Normal  operation,  decay  advances  
+3/4  engines  Minimum  quorum  met,  decay  advances  
+2/4  engines  Scores  recorded,  decay  PAUSED  
+≤1  engine  Run  FAILED ,  decay  FROZEN  
+Implementation:  
+ALTER  TABLE  ai_audit_runs     ADD  COLUMN  engines_available  SMALLINT,    ADD  COLUMN  quorum_met  BOOLEAN;   
+PATCH  3:  Decomposed  AI  Readiness  Scoring  
+Problem:  Single  0-100  readiness  score  doesn't  show  what's  missing.  
+Solution:  Break  "AI  Assistants"  channel  readiness  into  6  weighted  components:  
+Component  Weight  Description  
+Answer  Block  25%  G4-compliant,  keyword-rich,  250-300  chars  
+FAQ  Coverage  20%  Mandatory  FAQs  answered  (from  templates)  
+Safety  Depth  15%  Expert  Authority  +  certifications  present  
+Cross-SKU  Comparison  15%  Comparison  anchors  vs  competitors  
+Structured  Data  15%  JSON-LD  valid,  Wikidata  links  for  Hero  
+Citation  Score  10%  Latest  AI  audit  score  (0-3)  
+API  Response:  
+{    "channels":  {      "ai_assistants":  {        "total_score":  78,        "components":  {          "answer_block":  25,          "faq_coverage":  16,          "safety_depth":  12,          "comparison":  10,          "structured_data":  15,          "citation_score":  0        }      }    }  }   
+PATCH  4:  Mandatory  FAQ  Templates  Per  Product  Class  
+Problem:  FAQs  are  optional  →  AI  engines  have  nothing  to  cite.  
+Solution:  
+●  Standard  FAQ  sets  per  product  class  ●  Hero/Support  must  answer  all  required  FAQs  ●  Auto-generate  FAQPage  schema  for  Hero  SKUs  ●  Direct  citability  multiplier  (FAQs  =  easy  AI  wins)  
+Implementation:  
+CREATE  TABLE  faq_templates  (    id  UUID  PRIMARY  KEY,    product_class  VARCHAR(50)  NOT  NULL,    question  TEXT  NOT  NULL,    is_required  BOOLEAN  DEFAULT  true,    display_order  INT  );   CREATE  TABLE  sku_faqs  (    id  UUID  PRIMARY  KEY,    sku_id  VARCHAR(50)  NOT  NULL,    template_id  UUID  REFERENCES  faq_templates(id),  
+  answer  TEXT  NOT  NULL,    approved  BOOLEAN  DEFAULT  false  );   
+Example  Template  FAQs  for  "Pendant  Cable  Sets":  
+1.  "Can  I  use  LED  bulbs  with  this  cable?"  (required)  2.  "What  is  the  maximum  wattage?"  (required)  3.  "Is  this  suitable  for  bathroom  use?"  (required)  4.  "How  do  I  wire  this  to  a  ceiling  rose?"  (optional)  
+PATCH  5:  Cluster  Governance  Playbook  
+Problem:  Clusters  proliferate  without  oversight.  
+Solution:  
+●  Formal  quarterly  review  process  ●  Max  15  clusters  per  category  ●  Auto-flag  if  cluster  has  <3  SKUs  after  90  days  (orphan  cluster)  
+Implementation:  
+CREATE  TABLE  cluster_review_log  (    id  UUID  PRIMARY  KEY,    cluster_id  VARCHAR(50)  NOT  NULL,    review_date  DATE  NOT  NULL,    sku_count  INT  NOT  NULL,    decision  ENUM('keep',  'merge',  'archive')  NOT  NULL,    reviewed_by  VARCHAR(100)  NOT  NULL,    notes  TEXT  );   
+Auto-flagging  logic:  
+●  Weekly  cron  checks  SELECT  cluster_id,  COUNT(*)  FROM  sku_master  WHERE  
+created_at
+ 
+<
+ 
+NOW()
+ 
+-
+ 
+INTERVAL
+ 
+90
+ 
+DAY
+ 
+GROUP
+ 
+BY
+ 
+cluster_id
+ 
+HAVING
+ 
+COUNT(*)
+ 
+<
+ 
+3
+ ●  Flags  orphan  clusters  for  quarterly  review  
+ 
+ 
+ 
+ 
+PATCH  6:  Tier-Mode  UX  Copy  &  Banners  
+Problem:  Editors  don't  understand  why  fields  are  hidden.  
+Solution:  
+●  Contextual  banners  explaining  each  tier  ●  Tooltips  on  hidden  fields  ●  Kill-tier:  Clear  messaging  
+Banner  Examples:  
+Tier  Banner  Text  
+Hero  🏆  Hero  SKU  -  Full  CIE  treatment  enabled.  All  9  intents  available.  Unlimited  effort  budget.  
+Support  💼  Support  SKU  -  Primary  +  2  secondary  intents  max.  Basic  schema.  2  hrs/quarter  budget.  
+Harvest  🌾  Harvest  SKU  -  Maintenance  Mode.  Specification  +  1  intent  only.  30  min/quarter  budget.  Some  gates  suspended.  
+Kill  🚫  Kill  SKU  -  Flagged  for  delisting.  All  content  fields  disabled.  Contact  Finance  to  reactivate.  
+Tooltip  Example  (on  hidden  field):  
+"This  field  is  disabled  for  Support-tier  SKUs.  Only  Hero  SKUs  can  add  more  than  2  secondary  
+intents."
+   
+ 
+ 
+ 
+ 
+ 
+ 
+Part  7:  Integration  Specifications  
+7.1  ERP  Integration  
+Purpose:  ERP  system  is  the  single  source  of  truth  for  commercial  data  (margin,  CPPC,  velocity,  
+returns).
+ 
+CIE
+ 
+consumes
+ 
+this
+ 
+data
+ 
+to
+ 
+calculate
+ 
+SKU
+ 
+tiers.
+ 
+Supported  Methods:  
+Method  Trigger  Format  When  to  Use  
+REST  API  Pull  
+Cron:  daily  at  02:00  UTC  
+JSON  GET  /api/v1/products?fields=sku,margin,cppc,velocity,returns  
+Primary  method.  ERP  has  API.  
+Webhook  Push  
+ERP  pushes  on  price/cost  change  
+JSON  POST  to  CIE  /api/webhooks/erp-update  Real-time  updates  between  syncs.  
+CSV  Import  
+Manual  upload  or  SFTP  drop  
+CSV:  sku_code,  margin_pct,  cppc,  velocity_90d,  return_rate_pct,  price,  cost  
+Fallback  when  no  API.  
+Database  View  
+Direct  SQL  read  from  ERP  DB  
+SQL  query  against  read-only  replica  Legacy  systems  with  DB  access  only.  
+ERP  Data  Contract:  
+Field  Type  Required  
+Validation  If  Missing  
+sku_code  string  YES  Must  match  CIE  SKU  exactly  
+Row  skipped,  logged  as  orphan  
+contribution_margin_pct  
+decimal  YES  Range:  -100  to  100  SKU  flagged,  tier  =  null,  alert  
+cppc  decimal  YES  Range:  0.01  to  100.00  
+Default  to  1.00  (neutral),  flag  
+velocity_90d  integer  YES  Range:  0  to  999999  Default  to  0,  flag  as  'no  sales  data'  
+return_rate_pct  decimal  YES  Range:  0  to  100  Default  to  5%  (industry  avg),  flag  
+price_gbp  decimal  Optional  Range:  0.01+  Not  used  in  tier  calc  
+cost_gbp  decimal  Optional  Range:  0.01+  Not  used  in  tier  calc  
+last_updated  datetime  
+Optional  ISO  8601  Use  sync  timestamp  
+Tier  Calculation  (PHP  Implementation):  
+//  Laravel  Service:  TierCalculationService.php  public  function  calculateCompositeScore(array  $erpData):  float  {      //  Normalise  inputs  to  0-100  scale      $marginScore  =  max(0,  min(100,  $erpData['contribution_margin_pct']));      $cppcScore  =  max(0,  min(100,  (1  /  max(0.01,  $erpData['cppc']))  *  10));      $velocityScore  =  max(0,  min(100,  log10(max(1,  $erpData['velocity_90d']))  *  25));      $returnScore  =  max(0,  min(100,  (1  -  $erpData['return_rate_pct']  /  100)  *  100));           return  ($marginScore  *  0.40)           +  ($cppcScore  *  0.25)           +  ($velocityScore  *  0.20)           +  ($returnScore  *  0.15);  }   public  function  assignTier(float  $compositeScore,  array  $allScores):  string  {      $percentile  =  $this->calculatePercentile($compositeScore,  $allScores);           if  ($percentile  >=  80)  return  'Hero';     //  Top  20%      if  ($percentile  >=  30)  return  'Support';  //  Middle  50%      if  ($percentile  >=  10)  return  'Harvest';  //  Next  20%      return  'Kill';                            //  Bottom  10%  }   
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Error  Handling:  
+Error  Handling  Alert  
+ERP  API  timeout  (>30s)  
+Retry  3x  with  exponential  backoff  (30s,  60s,  120s).  If  all  fail,  mark  sync  as  FAILED.  Retain  previous  data.  
+Email  to  Admin  +  Slack  #cie-alerts  
+SKU  in  ERP  but  not  in  CIE  
+Log  as  'orphan_erp_sku'.  Do  not  auto-create  in  CIE.  Include  in  daily  report.  
+Daily  orphan  report  to  PH  
+SKU  in  CIE  but  not  in  ERP  
+Mark  commercial  data  as  'stale'.  If  stale  >30  days,  auto-flag  for  review.  Do  NOT  auto-delete.  
+Weekly  stale  data  report  
+Invalid  data  (e.g.  margin=999)  
+Skip  row.  Log  validation  error  with  field  +  value.  Keep  previous  valid  data.  
+Immediate  alert  to  Admin  
+Partial  sync  (50%  of  SKUs)  
+Accept  partial.  Flag  missing  SKUs.  Do  NOT  recalculate  tiers  until  next  full  sync.  
+Warning  to  Admin:  partial  sync  
+7.2  N8N  Workflow  Definitions  
+N8N  is  the  orchestration  layer  between  PHP  (Laravel)  and  Python  (FastAPI).  Each  workflow  is  a  
+discrete,
+ 
+testable
+ 
+unit.
+ 
+Workflow  Registry:  
+#  Workflow  Name  
+Trigger  Phase  Service  Chain  
+W1  ERP  Sync  &  Tier  Calc  
+Cron  (daily  02:00)  
+Phase  1  (Week  1-2)  
+ERP  API  →  PHP  Tier  Calc  →  DB  Update  →  Notifications  
+W2  Vision  AI  Extract  
+Image  uploaded  to  SKU  
+Phase  2  (Week  3-4)  
+PHP  (image)  →  Python  /vision/extract  →  PHP  (save  attributes)  
+W3  Semantic  Embed  &  Cluster  
+Identity  fields  saved  
+Phase  2  (Week  3-4)  
+PHP  (text)  →  Python  /nlp/embed  →  PHP  (cluster  match)  →  DB  
+W4  Content  Draft  Generation  
+Brief  generated  
+Phase  3  (Week  5-6)  
+PHP  (canonical  data)  →  Python  /content/draft_blocks  →  PHP  (save  drafts)  
+W5  Gate  Validation  (Server)  
+Submit  for  Review  click  
+Phase  1  (Week  1-2)  
+PHP  (run  G1-G7)  →  Python  (vector  check)  →  PHP  (result  +  queue)  
+W6  Channel  Deploy  Content  approved  
+Phase  4  (Week  7-8)  
+PHP  →  Shopify  API  →  Google  MC  Feed  →  Amazon  Feed  →  DB  (deployed)  
+W7  Decay  Check  Cron  (daily  06:00)  
+Phase  4  (Week  7-8)  
+PHP  (scan  >90d)  →  Flag  decayed  →  Notifications  →  Decay  queue  
+W8  AI  Audit  Scheduler  
+Cron  (weekly  Mon  09:00)  
+Phase  4  (Week  7-8)  
+PHP  (load  questions)  →  AI  API  calls  →  PHP  (score  +  store  +  alert)  
+W1:  ERP  Sync  Workflow  (Detailed  Steps):  
+1.  N8N  Cron  trigger  fires  at  02:00  UTC  daily  2.  HTTP  Request:  GET  
+{ERP_BASE_URL}/api/v1/products?fields=sku,margin,cppc,velocity,re
+turns
+ 3.  IF  response.status  !=  200:  retry  3x  (30s,  60s,  120s).  If  all  fail:  POST  to  PHP  /api/admin/sync-failed.  END.  4.  Function  node:  validate  each  row  against  data  contract.  Split  into  valid[]  and  invalid[].  5.  HTTP  Request:  POST  valid[]  to  PHP  /api/admin/erp-sync-batch (chunks  of  100)  6.  PHP  calculates  composite  scores  for  all  valid  SKUs  7.  PHP  assigns  tiers  using  percentile  boundaries  8.  PHP  compares  new  tiers  to  previous  tiers.  For  any  change:  creates  tier_change_log  
+entry
+ 9.  PHP  triggers  notifications:  email  to  PH  for  tier  downgrades,  Slack  to  #cie-alerts  for  any  
+Kill
+ 
+changes
+ 10.  HTTP  Request:  POST  invalid[]  to  PHP  /api/admin/erp-sync-errors  11.  Final:  POST  to  PHP  /api/admin/sync-complete with  summary  
+W6:  Channel  Deploy  (Detailed  Steps):  
+1.  Trigger:  Webhook  from  PHP  when  content  status  changes  to  'Approved'  2.  Payload:  {  sku_code,  tier,  approved_content,  channel_decisions  }  3.  FOR  EACH  channel  where  decision  =  'COMPETE':  4.  IF  channel  =  'own_website':  POST  to  Shopify  Admin  API  5.  IF  channel  =  'google_sge':  Generate  GMC  feed  entry,  write  to  feed  file  6.  IF  channel  =  'amazon':  POST  to  Amazon  SP-API  7.  IF  channel  =  'ai_assistants':  No  direct  deploy  (depends  on  website  +  schema)  8.  For  each  successful  deploy:  POST  to  PHP  /api/skus/{sku_code}/channel-deployed  9.  For  each  failed  deploy:  POST  to  PHP  /api/skus/{sku_code}/channel-failed  10.  PHP  updates  readiness  scores  per  channel.  If  all  active  channels  deployed:  maturity  
+recalculated.
+ 
+ 
+ 
+N8N  Error  Handling  Standard:  
+Pattern  Implementation  Recovery  
+Timeout  30s  default.  Retry  3x  with  backoff.  Log  +  alert  after  3  failures  
+Auth  failure  (401/403)  
+Do  NOT  retry.  Immediate  alert  to  Admin.  Admin  rotates  credentials  
+Rate  limit  (429)  Respect  Retry-After  header.  Queue  remaining  items.  Resume  after  delay.  
+Auto-resume  
+Data  validation  error  
+Skip  invalid  item.  Continue  processing  remaining.  Log  all  skipped  items.  
+Daily  error  report  
+Partial  batch  failure  
+Process  what  succeeded.  Queue  failed  items  for  retry.  Report  both  counts.  
+Retry  queue  runs  hourly  
+7.3  Shopify  Integration  
+Purpose:  CIE  publishes  content  to  Shopify  via  the  Admin  API  (REST  or  GraphQL).  
+Metafield  Namespace  &  Key  Mapping:  
+All  CIE  data  stored  in  namespace  cie:  
+CIE  Field  Shopify  Metafield  Key  
+Type  Example  Value  Tier  Required  
+cluster_id  cie.cluster_id  single_line_text  
+CLU-CBL-P-E27  All  
+primary_intent  cie.primary_intent  single_line_text  
+Compatibility  Hero,  Support  
+secondary_intents  
+cie.secondary_intents  
+json  ["Installation","Spec"]  Hero,  Support  
+ai_answer_block  
+cie.ai_answer  multi_line_text  (250-300  char  block)  Hero,  Support  
+best_for  cie.best_for  json  ["Pendant  installs",...]  Hero,  Support  
+not_for  cie.not_for  json  ["Bathrooms",...]  Hero,  Support  
+expert_authority  cie.expert_authority  
+multi_line_text  BS  7671  compliant...  Hero,  Support  
+tier  cie.tier  single_line_text  
+Hero  All  
+quotable_facts  cie.quotable_facts  json  ["Rated  to  3A/60W",...]  Hero  
+faqs  cie.faqs  json  [{"q":"...","a":"..."}]  Hero,  Support  
+wikidata_entities  
+cie.wikidata  json  [{"qid":"Q174102"}]  Hero  
+readiness_scores  
+cie.readiness  json  {"google":92,"amazon":78}  
+Hero,  Support  
+json_ld  cie.json_ld  json  (full  Product  schema)  Hero  
+Shopify  API  Call  Example:  
+PUT  /admin/api/2024-01/products/{product_id}/metafields.json  X-Shopify-Access-Token:  {access_token}   {    "metafield":  {      "namespace":  "cie",      "key":  "ai_answer",      "value":  "A  3-core  braided  pendant  cable  set  with  E27  holder...",      "type":  "multi_line_text_field"    }  }   
+Theme  Integration  (Liquid):  
+{%-  comment  -%}  CIE  JSON-LD  Injection  -  add  to  product.liquid  <head>  {%-  endcomment  -%}  {%-  if  product.metafields.cie.json_ld  -%}    <script  type="application/ld+json">      {{  product.metafields.cie.json_ld  |  raw  }}    </script>  {%-  endif  -%}   {%-  comment  -%}  CIE  FAQ  Schema  {%-  endcomment  -%}  {%-  if  product.metafields.cie.faqs  -%}    {%-  assign  faqs  =  product.metafields.cie.faqs.value  -%}    <script  type="application/ld+json">      {        "@context":  "https://schema.org",        "@type":  "FAQPage",        "mainEntity":  [          {%-  for  faq  in  faqs  -%}            {  "@type":  "Question",  "name":  "{{  faq.q  }}",   
+            "acceptedAnswer":  {  "@type":  "Answer",  "text":  "{{  faq.a  }}"  }  }            {%-  unless  forloop.last  -%},{%-  endunless  -%}          {%-  endfor  -%}        ]      }    </script>  {%-  endif  -%}   
+7.4  Google  Merchant  Center  Feed  
+Purpose:  CIE  generates  a  supplemental  feed  that  enriches  the  base  product  feed  with  
+CIE-specific
+ 
+attributes.
+ 
+Feed  Field  Mapping:  
+CIE  Field  GMC  Attribute  Format  Notes  
+feed_title  title  Max  150  chars  Intent-first  title  (NOT  Shopify  title)  
+meta_description  
+description  Max  5000  chars  AI  Answer  Block  +  expanded  description  
+product_class  product_type  Breadcrumb  format  Home  >  Lighting  >  Cables  >  Pendant  Cable  Sets  
+material_primary  material  Free  text  From  controlled  vocabulary  
+colour  color  Free  text  From  controlled  vocabulary  
+certifications  certification  Repeated  field  One  per  cert  (BS  7671,  CE,  etc.)  
+ai_answer_block  custom_label_0  Max  100  chars  (truncated)  
+First  100  chars  of  AI  Answer  for  Shopping  ads  
+tier  custom_label_1  Hero|Support|Harvest  For  campaign  segmentation  in  Google  Ads  
+primary_intent  custom_label_2  Intent  type  name  For  ad  group  alignment  
+Feed  Generation:  
+●  Command:  php  artisan  cie:generate-gmc-feed  ●  Output:  /storage/feeds/gmc_cie_supplemental.xml  ●  Upload:  Content  API  for  Shopping  (preferred)  or  SFTP  to  Google  ●  Schedule:  Daily  at  04:00  UTC  (after  ERP  sync  completes)  ●  Kill  SKUs:  Excluded  from  feed  entirely  
+7.5  Amazon  Integration  
+Purpose:  CIE  publishes  to  Amazon  via  SP-API  (Selling  Partner  API).  
+Backend  Search  Terms  (250  bytes):  
+//  AmazonSearchTermGenerator.php  public  function  generate(array  $canonicalData):  string  {      $terms  =  [];           //  Priority  1:  Intent-derived  terms      $terms[]  =  strtolower($canonicalData['primary_intent']);      foreach  ($canonicalData['secondary_intents']  as  $intent)  {          $terms[]  =  strtolower($intent);      }           //  Priority  2:  Best-For  phrases  (customer  use  cases)      foreach  ($canonicalData['best_for']  as  $bf)  {          $terms[]  =  strtolower($bf);      }           //  Priority  3:  Compatibility  terms      $terms[]  =  $canonicalData['fitting_type'];      if  ($canonicalData['core_count'])  $terms[]  =  $canonicalData['core_count']  .  '  core';           //  Priority  4:  Material  +  Style      $terms[]  =  strtolower($canonicalData['material_primary']);      if  ($canonicalData['style'])  $terms[]  =  strtolower($canonicalData['style']);           //  Deduplicate,  remove  brand  name,  truncate  to  250  bytes      $terms  =  array_unique($terms);      $terms  =  array_filter($terms,  fn($t)  =>  !str_contains(strtolower($t),  'brandname'));      $result  =  implode('  ',  $terms);           return  mb_substr($result,  0,  250);  }   
+A+  Content  Module  Mapping:  
+A+  Module  CIE  Source  Content  Rule  Tier  
+Standard  Company  Logo  
+Brand  assets  (static)  
+Logo  image.  Set  once.  All  COMPETE  
+Standard  Comparison  Chart  
+comparison_anchors  
+Our  product  vs  competitor.  Max  5  products.  
+Hero  only  
+Standard  Four  Image/Text  
+best_for  +  images  4  use  cases  from  best_for  with  lifestyle  images.  
+Hero  only  
+Standard  Single  Image  
+expert_authority  Certification  badge  +  authority  statement.  
+Hero,  Support  
+Standard  Text  Block  
+ai_answer_block  AI  Answer  Block  as  product  story.  Problem-solution  format.  
+Hero,  Support  
+Bullet  Points  (5  bullets,  priority  order):  
+1.  Bullet  1:  Primary  intent  +  AI  Answer  Block  (first  sentence).  Problem-solution  lead.  2.  Bullet  2:  Compatibility  statement.  Fitting  type,  what  it  works  with,  what  it  doesn't.  3.  Bullet  3:  Best-For  use  cases  (top  2-3  from  list).  4.  Bullet  4:  Expert  Authority  /  Safety  statement.  Certification  reference.  5.  Bullet  5:  Specification  summary.  Key  technical  specs  in  one  line.  
+7.6  API  Keys  &  Configuration  
+All  external  service  credentials  stored  in  environment  variables,  never  in  code.  
+Service  Env  Variable  Where  Configured  
+Rotation  Cadence  
+ERP  API  ERP_API_URL,  ERP_API_KEY  .env  +  Config  screen  S8  
+Quarterly  
+Shopify  Admin  API  
+SHOPIFY_STORE,  SHOPIFY_TOKEN  .env  Annual  
+Google  Merchant  Center  
+GMC_MERCHANT_ID,  GMC_SERVICE_ACCOUNT  
+.env  +  JSON  keyfile  
+Annual  
+Amazon  SP-API  
+AMAZON_CLIENT_ID,  AMAZON_CLIENT_SECRET,  AMAZON_REFRESH_TOKEN  
+.env  Quarterly  
+OpenAI  /  Anthropic  (AI  Services)  
+AI_PROVIDER,  AI_API_KEY,  AI_MODEL  .env  +  Config  screen  
+Monthly  
+N8N  Webhook  Secrets  
+N8N_WEBHOOK_SECRET  .env  Quarterly  
+Security  Rules:  
+●  All  API  calls  use  HTTPS  ●  No  plaintext  credentials  in  logs  ●  API  keys  never  returned  in  API  responses  ●  Webhook  payloads  verified  with  HMAC  signatures  
+Rate  Limits:  
+●  Shopify:  2  calls/sec  ●  GMC  Content  API:  50  calls/min  ●  Amazon  SP-API:  varies  by  endpoint  ●  N8N  workflows  must  respect  these  limits  with  built-in  throttling  
+ 
+Part  8:  Canonical  Schema  (Excel  Workbook  Structure)  
+8.1  Sheet  Guide  
+The  Excel  workbook  contains  8  sheets  representing  the  complete  data  model:  
+1.  CANONICAL  SCHEMA  
+●  Master  product  data  +  CIE  enforcement  fields  ●  Identity:  sku_code,  cluster_id,  product_class  ●  Physical:  core_count,  length,  fitting_type,  colour,  material  ●  Commercial:  margin,  CPPC,  velocity,  tier  ●  CIE:  gate_status,  decay_status,  readiness_scores  
+2.  AI  MAPPING  
+●  AI  Answer  Block  (250-300  chars,  G4  gate)  ●  Quotable  Facts  (for  AI  citation)  ●  Comparison  Anchors  (vs  competitors)  ●  Query  family  alignment  per  cluster  
+3.  CHANNEL  GOVERNOR  
+●  COMPETE/SKIP  decisions  per  channel  ●  Readiness  scores  (0-100)  for:  own_website,  google_sge,  amazon,  ai_assistants  
+4.  CONTENT  OUTPUT  
+●  Generated  content  per  channel:  ○  Shopify  title/description  ○  Google  Shopping  feed  ○  Amazon  search  terms/bullets  ○  PPC  ad  copy  
+5.  CONTROLLED  VOCAB  
+●  Locked  enums  (9  intents,  4  tiers)  ●  Gate  error  codes  ●  Material  vocabulary  ●  Fitting  type  list  ●  Colour  palette  
+6.  MATURITY  TRACKER  
+●  Per-SKU  gate  status  (G1-G7  +  G6.1  +  VECTOR)  ●  Citation  decay  tracking  (consecutive_zero_weeks)  ●  Effort  allocation  by  tier  ●  Last  updated  timestamps  
+7.  SEMANTIC  CLUSTERS  
+●  Cluster  definitions  with  intent  statements  ●  Query  family  mapping  (Primary/Secondary/Other)  ●  Intent  vectors  (embeddings)  
+8.  AI  EVALUATION  SET  
+●  20  locked  questions  per  category  ●  Weekly  scores  (0-3)  per  engine  ●  Target  SKUs  per  question  ●  Pass/fail  criteria  
+8.2  Architectural  Principle  
+"Content  is  a  BYPRODUCT  of  decisions  —  never  the  starting  point."  
+Correct  sequence:  
+1.  FIRST:  Resolve  identity  (what  is  it  physically?)  2.  SECOND:  Calculate  commercial  value  (what's  it  worth?)  3.  THIRD:  Assign  cluster  +  tier  (where  does  it  belong?)  4.  FOURTH:  Determine  channel  strategy  (where  should  it  compete?)  5.  ONLY  THEN:  Generate  content  (what  should  we  say?)  
+Traditional  systems  start  at  step  5.  CIE  enforces  1→2→3→4→5  order.  
+ 
+ 
+ 
+ 
+ 
+ 
+Part  9:  RBAC  (Role-Based  Access  Control)  
+9.1  Role  Definitions  
+Role  Typical  Staff  Purpose  
+content_editor  Content  team  (50+)  
+Creates/edits  titles,  descriptions,  answer  blocks,  best-for/not-for  within  assigned  SKUs  
+product_specialist  
+Product  experts  (10+)  
+Adds  expert  authority  blocks,  safety  certs,  compliance  data  
+seo_governor  SEO  lead  (1-2)  Manages  cluster  master  list,  intent  taxonomy,  approves  cluster  assignments  
+channel_manager  Channel  leads  (4-6)  
+Manages  channel-specific  content,  feed  optimisation,  readiness  scoring  review  
+ai_ops  AI  operations  (2-3)  Runs  AI  audits,  manages  golden  queries,  reviews  citation  decay  alerts  
+portfolio_holder  Category  managers  (8-12)  
+Reviews  tier  assignments,  approves  SKU  status  changes,  owns  category  P&L  
+finance  Finance  team  (2-3)  
+Provides  ERP  data,  validates  tier  calculations,  co-approves  manual  overrides  
+admin  System  admin  (1-2)  
+System  configuration,  user  management,  audit  log  review.  Cannot  edit  SKU  content.  
+system  Automated  processes  
+ERP  sync,  tier  recomputation,  decay  triggers,  readiness  scoring.  No  human  actor.  
+9.2  Permission  Matrix  
+Action  Editor  
+Prod  Spec  
+SEO  Gov  
+Ch  Mgr  
+AI  Ops  
+PH  Finance  
+Admin  
+System  
+Create/edit  content  fields  
+YES  YES*  NO  YES*  
+NO  NO  NO  NO  NO  
+Edit  expert  authority  
+NO  YES  NO  NO  NO  NO  NO  NO  NO  
+Assign/change  cluster_id  
+NO  NO  YES  NO  NO  NO  NO  NO  NO  
+Modify  intent  taxonomy  
+NO  NO  REVIEW*  
+NO  NO  NO  NO  NO  NO  
+Change  SKU  tier  (manual)  
+NO  NO  NO  NO  NO  DUAL**  DUAL**  NO  AUTO  
+Publish  SKU  YES  NO  YES  YES  NO  YES  NO  NO  NO  
+Run  AI  audit  NO  NO  NO  NO  YES  
+NO  NO  YES  YES  
+Manage  golden  queries  
+NO  NO  YES  NO  YES  
+NO  NO  NO  NO  
+View  audit  logs  
+OWN  OWN  ALL  OWN  
+ALL  CAT  ALL  ALL  N/A  
+Manage  users/roles  
+NO  NO  NO  NO  NO  NO  NO  YES  NO  
+ERP  sync  trigger  
+NO  NO  NO  NO  NO  NO  YES  YES  YES  
+Notes:  
+●  * Product  Specialist  and  Channel  Manager  can  edit  content  ONLY  within  their  assigned  
+categories
+ ●  REVIEW* SEO  Governor  can  propose  taxonomy  changes;  requires  quarterly  review  with  
+Commercial
+ 
+Director
+ 
+to
+ 
+activate
+ ●  DUAL** Manual  tier  override  requires  BOTH  Portfolio  Holder  AND  Finance  sign-off  
+9.3  Critical  RBAC  Rules  
+1.  No  'superuser'  role  exists.  Admin  can  manage  users  but  CANNOT  edit  SKU  content  or  
+bypass
+ 
+gates.
+ 2.  Content  editors  CANNOT  change  cluster_id,  tier,  or  intent  taxonomy.  3.  Kill-tier  SKUs:  ALL  edit  permissions  are  revoked  system-wide.  Only  tier  change  (DUAL  
+approval)
+ 
+can
+ 
+unlock.
+ 4.  Every  permission  check  is  logged  in  audit_log  with  actor_id,  role,  action,  and  timestamp.  5.  Failed  permission  attempts  (403)  are  logged  and  monitored.  >5  in  24hrs  triggers  admin  
+alert.
+ 
+ 
+ 
+ 
+ 
+ 
+Part  10:  Implementation  Timeline  (21-Day  Sprint)  
+Phase  1:  Foundation  (Days  1-7)  
+Days  
+Deliverable  Owner  Kill  Rule  
+1-3  G1-G7  +  G6.1  publish  gates  coded  and  deployed.  400  errors  on  violation.  
+Dev  Lead  <95%  enforcement  by  day  5  →  stop  all  other  work  
+1-3  All  active  SKUs  tagged  Hero/Support/Harvest/Kill  from  ERP  data.  
+Finance  +  PH  
+100%  tagged  by  day  3  
+4-7  9-intent  taxonomy  loaded  as  enum.  Cluster  master  list  locked.  CMS  tier-lock  UI  deployed.  
+Dev  +  SEO  Governor  
+No  custom  intents  
+Phase  2:  Content  Engine  (Days  8-14)  
+Days  
+Deliverable  Owner  Kill  Rule  
+8-10  Content  team  trained.  5  Hero  SKUs  completed  as  reference  through  full  pipeline.  
+Content  Lead  
+5  examples  must  pass  all  gates  
+8-10  JSON-LD  +  Wikidata  templates  for  top  3  materials.  Schema  validates  in  Google  Rich  Results.  
+Dev  +  SEO  
+Rich  Results  Test  passes  
+11-14  
+Vector  validation  service  deployed.  Cosine  similarity  checks  active  on  save.  
+Python  Dev  
+Threshold  correctly  blocks  test  cases  
+Phase  3:  AI  Audit  +  Feedback  Loop  (Days  15-21)  
+Days  Deliverable  Owner  Kill  Rule  
+15-17  
+20-question  golden  query  sets  created  for  4  categories.  Baselined.  
+AI  Ops  Questions  locked  
+15-17  
+N8N  citation  decay  workflow  deployed  and  tested.  
+AI  Ops  +  Dev  Auto-brief  generates  correctly  
+18-21  
+First  full  weekly  AI  audit  run.  Dashboard  live.  Results  to  boardroom.  
+AI  Ops  +  Admin  
+Baseline  established  
+18-21  
+Per-channel  readiness  scores  live.  Effort  allocation  tracking  active.  
+Channel  Managers  
+Dashboard  visible  to  all   
+Part  11:  Verification  Matrix  +  KPIs  
+These  numbers  go  to  the  boardroom.  Reviewed  weekly.  No  narrative.  
+KPI  Target  Proof  Cadence  
+Fail  Status  
+Publish  gate  bypass  rate  0%  System  logs  Daily  Immediate  fix.  NEW:  incl  G6.1  
+Content  hrs  on  Hero  SKUs  
+>60%  Task  logs  Weekly  Rebalance  
+AI  citation  rate  (Hero)  >70%  AI  query  audit  Weekly  Decay  loop.  NEW:  auto-heal  
+Avg  CTR  Hero  SKUs  +10-20%  
+GSC  /  Channel  Monthly  Title  review  
+Staff  rework  rate  -25%  Task  logs  Monthly  Training  
+SKU  tier  coverage  100%  ERP  sync  Monthly  Escalate  
+Hero  readiness  (primary  ch.)  
+>85/100  CIE  dashboard  Weekly  Sprint  
+Kill  SKU  effort  0  hours  Task  logs  Weekly  Violation.  NEW:  UI  block  
+Decay  trigger  accuracy  >90%  Brief  vs  outcome  
+Monthly  Tune  model.  NEW  
+ 
+Part  12:  Key  Non-Negotiables  
+Absolute  Rules  (Cannot  Be  Changed)  
+1.  Title  =  Intent  →  Cluster  →  Attributes.  NEVER  in  reverse.  2.  Kill-tier  SKUs:  ZERO  effort.  Any  edit  =  policy  violation.  3.  >60%  content  hours  on  Hero  SKUs.  Measured  weekly.  4.  Answer  Block:  250-300  chars,  must  contain  primary  intent  keyword.  No  marketing  
+fluff.
+ 5.  No  publish  without  ALL  gates  passing.  No  override.  No  exceptions.  6.  The  9-intent  taxonomy  is  SEEDED,  not  user-created.  It  must  be  locked.  7.  Tier  assignments  come  from  Finance/ERP  sync,  not  manual  entry.  8.  Every  audit_result  row  must  reference  a  specific  question_id  +  engine  +  week.  9.  The  clusters  table  must  store  the  intent  vector  (embedding)  as  a  JSON/BLOB  field.  10.  audit_log  table  is  IMMUTABLE.  No  UPDATE  or  DELETE  permitted  at  database  level.  
+ 
+Conclusion  
+The  Catalog  Intelligence  Engine  v2.3.2  is  a  comprehensive,  production-hardened  system  that:  
+1.  Enforces  quality  through  8  hard  gates  with  no  override  capability  2.  Allocates  resources  automatically  based  on  SKU  commercial  value  (tier  system)  3.  Measures  AI  visibility  weekly  across  4  engines  with  20  locked  questions  per  category  4.  Self-heals  by  auto-generating  content  refresh  briefs  when  Hero  SKUs  lose  citations  5.  Integrates  seamlessly  with  ERP,  Shopify,  Google  Merchant  Center,  and  Amazon  6.  Orchestrates  complexity  through  8  N8N  workflows  7.  Enforces  governance  through  9-role  RBAC  with  dual  sign-off  for  sensitive  changes  8.  Maintains  immutability  through  append-only  audit  logging  9.  Degrades  gracefully  with  fail-soft  rules  when  external  services  are  unavailable  10.  Provides  transparency  through  decomposed  readiness  scoring  and  tier-specific  UX  
+The  system  is  fully  specified  with  database  schemas,  API  contracts,  integration  mappings,  
+workflow
+ 
+definitions,
+ 
+validation
+ 
+logic,
+ 
+error
+ 
+handling,
+ 
+security
+ 
+rules,
+ 
+and
+ 
+implementation
+ 
+timelines.
+ 
+The  fundamental  insight:  At  scale,  good  intentions  don't  work.  Systems  do.  CIE  replaces  hope  
+with
+ 
+enforcement,
+ 
+guesswork
+ 
+with
+ 
+measurement,
+ 
+and
+ 
+reactive
+ 
+fixes
+ 
+with
+ 
+self-healing
+ 
+loops.
+ 
+ 

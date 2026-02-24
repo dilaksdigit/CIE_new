@@ -1,0 +1,30 @@
+{
+    "gate_thresholds": {
+        "answer_block_min": 250,
+        "answer_block_max": 300,
+        "title_max_length": 250,
+        "vector_threshold": 0.72,
+        "title_intent_min": 20
+    },
+    "tier_score_weights": {
+        "margin_weight": 0.3,
+        "velocity_weight": 0.3,
+        "return_rate_weight": 0.2,
+        "margin_rank_weight": 0.2,
+        "hero_threshold": 75
+    },
+    "channel_thresholds": {
+        "hero_compete_min": 85,
+        "support_compete_min": 70,
+        "harvest": "Excluded",
+        "kill": "Excluded",
+        "feed_regen_time": "02:00"
+    },
+    "audit_settings": {
+        "audit_day": "Monday",
+        "audit_time": "06:00",
+        "questions_per_category": 20,
+        "engines": 4,
+        "decay_trigger": "Week 3"
+    }
+}

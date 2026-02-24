@@ -1,0 +1,13 @@
+/vendor
+/node_modules
+.env
+/storage/app/public/*
+/storage/logs/*
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+/backend/python/venv
+*.pyc
+__pycache__
+/frontend/dist
+.DS_Store

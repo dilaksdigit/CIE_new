@@ -1,0 +1,2 @@
+-- DEPRECATED: All columns are already defined in earlier migration files
+-- This file is kept for reference only and should not be executed
