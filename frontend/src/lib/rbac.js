@@ -3,7 +3,7 @@
  * No superuser bypass. Content editors CANNOT override validation gate failures.
  *
  * Roles: ADMIN, SEO_GOVERNOR, CONTENT_EDITOR, CONTENT_LEAD, PRODUCT_SPECIALIST,
- *       CHANNEL_MANAGER, FINANCE, AI_OPS, VIEWER (SYSTEM for internal)
+ *       CHANNEL_MANAGER, FINANCE, AI_OPS
  *
  * Key restrictions:
  * - Only ADMIN + FINANCE can trigger tier recalculation
@@ -22,8 +22,6 @@ const ROLES = {
     CHANNEL_MANAGER: 'channel_manager',
     FINANCE: 'finance',
     AI_OPS: 'ai_ops',
-    VIEWER: 'viewer',
-    SYSTEM: 'system',
 };
 
 /** Normalize role from backend (e.g. ADMIN, CONTENT_LEAD) to lowercase snake_case. PORTFOLIO_HOLDER → content_lead */
@@ -45,13 +43,12 @@ export function canAccess(user) {
 
 // --- 3.2 Permission Matrix ---
 
-/** Create/edit content fields. Editor, Prod Spec, Ch Mgr YES; ADMIN has full access; CONTENT_LEAD/Finance NO for content; VIEWER never. */
+/** Create/edit content fields. Editor, Prod Spec, Ch Mgr YES; ADMIN has full access; CONTENT_LEAD/Finance NO for content. */
 export function canEditContentFields(user, sku) {
     if (!user || !sku) return false;
     if (sku.tier === 'KILL') return false;
     const role = normalizeRole(user.role);
-    if (role === ROLES.ADMIN || role === ROLES.SYSTEM) return true;
-    if (role === ROLES.VIEWER) return false;
+    if (role === ROLES.ADMIN) return true;
     if (role === ROLES.CONTENT_LEAD || role === ROLES.FINANCE) return false;
     return [ROLES.CONTENT_EDITOR, ROLES.PRODUCT_SPECIALIST, ROLES.CHANNEL_MANAGER].includes(role);
 }
@@ -60,7 +57,7 @@ export function canEditContentFields(user, sku) {
 export function canEditContentFieldsForTier(user, sku) {
     if (!canEditContentFields(user, sku)) return false;
     const role = normalizeRole(user.role);
-    if (role === ROLES.ADMIN || role === ROLES.SYSTEM) return true;
+    if (role === ROLES.ADMIN) return true;
     if (role === ROLES.CONTENT_EDITOR && sku && !['SUPPORT', 'HARVEST'].includes(sku.tier)) return false;
     return true;
 }
@@ -120,7 +117,7 @@ export function canPublishSku(user, sku) {
 export function canRunAIAudit(user) {
     if (!user) return false;
     const role = normalizeRole(user.role);
-    return [ROLES.AI_OPS, ROLES.ADMIN, ROLES.SYSTEM].includes(role);
+    return [ROLES.AI_OPS, ROLES.ADMIN].includes(role);
 }
 
 /** Manage golden queries. Matrix: Editor, Ch Mgr, AI Ops, PH, Finance, Admin. */
@@ -131,7 +128,7 @@ export function canManageGoldenQueries(user) {
 }
 
 export function canViewAuditLogs(user) {
-    return !!user && normalizeRole(user.role) !== ROLES.VIEWER;
+    return !!user && canAccess(user);
 }
 
 /** Manage users/roles. Admin only. */
@@ -144,7 +141,7 @@ export function canManageUsers(user) {
 export function canTriggerERPSync(user) {
     if (!user) return false;
     const role = normalizeRole(user.role);
-    return [ROLES.FINANCE, ROLES.ADMIN, ROLES.SYSTEM].includes(role);
+    return [ROLES.FINANCE, ROLES.ADMIN].includes(role);
 }
 
 /** System config (gate thresholds, tier weights). Admin only. */

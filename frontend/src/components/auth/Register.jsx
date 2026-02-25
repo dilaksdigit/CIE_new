@@ -9,6 +9,7 @@ const Register = () => {
         email: '',
         password: '',
         password_confirmation: '',
+        accountType: '',
         role: 'content_editor'
     });
     const [error, setError] = useState('');
@@ -37,12 +38,21 @@ const Register = () => {
         }
 
         try {
+            // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §1.4
+            // SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §3
+            const ACCOUNT_ROLE_MAP = {
+                writer: ['CONTENT_EDITOR', 'PRODUCT_SPECIALIST'],
+                reviewer: ['CONTENT_LEAD', 'SEO_GOVERNOR'],
+            };
+            const roles = ACCOUNT_ROLE_MAP[formData.accountType] || [];
+            const roleToSend = roles[0] ? roles[0].toLowerCase() : formData.role;
+
             const response = await authApi.register(
                 formData.name,
                 formData.email,
                 formData.password,
                 formData.password_confirmation,
-                formData.role
+                roleToSend
             );
             
             // Account created successfully, redirect to login
@@ -122,24 +132,17 @@ const Register = () => {
                     </div>
 
                     <div className="mb-20">
-                        <label className="field-label">Account Role</label>
+                        <label className="field-label">Account Type</label>
                         <select
                             className="field-input"
-                            name="role"
-                            value={formData.role}
+                            name="accountType"
+                            value={formData.accountType}
                             onChange={handleChange}
                             required
                         >
-                            <option value="content_editor">Content Editor (Edit SKU content, SUPPORT/HARVEST)</option>
-                            <option value="product_specialist">Product Specialist (Expert authority & safety certs)</option>
-                            <option value="seo_governor">SEO Governor (Clusters, lock/unlock taxonomy, approve cluster changes)</option>
-                            <option value="channel_manager">Channel Manager (Readiness, channel mappings)</option>
-                            <option value="ai_ops">AI Ops (Run audits, decay monitor, golden queries)</option>
-                            <option value="content_lead">Content Lead (Edit + approve + assign briefs + effort reports)</option>
-                            <option value="portfolio_holder">Portfolio Holder (Same as Content Lead)</option>
-                            <option value="finance">Finance (ERP sync, tier recalculation — no content edit)</option>
-                            <option value="admin">Admin (Full access — config, users, taxonomy)</option>
-                            <option value="viewer">Viewer (Read-only dashboard)</option>
+                            <option value="">Select account type</option>
+                            <option value="writer">Content Writer</option>
+                            <option value="reviewer">KPI Reviewer</option>
                         </select>
                     </div>
 

@@ -110,7 +110,7 @@ const AuditTrail = () => {
                                     {row.timestamp ?? row.created_at ?? '—'}
                                 </td>
                                 <td style={{ fontSize: '0.75rem' }}>{row.actor_id ?? row.user_id ?? '—'}</td>
-                                <td><RoleBadge role={row.actor_role ?? row.role ?? 'system'} /></td>
+                                <td><RoleBadge role={row.actor_role ?? row.role ?? ''} /></td>
                                 <td>
                                     <span style={{
                                         color: row.action === 'permission_change' ? 'var(--red)' : 'var(--text)',

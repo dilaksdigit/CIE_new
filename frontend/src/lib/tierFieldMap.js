@@ -14,18 +14,24 @@ export const TIER_BANNER_COPY = {
 
 export const TIER_FIELD_MAP = {
     hero: {
-        enabled: ['all_9_intents', 'answer_block', 'best_for', 'not_for', 'expert_authority', 'wikidata_uri', 'json_ld_preview'],
+        // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2 (Hero=6 fields)
+        // SOURCE: CIE_v232_Writer_View.jsx fields object
+        enabled: ['title', 'answerBlock', 'bestFor', 'notFor', 'authority', 'intent'],
         max_secondary: 3,
         banner: TIER_BANNER_COPY.hero,
     },
     support: {
-        enabled: ['all_9_intents', 'answer_block', 'best_for', 'not_for', 'expert_authority'],
+        // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2 (Support=5 fields)
+        // Support has same fields as Hero minus 'authority' (expert_authority not required)
+        enabled: ['title', 'answerBlock', 'bestFor', 'notFor', 'intent'],
         max_secondary: 2,
         hidden: ['wikidata_uri'],
         banner: TIER_BANNER_COPY.support,
     },
     harvest: {
-        enabled: ['specification', 'problem_solving', 'compatibility'],
+        // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2 (Harvest=1 field)
+        // Harvest writers fill title only — the one field that remains active
+        enabled: ['title'],
         hidden: ['answer_block', 'best_for', 'not_for', 'expert_authority', 'wikidata_uri', 'comparison', 'installation', 'troubleshooting', 'inspiration', 'regulatory', 'replacement'],
         max_secondary: 1,
         banner: TIER_BANNER_COPY.harvest,

@@ -105,10 +105,10 @@ const SUGGESTION_TYPE_COLORS = {
 };
 
 const SUGGESTION_SOURCE_BY_TYPE = {
-    keyword_opportunity: 'Semrush & Analytics',
-    trending_search: 'Semrush & Analytics',
-    ai_visibility_issue: 'Analytics & CIE Audit',
-    competitor_gap: 'Competitive Gap Analysis',
+    keyword_opportunity: 'Semrush',
+    ai_visibility_issue: 'AI Audit',
+    trending_search: 'Google Analytics',
+    competitor_gap: 'Semrush + AI Audit',
 };
 
 const normalizeGateKey = (value) => {
@@ -181,7 +181,7 @@ const normalizeSuggestions = (raw) => {
             source:
                 item?.source_label ||
                 SUGGESTION_SOURCE_BY_TYPE[String(item?.type || '').toLowerCase().replace(/\s+/g, '_')] ||
-                'Semrush & Analytics',
+                'Semrush',
         }));
 };
 
@@ -681,7 +681,7 @@ const WriterEdit = () => {
                                     }}
                                 >
                                     <div style={{ fontSize: '0.7rem', fontWeight: 700, color: C.text, marginBottom: 4 }}>
-                                        Semrush & Analytics
+                                        Semrush
                                     </div>
                                     {suggestions.length === 0 ? (
                                         <div style={{ color: C.textMid, fontSize: '0.7rem' }}>
@@ -834,7 +834,7 @@ const WriterEdit = () => {
                                         How this panel works
                                     </div>
                                     <div style={{ fontSize: '0.66rem', color: C.textMid }}>
-                                        Suggestions come from Semrush & Analytics, CIE FAQ engine, and validation gates. Dismissing a
+                                        Suggestions come from Semrush, Google Analytics, AI Audit, CIE FAQ engine, and validation gates. Dismissing a
                                         suggestion hides it for this product in your browser.
                                     </div>
                                 </div>

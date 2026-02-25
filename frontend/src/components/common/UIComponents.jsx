@@ -1,5 +1,44 @@
 import React from 'react';
 
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx §1.5
+// SOURCE: CIE_v232_Writer_View.jsx C object
+const C = {
+  bg: "#FAFAF8",
+  surface: "#FFFFFF",
+  muted: "#F5F4F1",
+  border: "#E5E3DE",
+  text: "#2D2B28",
+  textMid: "#6B6860",
+  textLight: "#9B978F",
+  accent: "#5B7A3A",
+  accentLight: "#EEF2E8",
+  accentBorder: "#C5D4B0",
+  hero: "#8B6914",
+  heroBg: "#FDF6E3",
+  heroBorder: "#E8D5A0",
+  support: "#3D6B8E",
+  supportBg: "#EBF3F9",
+  supportBorder: "#B5D0E3",
+  harvest: "#9E7C1A",
+  harvestBg: "#FFF8E7",
+  harvestBorder: "#E8D49A",
+  kill: "#A63D2F",
+  killBg: "#FDEEEB",
+  killBorder: "#E5B5AD",
+  green: "#2E7D32",
+  greenBg: "#E8F5E9",
+  greenBorder: "#A5D6A7",
+  red: "#C62828",
+  redBg: "#FFEBEE",
+  redBorder: "#EF9A9A",
+  amber: "#E65100",
+  amberBg: "#FFFDE7",
+  amberBorder: "#FFCC80",
+  blue: "#1565C0",
+  blueBg: "#E3F2FD",
+  blueBorder: "#90CAF9",
+};
+
 // ─── TIER BADGE ─────────────────────────────────────
 export const TierBadge = ({ tier, size = 'sm' }) => (
     <span className={`tier-badge ${tier} ${size}`}>
@@ -137,12 +176,12 @@ export const MiniBarChart = ({ data, width = 240, height = 80 }) => {
 
 // ─── CHANNEL BADGE ──────────────────────────────────
 export const ChannelBadge = ({ channel }) => {
-    const map = { Amazon: '#8B6914', eBay: '#5B7A3A', Shopify: '#3D6B8E', Website: '#6B6860' };
+    const map = { Amazon: C.hero, eBay: C.accent, Shopify: C.support, Website: C.textMid };
     const bg = map[channel] || 'var(--text-muted)';
     return (
         <span style={{
             display: 'inline-flex', padding: '2px 9px', borderRadius: 3,
-            background: bg, color: '#FFFFFF', fontSize: '0.6rem', fontWeight: 700,
+            background: bg, color: C.surface, fontSize: '0.6rem', fontWeight: 700,
             letterSpacing: '0.04em', textTransform: 'uppercase',
         }}>{channel}</span>
     );
