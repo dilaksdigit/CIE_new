@@ -1,9 +1,9 @@
 -- CIE v2.3.2 – Exactly 2 seed user accounts: writer (CONTENT_EDITOR + PRODUCT_SPECIALIST), reviewer (CONTENT_LEAD + SEO_GOVERNOR).
 -- Assumes roles exist from 002_seed_roles.sql. Password hash is placeholder (e.g. "password"); replace in production.
 
-INSERT INTO users (id, email, password_hash, first_name, last_name, is_active) VALUES
-(UUID(), 'writer@cie.example.com',  '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Writer',  'User',  true),
-(UUID(), 'reviewer@cie.example.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Reviewer', 'User',  true)
+INSERT INTO users (id, username, email, password_hash, first_name, last_name, is_active) VALUES
+(UUID(), 'writer',   'writer@cie.example.com',  '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Writer',  'User',  true),
+(UUID(), 'reviewer', 'reviewer@cie.example.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Reviewer', 'User',  true)
 ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP;
 
 -- Writer: CONTENT_EDITOR + PRODUCT_SPECIALIST

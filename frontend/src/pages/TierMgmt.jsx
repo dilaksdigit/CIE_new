@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { TierBadge } from '../components/common/UIComponents';
 import { skuApi } from '../services/api';
-import useStore from '../store';
+import { AppContext } from '../App';
 import { canApproveTierAsPortfolioHolder, canApproveTierAsFinance, canTriggerTierRecalculation } from '../lib/rbac';
 
 const TierMgmt = () => {
-    const { user, addNotification } = useStore();
+    const { user, addNotification } = useContext(AppContext);
     const [tierRequests, setTierRequests] = useState([]);
     const [loading, setLoading] = useState(true);
     const [approving, setApproving] = useState({});

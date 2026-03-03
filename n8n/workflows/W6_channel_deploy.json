@@ -1,0 +1,288 @@
+{
+  "name": "W6 Channel Deploy",
+  "id": "W6_channel_deploy",
+  "nodes": [
+    {
+      "id": "Webhook_Approved",
+      "name": "Content Approved Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "w6/channel-deploy/approved",
+        "responseMode": "onReceived",
+        "options": {
+          "responseData": "={{ {\"status\":\"received\"} }}"
+        }
+      }
+    },
+    {
+      "id": "HTTP_Channel_Governor",
+      "name": "PHP channel_governor check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [540, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://cie-api.example.com/api/skus/{{$json[\"sku_code\"]}}/channel-governor",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 30000
+        },
+        "bodyParametersJson": "={{$json}}"
+      }
+    },
+    {
+      "id": "Split_Channels",
+      "name": "For each COMPETE channel",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [800, 300],
+      "parameters": {
+        "batchSize": 1
+      }
+    },
+    {
+      "id": "IF_ChannelType",
+      "name": "Route by Channel",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [1040, 300],
+      "parameters": {
+        "value1": "={{$json[\"channel\"]}}",
+        "rules": [
+          {
+            "operation": "equal",
+            "value2": "shopify"
+          },
+          {
+            "operation": "equal",
+            "value2": "gmc"
+          },
+          {
+            "operation": "equal",
+            "value2": "amazon"
+          }
+        ]
+      }
+    },
+    {
+      "id": "HTTP_Shopify",
+      "name": "Shopify metafield push",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1300, 180],
+      "parameters": {
+        "method": "POST",
+        "url": "https://shopify.example.com/metafields",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 60000
+        },
+        "bodyParametersJson": "={{$json}}"
+      }
+    },
+    {
+      "id": "HTTP_GMC",
+      "name": "GMC feed push",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1300, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://gmc.example.com/feed",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 60000
+        },
+        "bodyParametersJson": "={{$json}}"
+      }
+    },
+    {
+      "id": "HTTP_Amazon",
+      "name": "Amazon SP-API push",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1300, 420],
+      "parameters": {
+        "method": "POST",
+        "url": "https://amazon.example.com/sp-api",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 60000
+        },
+        "bodyParametersJson": "={{$json}}"
+      }
+    },
+    {
+      "id": "IF_Deploy_OK",
+      "name": "Deploy OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1560, 300],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json[\"statusCode\"] || 200}}",
+              "operation": "smallerOrEqual",
+              "value2": 299
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "HTTP_Channel_Deployed",
+      "name": "POST channel-deployed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1820, 240],
+      "parameters": {
+        "method": "POST",
+        "url": "https://cie-api.example.com/api/skus/{{$json[\"sku_code\"]}}/channel-deployed",
+        "responseFormat": "json",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "HTTP_Channel_Failed",
+      "name": "POST channel-failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1820, 420],
+      "parameters": {
+        "method": "POST",
+        "url": "https://cie-api.example.com/api/skus/{{$json[\"sku_code\"]}}/channel-failed",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 30000
+        },
+        "bodyParametersJson": "={{ {\"reason\": $json[\"error\"] || \"Channel deploy failed\"} }}"
+      }
+    }
+  ],
+  "connections": {
+    "Content Approved Webhook": {
+      "main": [
+        [
+          {
+            "node": "PHP channel_governor check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PHP channel_governor check": {
+      "main": [
+        [
+          {
+            "node": "For each COMPETE channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For each COMPETE channel": {
+      "main": [
+        [
+          {
+            "node": "Route by Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Channel": {
+      "main": [
+        [
+          {
+            "node": "Shopify metafield push",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "GMC feed push",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Amazon SP-API push",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify metafield push": {
+      "main": [
+        [
+          {
+            "node": "Deploy OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GMC feed push": {
+      "main": [
+        [
+          {
+            "node": "Deploy OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Amazon SP-API push": {
+      "main": [
+        [
+          {
+            "node": "Deploy OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deploy OK?": {
+      "main": [
+        [
+          {
+            "node": "POST channel-deployed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "POST channel-failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "w6-channel-deploy-v1"
+}
+

@@ -1,4 +1,8 @@
-﻿import React from 'react';
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 4 (SHARED: How the system works)
+// SOURCE: CIE_v232_Developer_LLM_Workspace_Guide.docx Trap 6; CIE_v232_Developer_Amendment_Pack_v2.docx Trap 6
+// DO NOT rebuild. Restyle only. Uses light palette via CSS vars (Section 1.5).
+
+import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 
 const tabs = [

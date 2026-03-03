@@ -25,5 +25,9 @@
     "files": [
       "src/helpers.php"
     ]
+  },
+  "scripts": {
+    "test": "phpunit && php ../validate_golden_skus.php",
+    "test:golden": "php ../validate_golden_skus.php"
   }
 }

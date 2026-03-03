@@ -1,19 +1,25 @@
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx §1.4 — Role-Based Login Routing
+//         (CONTENT_EDITOR → /writer/queue, CONTENT_LEAD → /review/dashboard,
+//          ADMIN → /admin/clusters)
+// SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §3.1 — RBAC Code box
+//         (2 seed accounts: writer=[CONTENT_EDITOR+PRODUCT_SPECIALIST],
+//          reviewer=[CONTENT_LEAD+SEO_GOVERNOR])
+// SOURCE: CIE_v232_Developer_LLM_Workspace_Guide.docx §Trap 3 — Role-based routing
+//         (frontend routing logic only; do NOT modify RBAC middleware or DB tables)
+
 /**
  * Role-based post-login redirect and route guard helpers.
  * Uses only: CONTENT_EDITOR, CONTENT_LEAD, ADMIN, PRODUCT_SPECIALIST, SEO_GOVERNOR.
  * No role names exposed in UI; no gate codes.
  */
 
-function normalizeRole(userOrRole) {
-    if (!userOrRole) return '';
+function normalizeRole(roleLike) {
+    if (!roleLike) return '';
 
-    // Accept raw role string, role object, or full user object.
-    let rawRole = userOrRole;
-    if (typeof userOrRole === 'object') {
-        rawRole =
-            userOrRole.role?.name ||
-            userOrRole.role ||
-            (Array.isArray(userOrRole.roles) && userOrRole.roles.length > 0 ? userOrRole.roles[0] : '');
+    // Accept raw role string or role-like object (e.g. { name }).
+    let rawRole = roleLike;
+    if (typeof roleLike === 'object') {
+        rawRole = roleLike.name || roleLike.role || '';
     }
 
     const role = String(rawRole || '').toLowerCase().trim().replace(/-/g, '_');
@@ -22,6 +28,30 @@ function normalizeRole(userOrRole) {
     if (role === 'portfolio_holder') return 'content_lead';
     return role;
 }
+
+function getUserRoles(user) {
+    if (!user) return [];
+    if (Array.isArray(user.roles) && user.roles.length > 0) {
+        return user.roles.map(normalizeRole).filter(Boolean);
+    }
+
+    const single =
+        user.role?.name ||
+        user.role ||
+        user;
+
+    const normalized = normalizeRole(single);
+    return normalized ? [normalized] : [];
+}
+
+const hasRole = (user, ...targetRoles) => {
+    if (!user) return false;
+    const userRoles = getUserRoles(user);
+    if (userRoles.length === 0) return false;
+
+    const targets = targetRoles.map(normalizeRole);
+    return userRoles.some(r => targets.includes(r));
+};
 
 /**
  * Get the permitted home route for the user's role(s).
@@ -32,10 +62,9 @@ function normalizeRole(userOrRole) {
  */
 export function getHomeForRole(user) {
     if (!user) return '/login';
-    const role = normalizeRole(user);
-    if (role === 'content_editor' || role === 'product_specialist') return '/writer/queue';
-    if (role === 'content_lead' || role === 'seo_governor') return '/review/dashboard';
-    if (role === 'admin') return '/admin/clusters';
+    if (hasRole(user, 'CONTENT_EDITOR', 'PRODUCT_SPECIALIST')) return '/writer/queue';
+    if (hasRole(user, 'CONTENT_LEAD', 'SEO_GOVERNOR')) return '/review/dashboard';
+    if (hasRole(user, 'ADMIN')) return '/admin/clusters';
     return '/help/flow';
 }
 
@@ -48,16 +77,15 @@ export function getHomeForRole(user) {
  */
 export function isPathAllowedForUser(user, pathname) {
     if (!user) return false;
-    const role = normalizeRole(user);
     const path = pathname.replace(/\/$/, '') || '/';
 
-    if (role === 'content_editor' || role === 'product_specialist') {
+    if (hasRole(user, 'CONTENT_EDITOR', 'PRODUCT_SPECIALIST')) {
         return path.startsWith('/writer') || path.startsWith('/help');
     }
-    if (role === 'content_lead' || role === 'seo_governor') {
+    if (hasRole(user, 'CONTENT_LEAD', 'SEO_GOVERNOR')) {
         return path.startsWith('/review') || path.startsWith('/help');
     }
-    if (role === 'admin') {
+    if (hasRole(user, 'ADMIN')) {
         return true;
     }
     return path.startsWith('/help');

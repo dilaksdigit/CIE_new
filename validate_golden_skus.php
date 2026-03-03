@@ -29,6 +29,10 @@ $maturityService = new MaturityScoreService();
 $governorService = new ChannelGovernorService();
 $titleService = new TitleEngineService();
 
+$heroPass = false;
+$killPass = false;
+$harvestPass = false;
+
 foreach ($skus as $data) {
     echo "Validating SKU: {$data->sku_code}...\n";
     $sku = Sku::where('sku_code', $data->sku_code)->first();
@@ -56,7 +60,64 @@ foreach ($skus as $data) {
 
     $maturity = $maturityService->calculate($sku);
     echo "  Maturity: {$maturity['total']} ({$maturity['level']})\n";
+
+    // ---- Golden assertions per spec ----
+    $code = $data->sku_code;
+    if ($code === 'SKU-CABLE-001') {
+        $allGatesPass = true;
+        foreach ($results['gates'] as $gate) {
+            if (!$gate['passed']) {
+                $allGatesPass = false;
+                break;
+            }
+        }
+        if ($results['overall_status'] === 'VALID' && $allGatesPass && $results['can_publish'] === true) {
+            echo "GOLDEN TEST HERO (SKU-CABLE-001): PASS — all gates G1–G7 + VEC passed.\n";
+            $heroPass = true;
+        } else {
+            echo "GOLDEN TEST HERO (SKU-CABLE-001): FAIL — expected all gates to pass with VALID overall status.\n";
+        }
+    }
+
+    if ($code === 'SKU-CABLE-002') {
+        if ($sku->tier === 'KILL') {
+            echo "GOLDEN TEST KILL (SKU-CABLE-002): PASS — tier=KILL (UI must fully lock fields).\n";
+            $killPass = true;
+        } else {
+            echo "GOLDEN TEST KILL (SKU-CABLE-002): FAIL — expected tier=KILL, got {$sku->tier}.\n";
+        }
+    }
+
+    if ($code === 'SKU-PEND-001') {
+        $gateMap = [];
+        foreach ($results['gates'] as $gate) {
+            $gateMap[$gate['gate']] = $gate;
+        }
+        $g1Ok = isset($gateMap['G1_BASIC_INFO']) && $gateMap['G1_BASIC_INFO']['passed'];
+        $g2Ok = (isset($gateMap['G2_INTENT']) && $gateMap['G2_INTENT']['passed'])
+            || (isset($gateMap['G2_IMAGES']) && $gateMap['G2_IMAGES']['passed']);
+        $g6Ok = (isset($gateMap['G6_COMMERCIAL']) && $gateMap['G6_COMMERCIAL']['passed'])
+            || (isset($gateMap['G6_COMMERCIAL_POLICY']) && $gateMap['G6_COMMERCIAL_POLICY']['passed']);
+        $g4Suspended = isset($gateMap['G4_ANSWER_BLOCK'])
+            && $gateMap['G4_ANSWER_BLOCK']['passed']
+            && str_contains($gateMap['G4_ANSWER_BLOCK']['reason'], 'Suspended');
+
+        if ($g1Ok && $g2Ok && $g6Ok && $g4Suspended) {
+            echo "GOLDEN TEST HARVEST (SKU-PEND-001): PASS — G1/G2/G6 active, G4 suspended for Harvest tier.\n";
+            $harvestPass = true;
+        } else {
+            echo "GOLDEN TEST HARVEST (SKU-PEND-001): FAIL — expected G1/G2/G6 active and G4 suspended.\n";
+        }
+    }
     
     echo "-----------------------------------\n";
 }
-echo "Verification complete.\n";
+
+echo "Golden SKU verification complete.\n";
+
+if (!($heroPass && $killPass && $harvestPass)) {
+    echo "GOLDEN TEST SUMMARY: FAIL\n";
+    exit(1);
+}
+
+echo "GOLDEN TEST SUMMARY: PASS\n";

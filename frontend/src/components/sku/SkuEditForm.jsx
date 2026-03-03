@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { skuApi } from '../../services/api';
 import ValidationPanel from './ValidationPanel';
+import TierLockBanner from './TierLockBanner';
 
 const DEMO_SKU = {
     id: 1,
@@ -92,9 +93,11 @@ const SkuEditForm = () => {
     if (loading) return <div className="loading-spinner">Loading SKU...</div>;
     if (!sku) return <div className="loading-spinner">SKU not found</div>;
 
+    const isKillTier = String(sku.tier || '').trim().toLowerCase() === 'kill';
+
     return (
         <div className="sku-edit-container">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px' }}>
                 <button className="btn btn-secondary btn-sm" onClick={() => navigate('/skus')}>
                     ← Back
                 </button>
@@ -102,6 +105,12 @@ const SkuEditForm = () => {
                 <span className={`badge tier-${sku.tier}`}>{sku.tier}</span>
                 <span className={`status-badge ${sku.validation_status}`}>{sku.validation_status}</span>
             </div>
+
+            {isKillTier && (
+                <div style={{ marginBottom: '16px' }}>
+                    <TierLockBanner />
+                </div>
+            )}
 
             {message && (
                 <div className={message.type === 'success' ? 'error-message' : 'error-message'}
@@ -120,16 +129,31 @@ const SkuEditForm = () => {
                         </div>
                         <div className="form-group">
                             <label>Brand</label>
-                            <input type="text" value={sku.brand || ''} onChange={e => setSku({ ...sku, brand: e.target.value })} />
+                            <input
+                                type="text"
+                                value={sku.brand || ''}
+                                onChange={e => setSku({ ...sku, brand: e.target.value })}
+                                disabled={isKillTier}
+                            />
                         </div>
                     </div>
                     <div className="form-group">
                         <label>Title</label>
-                        <input type="text" value={sku.title} onChange={e => setSku({ ...sku, title: e.target.value })} />
+                            <input
+                                type="text"
+                                value={sku.title}
+                                onChange={e => setSku({ ...sku, title: e.target.value })}
+                                disabled={isKillTier}
+                            />
                     </div>
                     <div className="form-group">
                         <label>Category</label>
-                        <input type="text" value={sku.category || ''} onChange={e => setSku({ ...sku, category: e.target.value })} />
+                            <input
+                                type="text"
+                                value={sku.category || ''}
+                                onChange={e => setSku({ ...sku, category: e.target.value })}
+                                disabled={isKillTier}
+                            />
                     </div>
                 </div>
 
@@ -137,15 +161,29 @@ const SkuEditForm = () => {
                     <div className="card-title">Content</div>
                     <div className="form-group">
                         <label>Short Description</label>
-                        <input type="text" value={sku.short_description || ''} onChange={e => setSku({ ...sku, short_description: e.target.value })} />
+                        <input
+                            type="text"
+                            value={sku.short_description || ''}
+                            onChange={e => setSku({ ...sku, short_description: e.target.value })}
+                            disabled={isKillTier}
+                        />
                     </div>
                     <div className="form-group">
                         <label>Long Description</label>
-                        <textarea value={sku.long_description || ''} onChange={e => setSku({ ...sku, long_description: e.target.value })} />
+                        <textarea
+                            value={sku.long_description || ''}
+                            onChange={e => setSku({ ...sku, long_description: e.target.value })}
+                            disabled={isKillTier}
+                        />
                     </div>
                     <div className="form-group">
                         <label>SEO Keywords</label>
-                        <input type="text" value={sku.seo_keywords || ''} onChange={e => setSku({ ...sku, seo_keywords: e.target.value })} />
+                        <input
+                            type="text"
+                            value={sku.seo_keywords || ''}
+                            onChange={e => setSku({ ...sku, seo_keywords: e.target.value })}
+                            disabled={isKillTier}
+                        />
                     </div>
                 </div>
 
@@ -154,11 +192,22 @@ const SkuEditForm = () => {
                     <div className="form-row">
                         <div className="form-group">
                             <label>Margin (%)</label>
-                            <input type="number" step="0.1" value={sku.margin || ''} onChange={e => setSku({ ...sku, margin: parseFloat(e.target.value) })} />
+                            <input
+                                type="number"
+                                step="0.1"
+                                value={sku.margin || ''}
+                                onChange={e => setSku({ ...sku, margin: parseFloat(e.target.value) })}
+                                disabled={isKillTier}
+                            />
                         </div>
                         <div className="form-group">
                             <label>Volume</label>
-                            <input type="number" value={sku.volume || ''} onChange={e => setSku({ ...sku, volume: parseInt(e.target.value) })} />
+                            <input
+                                type="number"
+                                value={sku.volume || ''}
+                                onChange={e => setSku({ ...sku, volume: parseInt(e.target.value) })}
+                                disabled={isKillTier}
+                            />
                         </div>
                     </div>
                     <div className="form-row">
@@ -174,9 +223,11 @@ const SkuEditForm = () => {
                 </div>
 
                 <div className="actions">
-                    <button type="submit" className="btn btn-primary" disabled={saving}>
-                        {saving ? 'Saving...' : '💾 Save Changes'}
-                    </button>
+                    {!isKillTier && (
+                        <button type="submit" className="btn btn-primary" disabled={saving}>
+                            {saving ? 'Saving...' : '💾 Save Changes'}
+                        </button>
+                    )}
                     <button type="button" className="btn btn-secondary" onClick={handleValidate} disabled={validating}>
                         {validating ? 'Validating...' : '🔬 Run AI Validation'}
                     </button>

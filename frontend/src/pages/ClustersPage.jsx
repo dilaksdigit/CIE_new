@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import {
     ReadinessBar,
     SectionTitle
 } from '../components/common/UIComponents';
 import { clusterApi } from '../services/api';
-import useStore from '../store';
+import { AppContext } from '../App';
 
 const Clusters = () => {
     const [clusters, setClusters] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const { addNotification } = useStore();
+    const { addNotification } = useContext(AppContext);
 
     useEffect(() => {
         const fetchClusters = async () => {

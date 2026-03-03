@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 1
+import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import useStore from '../../store/index';
+import { AppContext } from '../../App';
 import { authApi } from '../../services/api';
 import { getHomeForRole } from '../../lib/authRouting';
 
@@ -13,7 +14,7 @@ const Login = () => {
 
     const navigate = useNavigate();
     const location = useLocation();
-    const setLogin = useStore((state) => state.login);
+    const { login } = useContext(AppContext);
 
     useEffect(() => {
         if (location.state?.message) {
@@ -33,7 +34,7 @@ const Login = () => {
                 setError('Invalid credentials. Please try again.');
                 return;
             }
-            setLogin(user, token);
+            login(user, token);
             navigate(getHomeForRole(user), { replace: true });
         } catch (err) {
             setError('Invalid credentials. Please try again.');
@@ -103,13 +104,6 @@ const Login = () => {
                         {loading ? 'Signing in...' : 'Sign in'}
                     </button>
                 </form>
-
-                <div style={{ marginTop: 18, textAlign: 'center', fontSize: '0.9rem', color: 'var(--text-dim)' }}>
-                    Don&apos;t have an account?{' '}
-                    <Link to="/register" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 500 }}>
-                        Sign up
-                    </Link>
-                </div>
             </div>
         </div>
     );

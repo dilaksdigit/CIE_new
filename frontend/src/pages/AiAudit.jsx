@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
 import {
     StatCard,
     TrendLine,
@@ -6,52 +6,16 @@ import {
     SectionTitle
 } from '../components/common/UIComponents';
 import { auditApi, auditResultApi } from '../services/api';
-import useStore from '../store';
+import { AppContext } from '../App';
 import { canRunAIAudit } from '../lib/rbac';
-
-const COLORS = {
-  bg: "#FAFAF8",
-  surface: "#FFFFFF",
-  muted: "#F5F4F1",
-  border: "#E5E3DE",
-  text: "#2D2B28",
-  textMid: "#6B6860",
-  textLight: "#9B978F",
-  accent: "#5B7A3A",
-  accentLight: "#EEF2E8",
-  accentBorder: "#C5D4B0",
-  hero: "#8B6914",
-  heroBg: "#FDF6E3",
-  heroBorder: "#E8D5A0",
-  support: "#3D6B8E",
-  supportBg: "#EBF3F9",
-  supportBorder: "#B5D0E3",
-  harvest: "#9E7C1A",
-  harvestBg: "#FFF8E7",
-  harvestBorder: "#E8D49A",
-  kill: "#A63D2F",
-  killBg: "#FDEEEB",
-  killBorder: "#E5B5AD",
-  green: "#2E7D32",
-  greenBg: "#E8F5E9",
-  greenBorder: "#A5D6A7",
-  red: "#C62828",
-  redBg: "#FFEBEE",
-  redBorder: "#EF9A9A",
-  amber: "#E65100",
-  amberBg: "#FFFDE7",
-  amberBorder: "#FFCC80",
-  blue: "#1565C0",
-  blueBg: "#E3F2FD",
-  blueBorder: "#90CAF9",
-};
+import THEME from '../theme';
 
 const AiAudit = () => {
     const [auditScores, setAuditScores] = useState([]);
     const [decayAlerts, setDecayAlerts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const { user, addNotification } = useStore();
+    const { user, addNotification } = useContext(AppContext);
     const canRunAudit = canRunAIAudit(user);
 
     const fetchDecayAlerts = useCallback(async () => {
@@ -122,10 +86,10 @@ const AiAudit = () => {
                 <div className="flex gap-20 flex-wrap">
                     <div style={{ flex: 1, minWidth: 300 }}>
                         {[
-                            { cat: "Cables", data: auditScores.map(s => s.cables), color: COLORS.hero },
-                            { cat: "Pendants", data: auditScores.map(s => s.pendants), color: COLORS.harvest },
-                            { cat: "Bulbs", data: auditScores.map(s => s.bulbs), color: COLORS.accent },
-                            { cat: "Lampshades", data: auditScores.map(s => s.lampshades), color: COLORS.support },
+                            { cat: "Cables", data: auditScores.map(s => s.cables), color: THEME.hero },
+                            { cat: "Pendants", data: auditScores.map(s => s.pendants), color: THEME.harvest },
+                            { cat: "Bulbs", data: auditScores.map(s => s.bulbs), color: THEME.accent },
+                            { cat: "Lampshades", data: auditScores.map(s => s.lampshades), color: THEME.support },
                         ].filter(line => line.data.length > 0).map(line => (
                             <div key={line.cat} className="mb-12">
                                 <div className="flex items-center gap-8 mb-4">
@@ -152,14 +116,14 @@ const AiAudit = () => {
                         <div key={alert.sku_id || alert.sku_code} className="flex items-center justify-between" style={{ padding: "12px 0", borderBottom: '1px solid var(--border-light)' }}>
                             <div>
                                 <div className="flex items-center gap-8">
-                                    <span style={{ fontSize: "0.55rem", padding: "2px 6px", background: COLORS.redBg, border: `1px solid ${COLORS.redBorder}`, borderRadius: 3, color: COLORS.red, fontWeight: 700 }}>WEEK {alert.consecutive_zero_weeks ?? alert.weeks ?? 0}</span>
+                                    <span style={{ fontSize: "0.55rem", padding: "2px 6px", background: THEME.redBg, border: `1px solid ${THEME.redBorder}`, borderRadius: 3, color: THEME.red, fontWeight: 700 }}>WEEK {alert.consecutive_zero_weeks ?? alert.weeks ?? 0}</span>
                                     <span style={{ fontSize: "0.80rem", fontWeight: 600, color: "var(--text)", fontFamily: "var(--mono)" }}>{alert.sku_code ?? alert.sku}</span>
                                     <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{alert.title ?? alert.name}</span>
                                 </div>
                             </div>
                             <span style={{
                                 fontSize: "0.58rem", padding: "2px 8px", borderRadius: 3, fontWeight: 700, textTransform: 'uppercase',
-                                background: COLORS.amberBg, color: COLORS.amber, border: `1px solid ${COLORS.amberBorder}`,
+                                background: THEME.amberBg, color: THEME.amber, border: `1px solid ${THEME.amberBorder}`,
                             }}>{alert.decay_status ?? alert.status ?? '—'}</span>
                         </div>
                     ))

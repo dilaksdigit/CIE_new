@@ -53,8 +53,6 @@ INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 (UUID(), 'content.description_vector_min_length', '100', 'integer', 'Min long description length for vector validation'),
 (UUID(), 'validation.http_fail_status', '400', 'integer', 'HTTP status when validation fails with blocking errors'),
 (UUID(), 'audit_log.immutable', 'true', 'boolean', 'Audit log allows no UPDATE/DELETE'),
-(UUID(), 'business_rules.cache_ttl_seconds', '300', 'integer', 'Cache TTL for business rules'),
-(UUID(), 'seed.version', '2.3.2', 'string', 'Business rules seed version'),
 (UUID(), 'harvest.intent_primary_allowed', 'specification', 'string', 'Harvest: primary intent must be specification'),
 (UUID(), 'harvest.intent_secondary_max', '1', 'integer', 'Harvest: max one additional intent')
 ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP;

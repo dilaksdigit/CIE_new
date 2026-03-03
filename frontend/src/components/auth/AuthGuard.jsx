@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import useStore from '../../store/index';
+import { AppContext } from '../../App';
 import { getHomeForRole, isPathAllowedForUser } from '../../lib/authRouting';
 
 /**
@@ -9,8 +9,7 @@ import { getHomeForRole, isPathAllowedForUser } from '../../lib/authRouting';
  */
 export default function AuthGuard({ children }) {
     const location = useLocation();
-    const user = useStore((state) => state.user);
-    const token = useStore((state) => state.token);
+    const { user, token } = useContext(AppContext);
     const isAuthenticated = !!token;
 
     if (!isAuthenticated || !user) {

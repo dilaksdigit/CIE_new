@@ -1,3 +1,10 @@
+// SOURCE: CIE_v231_Developer_Build_Pack.pdf — RBAC & Permissions Matrix
+//         (All 8 roles: ADMIN, SEO_GOVERNOR, CONTENT_EDITOR, CONTENT_LEAD,
+//          PRODUCT_SPECIALIST, CHANNEL_MANAGER, FINANCE, AI_OPS)
+// SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §3.1 — RBAC Code box
+//         ("existing RBAC middleware with all 8 roles stays in code UNCHANGED")
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx §1.4 — Role definitions
+
 /**
  * Role-Based Access Control (RBAC) — CIE 3.1 / 3.2 Permission Matrix
  * No superuser bypass. Content editors CANNOT override validation gate failures.

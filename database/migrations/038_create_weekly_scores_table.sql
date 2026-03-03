@@ -7,3 +7,6 @@ CREATE TABLE weekly_scores (
     CONSTRAINT chk_weekly_scores_score_range CHECK (score BETWEEN 1 AND 10),
     UNIQUE KEY uniq_week_start (week_start)
 );
+
+
+

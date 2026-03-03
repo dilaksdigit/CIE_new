@@ -1,43 +1,9 @@
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 6
 import React from 'react';
 
 // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §1.5
 // SOURCE: CIE_v232_Writer_View.jsx C object
-const C = {
-  bg: "#FAFAF8",
-  surface: "#FFFFFF",
-  muted: "#F5F4F1",
-  border: "#E5E3DE",
-  text: "#2D2B28",
-  textMid: "#6B6860",
-  textLight: "#9B978F",
-  accent: "#5B7A3A",
-  accentLight: "#EEF2E8",
-  accentBorder: "#C5D4B0",
-  hero: "#8B6914",
-  heroBg: "#FDF6E3",
-  heroBorder: "#E8D5A0",
-  support: "#3D6B8E",
-  supportBg: "#EBF3F9",
-  supportBorder: "#B5D0E3",
-  harvest: "#9E7C1A",
-  harvestBg: "#FFF8E7",
-  harvestBorder: "#E8D49A",
-  kill: "#A63D2F",
-  killBg: "#FDEEEB",
-  killBorder: "#E5B5AD",
-  green: "#2E7D32",
-  greenBg: "#E8F5E9",
-  greenBorder: "#A5D6A7",
-  red: "#C62828",
-  redBg: "#FFEBEE",
-  redBorder: "#EF9A9A",
-  amber: "#E65100",
-  amberBg: "#FFFDE7",
-  amberBorder: "#FFCC80",
-  blue: "#1565C0",
-  blueBg: "#E3F2FD",
-  blueBorder: "#90CAF9",
-};
+import THEME from '../../theme';
 
 // ─── TIER BADGE ─────────────────────────────────────
 export const TierBadge = ({ tier, size = 'sm' }) => (
@@ -49,7 +15,7 @@ export const TierBadge = ({ tier, size = 'sm' }) => (
 // ─── GATE CHIP ──────────────────────────────────────
 export const GateChip = ({ id, pass, compact }) => (
     <span className={`gate-chip ${pass ? 'pass' : 'fail'} ${compact ? 'compact' : ''}`}>
-        <span className="check">{pass ? '✓' : '✗'}</span> {id}
+        <span className="check">{pass ? '✓' : '✗'}</span>
     </span>
 );
 
@@ -60,13 +26,18 @@ export const TrafficLight = ({ value }) => {
 };
 
 // ─── ROLE BADGE ─────────────────────────────────────
+// Phase 0 Check 0.3/0.4: display labels per spec — CONTENT_EDITOR/PRODUCT_SPECIALIST → Content Writer; CONTENT_LEAD/SEO_GOVERNOR → KPI Reviewer; ADMIN → Admin
 const roleLabel = (r) => {
     if (!r) return '';
-    const s = String(r).trim();
-    return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const s = String(r).trim().toLowerCase().replace(/-/g, '_');
+    if (s === 'content_editor' || s === 'product_specialist') return 'Content Writer';
+    if (s === 'content_lead' || s === 'seo_governor') return 'KPI Reviewer';
+    if (s === 'admin') return 'Admin';
+    return String(r).trim().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 };
+export { roleLabel };
 export const RoleBadge = ({ role }) => {
-    const normalized = role ? String(role).toLowerCase().replace(/\s+/g, '_') : '';
+    const normalized = role ? String(role).toLowerCase().replace(/\s+/g, '_').replace(/-/g, '_') : '';
     return (
         <span className={`role-badge ${normalized}`} title={role}>
             {roleLabel(role)}
@@ -132,19 +103,32 @@ export const DonutChart = ({ segments, size = 100, strokeWidth = 12 }) => {
 
 // ─── TREND LINE ─────────────────────────────────────
 export const TrendLine = ({ data, width = 300, height = 60, color = 'var(--accent)' }) => {
-    const max = Math.max(...data);
-    const min = Math.min(...data) * 0.8;
-    const points = data.map((v, i) => {
-        const x = (i / (data.length - 1)) * width;
-        const y = height - ((v - min) / (max - min)) * height;
+    const values = Array.isArray(data) ? data.map((v) => Number(v)).filter((v) => Number.isFinite(v)) : [];
+
+    // Nothing to plot
+    if (values.length === 0) {
+        return <svg width={width} height={height} style={{ display: 'block' }} />;
+    }
+
+    const max = Math.max(...values);
+    const rawMin = Math.min(...values);
+    const min = rawMin * 0.8;
+    const span = max - min || 1; // avoid division by zero when max === min
+
+    const denom = (values.length - 1) || 1; // avoid division by zero when only one point
+
+    const points = values.map((v, i) => {
+        const x = (i / denom) * width;
+        const y = height - ((v - min) / span) * height;
         return `${x},${y}`;
     }).join(' ');
+
     return (
         <svg width={width} height={height} style={{ display: 'block' }}>
             <polyline points={points} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-            {data.map((v, i) => {
-                const x = (i / (data.length - 1)) * width;
-                const y = height - ((v - min) / (max - min)) * height;
+            {values.map((v, i) => {
+                const x = (i / denom) * width;
+                const y = height - ((v - min) / span) * height;
                 return <circle key={i} cx={x} cy={y} r={3} fill={color} />;
             })}
         </svg>
@@ -176,12 +160,12 @@ export const MiniBarChart = ({ data, width = 240, height = 80 }) => {
 
 // ─── CHANNEL BADGE ──────────────────────────────────
 export const ChannelBadge = ({ channel }) => {
-    const map = { Amazon: C.hero, eBay: C.accent, Shopify: C.support, Website: C.textMid };
+    const map = { Amazon: THEME.hero, eBay: THEME.accent, Shopify: THEME.support, Website: THEME.textMid };
     const bg = map[channel] || 'var(--text-muted)';
     return (
         <span style={{
             display: 'inline-flex', padding: '2px 9px', borderRadius: 3,
-            background: bg, color: C.surface, fontSize: '0.6rem', fontWeight: 700,
+            background: bg, color: THEME.surface, fontSize: '0.6rem', fontWeight: 700,
             letterSpacing: '0.04em', textTransform: 'uppercase',
         }}>{channel}</span>
     );
@@ -194,7 +178,7 @@ export const GATES = [
     { id: 'G4', label: 'Answer Block', desc: '250-300 char answer' },
     { id: 'G5', label: 'Best/Not-For', desc: 'Use case guidance' },
     { id: 'G6', label: 'Description', desc: 'Full product description' },
-    { id: 'G6.1', label: 'Tier Fields', desc: 'Tier-gated content' },
+    { id: 'tier_fields', label: 'Tier Fields', desc: 'Tier-gated content' },
     { id: 'G7', label: 'Authority', desc: 'Expert authority block' },
     { id: 'VEC', label: 'Vector', desc: '≥0.72 similarity' },
 ];

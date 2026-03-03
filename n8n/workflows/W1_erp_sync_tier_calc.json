@@ -1,0 +1,303 @@
+{
+  "name": "W1 ERP Sync Tier Calc",
+  "id": "W1_erp_sync_tier_calc",
+  "nodes": [
+    {
+      "id": "Cron_ERP",
+      "name": "Cron ERP Daily 02:00 UTC",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [260, 300],
+      "parameters": {
+        "triggerTimes": [
+          {
+            "mode": "everyDay",
+            "hour": 2,
+            "minute": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "HTTP_ERP_GET_1",
+      "name": "HTTP GET ERP (1)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [540, 220],
+      "parameters": {
+        "method": "GET",
+        "url": "https://erp.example.com/api/cie/export",
+        "responseFormat": "json",
+        "options": {
+          "timeout": 30000
+        }
+      }
+    },
+    {
+      "id": "IF_ERP_1_OK",
+      "name": "ERP 1 OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [800, 220],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json[\"statusCode\"] || $json[\"status\"] || 200}}",
+              "operation": "smallerOrEqual",
+              "value2": 299
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "Wait_ERP_30",
+      "name": "Wait 30s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [800, 360],
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "HTTP_ERP_GET_2",
+      "name": "HTTP GET ERP (2)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1040, 360],
+      "parameters": {
+        "method": "GET",
+        "url": "https://erp.example.com/api/cie/export",
+        "responseFormat": "json",
+        "options": {
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "IF_ERP_2_OK",
+      "name": "ERP 2 OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1300, 360],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json[\"statusCode\"] || $json[\"status\"] || 200}}",
+              "operation": "smallerOrEqual",
+              "value2": 299
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "Wait_ERP_60",
+      "name": "Wait 60s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1300, 500],
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "HTTP_ERP_GET_3",
+      "name": "HTTP GET ERP (3)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1540, 500],
+      "parameters": {
+        "method": "GET",
+        "url": "https://erp.example.com/api/cie/export",
+        "responseFormat": "json",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "IF_ERP_3_OK",
+      "name": "ERP 3 OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1800, 500],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json[\"statusCode\"] || $json[\"status\"] || 200}}",
+              "operation": "smallerOrEqual",
+              "value2": 299
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "HTTP_ERP_SYNC",
+      "name": "POST /api/v1/erp/sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1080, 80],
+      "parameters": {
+        "method": "POST",
+        "url": "https://cie-api.example.com/api/v1/erp/sync",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 60000
+        },
+        "bodyParametersJson": "={{$json[\"data\"] || $json}}"
+      }
+    },
+    {
+      "id": "HTTP_SYNC_FAILED",
+      "name": "POST /api/admin/sync-failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [2060, 640],
+      "parameters": {
+        "method": "POST",
+        "url": "https://cie-api.example.com/api/admin/sync-failed",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 30000
+        },
+        "bodyParametersJson": "={\"workflow\":\"W1_erp_sync_tier_calc\",\"reason\":\"ERP sync failed after 3 attempts\"}"
+      }
+    }
+  ],
+  "connections": {
+    "Cron ERP Daily 02:00 UTC": {
+      "main": [
+        [
+          {
+            "node": "HTTP GET ERP (1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP GET ERP (1)": {
+      "main": [
+        [
+          {
+            "node": "ERP 1 OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ERP 1 OK?": {
+      "main": [
+        [
+          {
+            "node": "POST /api/v1/erp/sync",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 30s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30s": {
+      "main": [
+        [
+          {
+            "node": "HTTP GET ERP (2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP GET ERP (2)": {
+      "main": [
+        [
+          {
+            "node": "ERP 2 OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ERP 2 OK?": {
+      "main": [
+        [
+          {
+            "node": "POST /api/v1/erp/sync",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 60s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 60s": {
+      "main": [
+        [
+          {
+            "node": "HTTP GET ERP (3)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP GET ERP (3)": {
+      "main": [
+        [
+          {
+            "node": "ERP 3 OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ERP 3 OK?": {
+      "main": [
+        [
+          {
+            "node": "POST /api/v1/erp/sync",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "POST /api/admin/sync-failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "w1-erp-sync-tier-calc-v1"
+}
+

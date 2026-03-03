@@ -3,7 +3,7 @@ import { TierBadge } from '../components/common/UIComponents';
 
 const Briefs = () => {
     const briefItems = [
-        { label: "Missing Fields", content: "Title (G2), Tier Fields (G6.1), Authority (G7)" },
+        { label: "Missing Fields", content: "Title, Tier Fields, Authority" },
         { label: "Effort Cap", content: "45 minutes (Support tier)" },
         { label: "Intent Focus", content: "Compatibility — address fitting types and wattage equivalence" },
         { label: "Comparison Anchors", content: "vs Philips LED E27 8W, vs OSRAM E27 8.5W" },

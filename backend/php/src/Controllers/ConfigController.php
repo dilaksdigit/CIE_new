@@ -6,7 +6,6 @@ use App\Support\BusinessRules;
 use App\Utils\ResponseFormatter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Schema;
 
 /**
  * CIE config API — GET/PUT system configuration (gate thresholds, tier weights, etc.).
@@ -14,58 +13,57 @@ use Illuminate\Support\Facades\Schema;
  */
 class ConfigController
 {
+    private const HTTP_BAD_REQUEST = 400;
+    private const DIR_PERMISSION   = 0755;
+
     private function configPath(): string
     {
         return storage_path('app/cie_config.json');
     }
 
+    /**
+     * Every value from BusinessRules::get(rule_key, fallback). No raw numbers outside get() (Phase 0 Check 0.1).
+     */
     private function defaultConfig(): array
     {
         return [
             'gate_thresholds' => [
-                'answer_block_min' => 250,
-                'answer_block_max' => 300,
-                'title_max_length' => 250,
-                'vector_threshold' => 0.72,
-                'title_intent_min' => 20,
+                'answer_block_min' => (int) BusinessRules::get('g4.answer_block_min', 250),
+                'answer_block_max' => (int) BusinessRules::get('g4.answer_block_max', 300),
+                'title_max_length' => (int) BusinessRules::get('content.title_max_length', 250),
+                'vector_threshold' => (float) BusinessRules::get('gates.vector_similarity_min', 0.72),
+                'title_intent_min' => (int) BusinessRules::get('content.title_intent_min', 20),
             ],
             'tier_score_weights' => [
-                'margin_weight' => 0.30,
-                'velocity_weight' => 0.30,
-                'return_rate_weight' => 0.20,
-                'margin_rank_weight' => 0.20,
-                'hero_threshold' => 75,
+                'margin_weight' => (float) BusinessRules::get('tier.margin_weight', 0.40),
+                'velocity_weight' => (float) BusinessRules::get('tier.velocity_weight', 0.20),
+                'return_rate_weight' => (float) BusinessRules::get('tier.returns_weight', 0.15),
+                'margin_rank_weight' => (float) BusinessRules::get('tier.margin_rank_weight', 0.20),
+                'hero_threshold' => (int) BusinessRules::get('readiness.hero_primary_threshold', 85),
             ],
             'channel_thresholds' => [
-                'hero_compete_min' => 85,
-                'support_compete_min' => 70,
-                'harvest' => 'Excluded',
-                'kill' => 'Excluded',
-                'feed_regen_time' => '02:00',
+                'hero_compete_min' => (int) BusinessRules::get('readiness.hero_primary_threshold', 85),
+                'support_compete_min' => (int) BusinessRules::get('readiness.hero_all_channels_threshold', 70),
+                'harvest' => (string) BusinessRules::get('channel.harvest_label', 'Excluded'),
+                'kill' => (string) BusinessRules::get('channel.kill_label', 'Excluded'),
+                'feed_regen_time' => (string) BusinessRules::get('audit.feed_regen_time_utc', '02:00'),
             ],
             'audit_settings' => [
-                'audit_day' => 'Monday',
-                'audit_time' => '06:00',
-                'questions_per_category' => 20,
-                'engines' => 4,
-                'decay_trigger' => 'Week 3',
+                'audit_day' => (string) BusinessRules::get('audit.weekly_day', 'Monday'),
+                'audit_time' => (string) BusinessRules::get('audit.weekly_time_utc', '09:00'),
+                'questions_per_category' => (int) BusinessRules::get('audit.questions_per_category', 20),
+                'engines' => (int) BusinessRules::get('audit.engines_count', 4),
+                'decay_trigger' => (string) BusinessRules::get('audit.decay_trigger_label', 'Week 3'),
             ],
         ];
     }
 
     /**
-     * GET /api/config — vector_threshold and tier weights from BusinessRules when table exists.
+     * GET /api/config — all values from BusinessRules (no hard-coded config).
      */
     public function index()
     {
         $merged = $this->defaultConfig();
-        if (Schema::hasTable('business_rules')) {
-            try {
-                $merged['gate_thresholds']['vector_threshold'] = (float) BusinessRules::get('gates.vector_similarity_min', 0.72);
-            } catch (\Throwable $e) {
-                // keep default
-            }
-        }
         $path = $this->configPath();
         if (File::exists($path)) {
             $json = File::get($path);
@@ -84,14 +82,14 @@ class ConfigController
     {
         $payload = $request->all();
         if (!is_array($payload)) {
-            return ResponseFormatter::error('Invalid config payload', 400);
+            return ResponseFormatter::error('Invalid config payload', self::HTTP_BAD_REQUEST);
         }
         $defaults = $this->defaultConfig();
         $merged = array_replace_recursive($defaults, $payload);
         $path = $this->configPath();
         $dir = dirname($path);
         if (!File::isDirectory($dir)) {
-            File::makeDirectory($dir, 0755, true);
+            File::makeDirectory($dir, self::DIR_PERMISSION, true);
         }
         File::put($path, json_encode($merged, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         return ResponseFormatter::format($merged);

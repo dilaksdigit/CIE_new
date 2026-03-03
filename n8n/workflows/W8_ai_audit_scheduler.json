@@ -1,0 +1,196 @@
+{
+  "name": "W8 AI Audit Scheduler",
+  "id": "W8_ai_audit_scheduler",
+  "nodes": [
+    {
+      "id": "Cron_Audit",
+      "name": "Cron Weekly Mon 09:00 UTC",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [260, 300],
+      "parameters": {
+        "triggerTimes": [
+          {
+            "mode": "everyWeek",
+            "weekday": "monday",
+            "hour": 9,
+            "minute": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "HTTP_Load_Questions",
+      "name": "PHP load questions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [540, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "https://cie-api.example.com/api/audit/questions",
+        "responseFormat": "json",
+        "options": {
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "Split_Questions",
+      "name": "For each question",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [800, 300],
+      "parameters": {
+        "batchSize": 1
+      }
+    },
+    {
+      "id": "HTTP_AI_API",
+      "name": "AI API call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1060, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://ai.example.com/audit",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 120000
+        },
+        "bodyParametersJson": "={{$json}}"
+      }
+    },
+    {
+      "id": "HTTP_Audit_Store",
+      "name": "PHP score + store",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1320, 240],
+      "parameters": {
+        "method": "POST",
+        "url": "https://cie-api.example.com/api/audit/store",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 60000
+        },
+        "bodyParametersJson": "={{$json}}"
+      }
+    },
+    {
+      "id": "HTTP_Audit_Alert",
+      "name": "Alert on failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1320, 420],
+      "parameters": {
+        "method": "POST",
+        "url": "https://alerts.example.com/errors",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 30000
+        },
+        "bodyParametersJson": "={{ {\"workflow\":\"W8_ai_audit_scheduler\",\"message\":\"Audit item failed\"} }}"
+      }
+    },
+    {
+      "id": "IF_Audit_Store_OK",
+      "name": "Store OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1580, 300],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json[\"statusCode\"] || 200}}",
+              "operation": "smallerOrEqual",
+              "value2": 299
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron Weekly Mon 09:00 UTC": {
+      "main": [
+        [
+          {
+            "node": "PHP load questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PHP load questions": {
+      "main": [
+        [
+          {
+            "node": "For each question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "For each question": {
+      "main": [
+        [
+          {
+            "node": "AI API call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI API call": {
+      "main": [
+        [
+          {
+            "node": "PHP score + store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PHP score + store": {
+      "main": [
+        [
+          {
+            "node": "Store OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store OK?": {
+      "main": [
+        [
+          {
+            "node": "For each question",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Alert on failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "w8-ai-audit-scheduler-v1"
+}
+

@@ -1,5 +1,5 @@
 -- CIE v2.3.2 – business_rules table for configurable thresholds (no hard-coded values in engine).
--- All 52 rules seeded in 040_seed_business_rules.sql.
+-- All 53 rules seeded in 040_seed_business_rules.sql.
 
 CREATE TABLE IF NOT EXISTS business_rules (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),

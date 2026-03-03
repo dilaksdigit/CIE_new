@@ -68,11 +68,17 @@ class SkuController {
 
     public function show($id) {
         $sku = Sku::with(['primaryCluster', 'skuIntents.intent'])->findOrFail($id);
-        
+
         // Patch 6: Tier-mode UX Copy & Banners
+        $validation = $sku->validation_status;
+        $tierString = is_string($sku->tier) ? strtoupper(trim($sku->tier)) : (string) $sku->tier;
+        $isValid = $validation instanceof ValidationStatus
+            ? $validation === ValidationStatus::VALID
+            : strtoupper((string) ($validation ?? '')) === 'VALID';
+
         $meta = [
-            'tier_lock_reason' => $sku->validation_status === 'VALID' ? "Validated {$sku->tier->value} products have core fields locked for governance." : null,
-            'cms_banner' => $this->getTierBanner($sku->tier->value ?? 'SUPPORT'),
+            'tier_lock_reason' => $isValid ? "Validated {$tierString} products have core fields locked for governance." : null,
+            'cms_banner' => $this->getTierBanner($tierString ?: 'SUPPORT'),
             'field_tooltips' => [
                 'best_for' => "Min 2 required for Hero/Support (v2.3.2)",
                 'not_for' => "Min 1 required for all validated SKUs (v2.3.2)"
@@ -356,7 +362,15 @@ class SkuController {
             ->orderBy('title')
             ->get()
             ->map(function ($sku) {
-                $status = strtoupper((string) ($sku->validation_status ?? ''));
+                $rawStatus = $sku->validation_status;
+                if ($rawStatus instanceof ValidationStatus) {
+                    $status = strtoupper($rawStatus->value);
+                    $isValid = $rawStatus === ValidationStatus::VALID;
+                } else {
+                    $status = strtoupper((string) ($rawStatus ?? ''));
+                    $isValid = $status === 'VALID';
+                }
+
                 $tier = strtoupper((string) ($sku->tier ?? ''));
 
                 return [
@@ -364,7 +378,7 @@ class SkuController {
                     'sku_id' => (string) ($sku->sku_code ?? $sku->id),
                     'name' => (string) ($sku->title ?? 'Untitled'),
                     'tier' => $tier,
-                    'done' => $status === 'VALID',
+                    'done' => $isValid,
                     'status' => $status,
                     // Field-level completion currently not persisted per SKU in API v2.3.2.
                     // Keep stable keys so frontend can render progress safely.

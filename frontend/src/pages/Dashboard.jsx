@@ -1,3 +1,8 @@
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2.2 — Reviewer Dashboard Screen
+//         (Review Dashboard: maturity overview, AI audit summary, weekly KPI score)
+// SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §4.1 — Route Map /review/dashboard
+// SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §4.2 — Screen Map, REVIEWER view
+
 import React from 'react';
 import {
     StatCard,
@@ -9,43 +14,7 @@ import {
     GATES
 } from '../components/common/UIComponents';
 import { skuApi, dashboardApi } from '../services/api';
-
-const COLORS = {
-  bg: "#FAFAF8",
-  surface: "#FFFFFF",
-  muted: "#F5F4F1",
-  border: "#E5E3DE",
-  text: "#2D2B28",
-  textMid: "#6B6860",
-  textLight: "#9B978F",
-  accent: "#5B7A3A",
-  accentLight: "#EEF2E8",
-  accentBorder: "#C5D4B0",
-  hero: "#8B6914",
-  heroBg: "#FDF6E3",
-  heroBorder: "#E8D5A0",
-  support: "#3D6B8E",
-  supportBg: "#EBF3F9",
-  supportBorder: "#B5D0E3",
-  harvest: "#9E7C1A",
-  harvestBg: "#FFF8E7",
-  harvestBorder: "#E8D49A",
-  kill: "#A63D2F",
-  killBg: "#FDEEEB",
-  killBorder: "#E5B5AD",
-  green: "#2E7D32",
-  greenBg: "#E8F5E9",
-  greenBorder: "#A5D6A7",
-  red: "#C62828",
-  redBg: "#FFEBEE",
-  redBorder: "#EF9A9A",
-  amber: "#E65100",
-  amberBg: "#FFFDE7",
-  amberBorder: "#FFCC80",
-  blue: "#1565C0",
-  blueBg: "#E3F2FD",
-  blueBorder: "#90CAF9",
-};
+import THEME from '../theme';
 
 const CHANNEL_LABELS = {
     own_website: 'Own Website',
@@ -57,9 +26,9 @@ const CHANNEL_LABELS = {
 const HEATMAP_CHANNELS = ['own_website', 'google_sge', 'amazon', 'ai_assistants'];
 
 const heatmapColor = (score) => {
-    if (score > 85) return COLORS.green;
-    if (score >= 60) return COLORS.amber;
-    return COLORS.red;
+    if (score > 85) return THEME.green;
+    if (score >= 60) return THEME.amber;
+    return THEME.red;
 };
 
 const Dashboard = () => {
@@ -208,10 +177,10 @@ const Dashboard = () => {
                     <SectionTitle sub="SKU count by commercial tier">Tier Distribution</SectionTitle>
                     <div className="flex gap-16 items-center">
                         <DonutChart size={110} strokeWidth={14} segments={[
-                            { value: skus.length > 0 ? (heroCount / skus.length) * 100 : 0, color: COLORS.hero },
-                            { value: skus.length > 0 ? (supportCount / skus.length) * 100 : 0, color: COLORS.support },
-                            { value: skus.length > 0 ? (harvestCount / skus.length) * 100 : 0, color: COLORS.harvest },
-                            { value: skus.length > 0 ? (killCount / skus.length) * 100 : 0, color: COLORS.kill },
+                            { value: skus.length > 0 ? (heroCount / skus.length) * 100 : 0, color: THEME.hero },
+                            { value: skus.length > 0 ? (supportCount / skus.length) * 100 : 0, color: THEME.support },
+                            { value: skus.length > 0 ? (harvestCount / skus.length) * 100 : 0, color: THEME.harvest },
+                            { value: skus.length > 0 ? (killCount / skus.length) * 100 : 0, color: THEME.kill },
                         ]} />
                         <div className="flex flex-col gap-8" style={{ flex: 1 }}>
                             {[
@@ -239,7 +208,7 @@ const Dashboard = () => {
                             <div className="flex gap-16 items-center">
                                 <DonutChart size={110} strokeWidth={14} segments={effortAllocation.by_tier.map(t => ({
                                     value: t.pct || 0,
-                                    color: COLORS[t.tier?.toLowerCase()] || COLORS.accent,
+                                    color: THEME[t.tier?.toLowerCase()] || THEME.accent,
                                 }))} />
                                 <div className="flex flex-col gap-6" style={{ flex: 1 }}>
                                     {effortAllocation.by_tier.map(t => (

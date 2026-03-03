@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { RoleBadge } from './UIComponents';
-import useStore from '../../store';
+import { AppContext } from '../../App';
 import { normalizeRole } from '../../lib/rbac';
 
 const NAV_BY_GROUP = {
@@ -20,9 +20,11 @@ const NAV_BY_GROUP = {
     admin: [
         { to: '/admin/clusters', icon: 'C', label: 'Clusters' },
         { to: '/admin/config', icon: 'S', label: 'Config' },
+        { to: '/admin/business-rules', icon: 'R', label: 'Business Rules' },
         { to: '/admin/tiers', icon: 'T', label: 'Tiers' },
         { to: '/admin/audit-trail', icon: 'A', label: 'Audit Trail' },
         { to: '/admin/bulk-ops', icon: 'B', label: 'Bulk Ops' },
+        { to: '/admin/semrush-import', icon: 'K', label: 'Semrush Import' },
         { to: '/review/dashboard', icon: 'D', label: 'Reviewer View' },
         { to: '/writer/queue', icon: 'Q', label: 'Writer View' },
         { to: '/help/flow', icon: '?', label: 'Help' },
@@ -38,7 +40,7 @@ const navGroupForRole = (role) => {
 
 const Sidebar = () => {
     const [collapsed, setCollapsed] = useState(false);
-    const { user, logout } = useStore();
+    const { user, logout } = useContext(AppContext);
     const navigate = useNavigate();
     const role = normalizeRole(user?.role);
     const navItems = NAV_BY_GROUP[navGroupForRole(role)];

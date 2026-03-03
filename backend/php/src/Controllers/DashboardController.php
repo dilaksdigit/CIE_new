@@ -75,17 +75,33 @@ class DashboardController
             return ResponseFormatter::format([]);
         }
 
-        $rows = DB::table('weekly_scores')
-            ->orderBy('week_start', 'desc')
-            ->limit(12)
-            ->get(['id', 'week_start', 'score', 'notes', 'created_at'])
-            ->map(function ($row) {
+        $hasNotes = false;
+        try {
+            $hasNotes = Schema::hasColumn('weekly_scores', 'notes');
+        } catch (\Throwable $e) {
+            $hasNotes = false;
+        }
+
+        $query = DB::table('weekly_scores')
+            ->orderBy('week', 'desc')
+            ->limit(12);
+
+        $columns = ['id', 'week', 'score', 'created_at', 'actor_id'];
+        if ($hasNotes) {
+            $columns[] = 'notes';
+        }
+
+        $rows = $query
+            ->get($columns)
+            ->map(function ($row) use ($hasNotes) {
                 return [
                     'id' => (int) $row->id,
-                    'week_start' => (string) $row->week_start,
+                    'week_start' => (string) $row->week,
                     'score' => (int) $row->score,
-                    'notes' => (string) ($row->notes ?? ''),
+                    'notes' => $hasNotes ? (string) ($row->notes ?? '') : '',
                     'created_at' => (string) $row->created_at,
+                    'actor_id' => $row->actor_id !== null ? (int) $row->actor_id : null,
+                    'actor_name' => null,
                 ];
             })
             ->values()
@@ -108,20 +124,54 @@ class DashboardController
             'score' => 'required|integer|min:1|max:10',
             'notes' => 'nullable|string|max:2000',
         ]);
-        $existing = DB::table('weekly_scores')->where('week_start', $data['week_start'])->first();
+
+        $actorId = auth()->id();
+
+        // Canonical schema uses "week" (VARCHAR) rather than "week_start" DATE.
+        $existing = DB::table('weekly_scores')->where('week', $data['week_start'])->first();
+        $hasNotes = false;
+        try {
+            $hasNotes = Schema::hasColumn('weekly_scores', 'notes');
+        } catch (\Throwable $e) {
+            $hasNotes = false;
+        }
+
         if ($existing) {
-            DB::table('weekly_scores')->where('id', $existing->id)->update([
+            $update = [
                 'score' => (int) $data['score'],
-                'notes' => $data['notes'] ?? null,
-            ]);
-            $row = (object) ['id' => $existing->id, 'week_start' => $data['week_start'], 'score' => (int) $data['score'], 'notes' => $data['notes'] ?? '', 'created_at' => $existing->created_at ?? now()];
-        } else {
-            $id = DB::table('weekly_scores')->insertGetId([
+                'actor_id' => $actorId,
+            ];
+            if ($hasNotes) {
+                $update['notes'] = $data['notes'] ?? null;
+            }
+            DB::table('weekly_scores')->where('id', $existing->id)->update($update);
+            $row = (object) [
+                'id' => $existing->id,
                 'week_start' => $data['week_start'],
                 'score' => (int) $data['score'],
-                'notes' => $data['notes'] ?? null,
-            ]);
-            $row = (object) ['id' => $id, 'week_start' => $data['week_start'], 'score' => (int) $data['score'], 'notes' => $data['notes'] ?? '', 'created_at' => now()];
+                'notes' => $data['notes'] ?? '',
+                'created_at' => $existing->created_at ?? now(),
+                'actor_id' => $actorId,
+            ];
+        } else {
+            $insert = [
+                'week' => $data['week_start'],
+                'score' => (int) $data['score'],
+                'user_id' => $actorId,
+                'actor_id' => $actorId,
+            ];
+            if ($hasNotes) {
+                $insert['notes'] = $data['notes'] ?? null;
+            }
+            $id = DB::table('weekly_scores')->insertGetId($insert);
+            $row = (object) [
+                'id' => $id,
+                'week_start' => $data['week_start'],
+                'score' => (int) $data['score'],
+                'notes' => $data['notes'] ?? '',
+                'created_at' => now(),
+                'actor_id' => $actorId,
+            ];
         }
         return ResponseFormatter::format([
             'id' => (int) $row->id,
@@ -129,6 +179,7 @@ class DashboardController
             'score' => (int) $row->score,
             'notes' => (string) ($row->notes ?? ''),
             'created_at' => (string) ($row->created_at ?? ''),
+            'actor_id' => $row->actor_id !== null ? (int) $row->actor_id : null,
         ], 'Saved', 201);
     }
 

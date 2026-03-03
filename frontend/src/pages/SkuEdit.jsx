@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     TierBadge,
@@ -10,7 +10,7 @@ import {
     GATES
 } from '../components/common/UIComponents';
 import { skuApi, clusterApi, taxonomyApi } from '../services/api';
-import useStore from '../store';
+import { AppContext } from '../App';
 import {
     canEditSkuAny,
     canEditContentFieldsForTier,
@@ -31,7 +31,7 @@ const SkuEdit = () => {
     const { id: routeId, skuId } = useParams();
     const id = routeId || skuId;
     const navigate = useNavigate();
-    const { user, addNotification } = useStore();
+    const { user, addNotification } = useContext(AppContext);
     const [activeTab, setActiveTab] = useState('content');
     const [sku, setSku] = useState(null);
     const [loading, setLoading] = useState(true);

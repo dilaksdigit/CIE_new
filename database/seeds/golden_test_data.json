@@ -1,6 +1,6 @@
 [
     {
-        "sku_code": "CBL-BLK-3C-1M",
+        "sku_code": "SKU-CABLE-001",
         "title": "Black Braided Pendant Cable Set 3-Core 1m E27",
         "short_description": "Premium 3-core braided fabric cable set with E27 cleaning holder. Ideal for creating custom pendant lights. Length: 1 meter. Color: Black. Certified for safety and durability.",
         "tier": "HERO",
@@ -149,7 +149,7 @@
         "erp_return_rate_pct": 0.1
     },
     {
-        "sku_code": "LMP-CFL-14W",
+        "sku_code": "SKU-PEND-001",
         "title": "CFL Spiral Bulb 14W E27",
         "short_description": "Legacy Compact Fluorescent Lamp (CFL) spiral bulb. 14W power rating. Warm white. Being phased out in favor of LED.",
         "tier": "HARVEST",
@@ -165,7 +165,7 @@
         "erp_return_rate_pct": 5.0
     },
     {
-        "sku_code": "LMP-INC-60W",
+        "sku_code": "SKU-CABLE-002",
         "title": "Banned 60W Incandescent Bulb",
         "short_description": "Traditional 60W tungsten filament bulb. Prohibited for general sale due to efficiency regulations. Clearance stock only.",
         "tier": "KILL",

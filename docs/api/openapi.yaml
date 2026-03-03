@@ -1,62 +1,1077 @@
-openapi: 3.0.0
+# SOURCE: cie_v231_openapi.yaml + CIE_v232_Hardening_Addendum.pdf
+#         + CIE_v232_Developer_Amendment_Pack_v2.docx
+#         + CIE_v232_UI_Restructure_Instructions.docx
+# VERSION: 2.3.2
+# GENERATED: 2026-02-26
+# ARCHITECTURE: Python Engine (Enforcement/Semantic/Taxonomy/Readiness/Audit/ERP)
+#             + PHP CMS Layer (Auth/Queue/Dashboard/Scores)
+
+openapi: '3.0.3'
+
+# SOURCE: INSTRUCTION 1 — cie_v231_openapi.yaml (info block base);
+#         CIE_v232_Hardening_Addendum.pdf (version bump to 2.3.2);
+#         CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 7 and Section 9.1 (architecture note)
 info:
-  title: CIE API
-  version: 2.3.2
+  title: 'CIE v2.3.2 - Catalog Intelligence Engine'
+  version: '2.3.2'
+  description: |
+    Pre-publish enforcement gates, semantic validation, AI citation audit,
+    and tier management for 120+ staff e-commerce operations.
+
+    ## Architecture
+    This spec covers TWO distinct API layers:
+     - tag group 'Engine' = Python Engine endpoints (called BY the PHP CMS)
+     - tag group 'CMS' = PHP CMS endpoints (called BY the frontend UI)
+    All validation is server-side. The PHP CMS never bypasses the Python Engine.
+    Auth: internal bearer tokens per service. No public access.
+
+# SOURCE: INSTRUCTION 2 — cie_v231_openapi.yaml servers block
 servers:
-  - url: /api
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
+  - url: https://cie.internal.example.com/api/v1
+    description: Production
+  - url: https://cie-staging.internal.example.com/api/v1
+    description: Staging
+  - url: http://localhost:8000/api/v1
+    description: Local Dev — Python Engine
+  - url: http://localhost:8080/api/v1
+    description: Local Dev — PHP CMS
+
+# SOURCE: INSTRUCTION 3 — cie_v231_openapi.yaml top-level security block
+security:
+  - BearerAuth: []
+
+# SOURCE: INSTRUCTION 4 — CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 7.1 (engine tags);
+#         CIE_v232_UI_Restructure_Instructions.docx Section 4 (CMS tags)
+tags:
+  - name: Enforcement
+    description: Pre-publish validation gates (G1-G7 + G6.1 + Vector) — Python Engine
+  - name: Semantic
+    description: Embedding generation and cosine similarity checks — Python Engine
+  - name: Taxonomy
+    description: Intent taxonomy and cluster management — Python Engine
+  - name: Readiness
+    description: Per-channel readiness scoring — Python Engine
+  - name: AI Audit
+    description: Weekly AI citation audit and decay monitoring — Python Engine
+  - name: ERP Integration
+    description: ERP data sync and tier recomputation — Python Engine
+  - name: CMS Auth
+    description: Login and session management — PHP CMS
+  - name: CMS Queue
+    description: Writer work queue — PHP CMS
+  - name: CMS Dashboard
+    description: Reviewer / KPI dashboard — PHP CMS
+  - name: CMS Scores
+    description: Weekly manual score entry and history — PHP CMS
+
 paths:
-  /auth/login:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # PYTHON ENGINE ENDPOINTS
+  # SOURCE: INSTRUCTION 5 — cie_v231_openapi.yaml (carry over unchanged except patches)
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  /sku/{sku_id}/suggestions/{suggestion_id}/status:
+    # SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 5 Step 2c;
+    #         CIE_Master_Developer_Build_Spec.docx Section 3.2 (RBAC — dismiss/override AI suggestion)
     post:
-      summary: Authenticate user
+      summary: Mark a suggestion as seen/dismissed
+      tags: [CMS Queue]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: suggestion_id
+          in: path
+          required: true
+          schema: { type: string }
       requestBody:
         required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [seen, dismissed]
+              required: [status]
       responses:
         '200':
-          description: Login success
+          description: Status updated successfully
+        '404':
+          description: Suggestion not found
+
+
+  /sku/{sku_id}/validate:
+    # SOURCE: cie_v231_openapi.yaml /sku/{sku_id}/validate
+    # PATCH 1 applied: CIE_v232_Hardening_Addendum.pdf — VECTOR_PENDING / pending status
+    post:
+      summary: Pre-publish validation (G1-G7 + G6.1 + Vector)
+      description: |
+        Called on every Save/Publish action. Returns pass/fail/pending per gate.
+        Must respond within 500ms. Creates audit_log entries for all gate results.
+        VECTOR_PENDING is a valid non-blocking status (Hardening Addendum Patch 1).
+      tags: [Enforcement]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: SKU-CABLE-001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuValidateRequest'
+      responses:
+        '200':
+          description: All gates pass — action allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResponse'
+        '400':
+          description: One or more gates failed — action blocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResponse'
+        '403':
+          description: Insufficient permissions for this action
+        '404':
+          description: SKU not found
+
+  /sku/{sku_id}/publish:
+    # SOURCE: cie_v231_openapi.yaml /sku/{sku_id}/publish
+    post:
+      summary: Publish SKU to active channels
+      description: |
+        Internally calls /validate first with action='publish'.
+        Only succeeds if ALL gates pass. Creates audit_log entry.
+        Triggers channel feed generation (JSON-LD, Amazon, Google Shopping).
+      tags: [Enforcement]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Published successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: published
+                  channels_updated:
+                    type: array
+                    items:
+                      type: string
+                    example: [google_sge, amazon, own_website]
+        '400':
+          description: Gate validation failed — publish blocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResponse'
+        '403':
+          description: User role cannot publish
+
+  /sku/{sku_id}:
+    # SOURCE: cie_v231_openapi.yaml /sku/{sku_id}
+    get:
+      summary: Get full SKU record
+      tags: [Enforcement]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SKU record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkuValidateRequest'
+        '404':
+          description: SKU not found
+
+  /sku/{sku_id}/content:
+    # SOURCE: cie_v231_openapi.yaml /sku/{sku_id}/content
+    put:
+      summary: Update SKU content fields
+      tags: [Enforcement]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuValidateRequest'
+      responses:
+        '200':
+          description: Content updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: updated
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: SKU not found
+
+  /sku/embed:
+    # SOURCE: cie_v231_openapi.yaml /sku/{sku_id}/embed — note: path is /sku/embed per INSTRUCTION 5 list
+    post:
+      summary: Generate embedding vector for text
+      tags: [Semantic]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  maxLength: 5000
+                  description: Description text to embed
+      responses:
+        '200':
+          description: Embedding vector result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vector:
+                    type: array
+                    items:
+                      type: number
+                  dimensions:
+                    type: integer
+                    example: 1536
+                  model:
+                    type: string
+                    example: text-embedding-3-small
+
+  /sku/similarity:
+    # SOURCE: cie_v231_openapi.yaml /sku/{sku_id}/similarity — path as listed in INSTRUCTION 5
+    post:
+      summary: Compute cosine similarity vs cluster intent vector
+      description: |
+        Threshold: 0.72. Below threshold = description rejected.
+      tags: [Semantic]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [description, cluster_id]
+              properties:
+                description:
+                  type: string
+                cluster_id:
+                  type: string
+                  example: CLU-CABLE-PENDANT-E27
+      responses:
+        '200':
+          description: Similarity computation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimilarityResponse'
+
+  /taxonomy/intents:
+    # SOURCE: cie_v231_openapi.yaml /taxonomy/intents
+    get:
+      summary: Get locked 9-intent taxonomy, optionally filtered by tier
+      tags: [Taxonomy]
+      parameters:
+        - name: tier
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [hero, support, harvest, kill]
+          description: Filter to intents accessible by this tier
+      responses:
+        '200':
+          description: Intent taxonomy list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Intent'
+                  tier_rules:
+                    $ref: '#/components/schemas/TierRules'
+
+  /clusters:
+    # SOURCE: cie_v231_openapi.yaml /clusters
+    get:
+      summary: Get all active clusters
+      tags: [Taxonomy]
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [cables, lampshades, bulbs, pendants, floor_lamps, ceiling_lights, accessories]
+      responses:
+        '200':
+          description: Active clusters list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clusters:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Cluster'
+
+  /sku/{sku_id}/readiness:
+    # SOURCE: cie_v231_openapi.yaml /sku/{sku_id}/readiness
+    # PATCH 2 (description field) + PATCH 3 (component_scores) applied:
+    #   CIE_v232_Hardening_Addendum.pdf; CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 7.1
+    get:
+      summary: Get per-channel readiness scores (0-100)
+      tags: [Readiness]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 'Per-channel readiness scores (0-100) for this SKU'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+
+  /audit/run:
+    # SOURCE: cie_v231_openapi.yaml /audit/run
+    # PATCH 2 applied: CIE_v232_Hardening_Addendum.pdf — quorum + run_status fields
+    post:
+      summary: Trigger weekly AI citation audit for a category
+      description: |
+        Runs all 20 golden queries across 4 AI engines.
+        Asynchronous — returns run_id immediately.
+      tags: [AI Audit]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category]
+              properties:
+                category:
+                  type: string
+                  enum: [cables, lampshades, bulbs, pendants, floor_lamps]
+      responses:
+        '202':
+          description: Audit started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditRunResponse'
+
+  /audit/results/{category}:
+    # SOURCE: cie_v231_openapi.yaml /audit/results/{category}
+    get:
+      summary: Get latest audit results with decay status
+      tags: [AI Audit]
+      parameters:
+        - name: category
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Specific run ID. If omitted, returns latest.
+      responses:
+        '200':
+          description: Audit results with decay alerts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditResults'
+
+  /brief/generate:
+    # SOURCE: cie_v231_openapi.yaml /brief/generate
+    post:
+      summary: Auto-generate content refresh brief (citation decay Week 3)
+      description: |
+        Called automatically by N8N when a Hero SKU has 3 consecutive
+        weeks of zero citations. Can also be triggered manually by AI Ops.
+      tags: [AI Audit]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sku_id, failing_questions]
+              properties:
+                sku_id:
+                  type: string
+                failing_questions:
+                  type: array
+                  items:
+                    type: string
+                  description: Question IDs that scored 0
+      responses:
+        '201':
+          description: Brief created and added to content queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  brief_id:
+                    type: string
+                    format: uuid
+                  deadline:
+                    type: string
+                    format: date
+                  assigned_to:
+                    type: string
+
+  /erp/sync:
+    # SOURCE: cie_v231_openapi.yaml /erp/sync
+    post:
+      summary: Receive ERP data push and recompute tiers
+      description: |
+        Called monthly by ERP system. Updates margin, CPPC, velocity,
+        return rate for all SKUs. Recomputes Commercial Priority Score
+        and reassigns tiers where score crosses band thresholds.
+        Creates audit_log + tier_history entries for all changes.
+      tags: [ERP Integration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ErpSyncPayload'
+      responses:
+        '200':
+          description: ERP sync completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sync_date:
+                    type: string
+                    format: date-time
+                  skus_processed:
+                    type: integer
+                  tier_changes:
+                    type: integer
+                  auto_promotions:
+                    type: integer
+                    description: Harvest→Support auto-promotions (velocity +30%)
+                  errors:
+                    type: array
+                    items:
+                      type: string
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # PHP CMS ENDPOINTS
+  # SOURCE: INSTRUCTION 6 — CIE_v232_Developer_Amendment_Pack_v2.docx Section 3;
+  #         CIE_v232_UI_Restructure_Instructions.docx; CIE_Master_Developer_Build_Spec.docx;
+  #         CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 5.4
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  /auth/login:
+    # SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx Section 3 (RBAC seed accounts);
+    #         CIE_v232_UI_Restructure_Instructions.docx (login routing logic)
+    # INSTRUCTION 3: security: [] overrides global BearerAuth for this endpoint
+    post:
+      summary: Authenticate user and obtain bearer token
+      tags: [CMS Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
         '401':
           description: Invalid credentials
 
-  /v1/skus:
+  /queue/today:
+    # SOURCE: CIE_Master_Developer_Build_Spec.docx Section 14.1 (queue logic);
+    #         CIE_v232_UI_Restructure_Instructions.docx /writer/queue route
     get:
-      summary: List all SKUs
-      security:
-        - BearerAuth: []
+      summary: Writer's prioritised work queue for today
+      description: |
+        Returns up to 10 SKUs sorted by priority score (decay status,
+        readiness gaps, tier). Hero > Support > Harvest > Kill. Kill-tier SKUs
+        included but flagged locked=true.
+      tags: [CMS Queue]
       responses:
         '200':
-          description: SKU list
-
-  /v1/queue/today:
-    get:
-      summary: Writer queue for current day
-      description: AI-prioritized queue used by /writer/queue screen.
-      security:
-        - BearerAuth: []
-      responses:
-        '200':
-          description: Queue list for today
+          description: Prioritised work queue for today
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueResponse'
 
   /dashboard/summary:
+    # SOURCE: CIE_v232_UI_Restructure_Instructions.docx /review/dashboard route;
+    #         CIE_Master_Developer_Build_Spec.docx S4 KPI Dashboard screen
     get:
-      summary: Dashboard summary KPIs
-      description: Includes effort allocation and aggregate KPIs consumed by writer stats cards.
-      security:
-        - BearerAuth: []
+      summary: KPI Reviewer weekly summary dashboard
+      tags: [CMS Dashboard]
       responses:
         '200':
-          description: Summary payload
+          description: Weekly KPI summary dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardSummaryResponse'
 
   /audit-results/weekly-scores:
+    # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 5.4 (query family mapping);
+    #         CIE_v232_UI_Restructure_Instructions.docx (KPI reviewer weekly scoring)
     get:
-      summary: Weekly reviewer KPI scores
-      description: Returns weekly score records used by review KPI and AI audit trend views.
-      security:
-        - BearerAuth: []
+      summary: Weekly AI audit scores for KPI reviewer (manual entry + history)
+      tags: [CMS Scores]
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [cables, lampshades, bulbs, pendants]
+        - name: weeks
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 12
+          description: How many weeks of history to return
       responses:
         '200':
-          description: Weekly score rows
+          description: Weekly audit scores history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeeklyScoresResponse'
+
+components:
+  securitySchemes:
+    # SOURCE: cie_v231_openapi.yaml components/securitySchemes
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Internal service token
+
+  schemas:
+
+    # ── CARRIED OVER FROM cie_v231_openapi.yaml (unchanged except patches) ────
+
+    SkuValidateRequest:
+      # SOURCE: cie_v231_openapi.yaml components/schemas/SkuValidateRequest
+      type: object
+      required: [cluster_id, tier, primary_intent, title, description, action]
+      properties:
+        cluster_id:
+          type: string
+          example: CLU-CABLE-PENDANT-E27
+        tier:
+          type: string
+          enum: [hero, support, harvest, kill]
+        primary_intent:
+          type: string
+          enum: [problem_solving, comparison, compatibility, specification, installation, troubleshooting, inspiration, regulatory, replacement]
+        secondary_intents:
+          type: array
+          items:
+            type: string
+            enum: [problem_solving, comparison, compatibility, specification, installation, troubleshooting, inspiration, regulatory, replacement]
+          maxItems: 3
+        title:
+          type: string
+          maxLength: 250
+        description:
+          type: string
+        answer_block:
+          type: string
+          minLength: 250
+          maxLength: 300
+          description: Required for hero/support. Must contain primary intent keyword.
+        best_for:
+          type: array
+          items:
+            type: string
+          minItems: 2
+          description: Required for hero/support. Min 2 entries.
+        not_for:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: Required for hero/support. Min 1 entry.
+        expert_authority:
+          type: string
+          description: Required for hero/support. Must reference standard/cert.
+        action:
+          type: string
+          enum: [save, publish]
+
+    ValidationResponse:
+      # SOURCE: cie_v231_openapi.yaml components/schemas/ValidationResponse
+      # PATCH 1: CIE_v232_Hardening_Addendum.pdf — added 'pending' to status enum;
+      #          VECTOR_PENDING is a valid non-blocking status
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pass, fail, pending]
+          description: "'pending' indicates VECTOR_PENDING — a valid non-blocking state (Hardening Addendum Patch 1)"
+        gates:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [pass, fail, not_applicable]
+              error_code:
+                type: string
+                nullable: true
+              detail:
+                type: string
+              user_message:
+                type: string
+                nullable: true
+        vector_check:
+          type: object
+          properties:
+            cosine_similarity:
+              type: number
+              example: 0.87
+            threshold:
+              type: number
+              example: 0.72
+            status:
+              type: string
+              enum: [pass, fail]
+        publish_allowed:
+          type: boolean
+
+    SimilarityResponse:
+      # SOURCE: cie_v231_openapi.yaml components/schemas/SimilarityResponse
+      type: object
+      properties:
+        cosine_similarity:
+          type: number
+          example: 0.87
+        threshold:
+          type: number
+          example: 0.72
+        status:
+          type: string
+          enum: [pass, fail]
+        message:
+          type: string
+          nullable: true
+
+    ReadinessResponse:
+      # SOURCE: cie_v231_openapi.yaml components/schemas/ReadinessResponse
+      # PATCH 3: CIE_v232_Hardening_Addendum.pdf — expanded component_scores with 6 weighted fields
+      type: object
+      properties:
+        sku_id:
+          type: string
+        channels:
+          type: array
+          items:
+            type: object
+            properties:
+              channel:
+                type: string
+                enum: [google_sge, amazon, ai_assistants, own_website]
+              score:
+                type: integer
+                minimum: 0
+                maximum: 100
+              components:
+                type: object
+                description: Breakdown by field (e.g. cluster_id:10, intents:15)
+        component_scores:
+          # PATCH 3: CIE_v232_Hardening_Addendum.pdf — six weighted component scores
+          type: object
+          properties:
+            answer_block_score:
+              type: integer
+              minimum: 0
+              maximum: 100
+              description: 'Answer block quality score (weight: 25%)'
+            faq_coverage_score:
+              type: integer
+              minimum: 0
+              maximum: 100
+              description: 'FAQ coverage score (weight: 20%)'
+            safety_depth_score:
+              type: integer
+              minimum: 0
+              maximum: 100
+              description: 'Safety depth score (weight: 15%)'
+            cross_sku_comparison_score:
+              type: integer
+              minimum: 0
+              maximum: 100
+              description: 'Cross-SKU comparison score (weight: 15%)'
+            structured_data_score:
+              type: integer
+              minimum: 0
+              maximum: 100
+              description: 'Structured data score (weight: 15%)'
+            citation_score:
+              type: integer
+              minimum: 0
+              maximum: 100
+              description: 'Citation score (weight: 10%)'
+
+    Intent:
+      # SOURCE: cie_v231_openapi.yaml components/schemas/Intent
+      type: object
+      properties:
+        intent_id:
+          type: integer
+          example: 1
+        intent_key:
+          type: string
+          example: problem_solving
+        label:
+          type: string
+          example: Problem-Solving
+        definition:
+          type: string
+        tier_access:
+          type: array
+          items:
+            type: string
+
+    TierRules:
+      # SOURCE: cie_v231_openapi.yaml components/schemas/TierRules
+      type: object
+      properties:
+        hero:
+          type: object
+          properties:
+            max_secondary: { type: integer, example: 3 }
+            all_intents: { type: boolean, example: true }
+        support:
+          type: object
+          properties:
+            max_secondary: { type: integer, example: 2 }
+            all_intents: { type: boolean, example: true }
+        harvest:
+          type: object
+          properties:
+            max_secondary: { type: integer, example: 1 }
+            allowed_intents:
+              type: array
+              items: { type: integer }
+              example: [1, 3, 4]
+        kill:
+          type: object
+          properties:
+            max_secondary: { type: integer, example: 0 }
+            all_intents: { type: boolean, example: false }
+
+    Cluster:
+      # SOURCE: cie_v231_openapi.yaml components/schemas/Cluster
+      type: object
+      properties:
+        cluster_id:
+          type: string
+          example: CLU-CABLE-PENDANT-E27
+        category:
+          type: string
+        intent_statement:
+          type: string
+        is_active:
+          type: boolean
+
+    AuditRunResponse:
+      # SOURCE: cie_v231_openapi.yaml /audit/run 202 response (inline, promoted to schema)
+      # PATCH 2: CIE_v232_Hardening_Addendum.pdf — added quorum + run_status fields
+      type: object
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          example: running
+        estimated_duration_minutes:
+          type: integer
+          example: 15
+        quorum:
+          type: integer
+          minimum: 0
+          maximum: 4
+          description: 'Number of AI engines that responded. partial = 2-3 engines responded; failed = 0-1 engines responded (Hardening Addendum Patch 2)'
+        run_status:
+          type: string
+          enum: [complete, partial, failed]
+          description: 'complete = all 4 engines responded; partial = 2-3 engines responded; failed = 0-1 engines responded (Hardening Addendum Patch 2)'
+
+    AuditResults:
+      # SOURCE: cie_v231_openapi.yaml components/schemas/AuditResults
+      type: object
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        category:
+          type: string
+        run_date:
+          type: string
+          format: date
+        aggregate_citation_rate:
+          type: number
+          example: 0.75
+        pass_fail:
+          type: string
+          enum: [pass, fail]
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              question_id:
+                type: string
+              question_text:
+                type: string
+              scores:
+                type: object
+                description: Per-engine scores
+                additionalProperties:
+                  type: integer
+              cited_sku:
+                type: string
+                nullable: true
+        decay_alerts:
+          type: array
+          items:
+            type: object
+            properties:
+              sku_id:
+                type: string
+              decay_status:
+                type: string
+                enum: [yellow_flag, alert, auto_brief, escalated]
+              consecutive_zero_weeks:
+                type: integer
+
+    ErpSyncPayload:
+      # SOURCE: cie_v231_openapi.yaml components/schemas/ErpSyncPayload
+      type: object
+      required: [sync_date, skus]
+      properties:
+        sync_date:
+          type: string
+          format: date-time
+        skus:
+          type: array
+          items:
+            type: object
+            required: [sku_id, contribution_margin_pct, cppc, velocity_90d, return_rate_pct]
+            properties:
+              sku_id:
+                type: string
+              contribution_margin_pct:
+                type: number
+                example: 62.0
+              cppc:
+                type: number
+                example: 0.18
+              velocity_90d:
+                type: integer
+                example: 847
+              return_rate_pct:
+                type: number
+                example: 2.1
+
+    # ── NEW CMS SCHEMAS ────────────────────────────────────────────────────────
+
+    LoginResponse:
+      # SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx Section 3 (RBAC roles);
+      #         CIE_v232_UI_Restructure_Instructions.docx (login routing logic)
+      type: object
+      properties:
+        token:
+          type: string
+          description: Bearer token for subsequent authenticated requests
+        user_id:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+            enum:
+              - CONTENT_EDITOR
+              - PRODUCT_SPECIALIST
+              - SEO_GOVERNOR
+              - CONTENT_LEAD
+              - CHANNEL_MANAGER
+              - FINANCE
+              - AI_OPS
+              - ADMIN
+        redirect_to:
+          type: string
+          description: The route the client should navigate to after login
+
+    QueueResponse:
+      # SOURCE: CIE_Master_Developer_Build_Spec.docx Section 14.1;
+      #         CIE_v232_UI_Restructure_Instructions.docx /writer/queue route
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueueItem'
+
+    QueueItem:
+      # SOURCE: CIE_Master_Developer_Build_Spec.docx Section 14.1;
+      #         CIE_v232_UI_Restructure_Instructions.docx /writer/queue route
+      type: object
+      properties:
+        sku_id:
+          type: string
+        sku_code:
+          type: string
+        product_name:
+          type: string
+        tier:
+          type: string
+          enum: [hero, support, harvest, kill]
+        priority_score:
+          type: integer
+        missing_fields_count:
+          type: integer
+        ai_suggestion_count:
+          type: integer
+        locked:
+          type: boolean
+          description: true for kill-tier SKUs — editing locked
+        decay_status:
+          type: string
+          enum: [none, yellow_flag, alert, auto_brief, escalated]
+
+    DashboardSummaryResponse:
+      # SOURCE: CIE_v232_UI_Restructure_Instructions.docx /review/dashboard route;
+      #         CIE_Master_Developer_Build_Spec.docx S4 KPI Dashboard screen
+      type: object
+      properties:
+        hero_skus_at_risk:
+          type: integer
+        avg_citation_rate_pct:
+          type: number
+          minimum: 0
+          maximum: 100
+        hero_time_pct:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Percentage of content hours spent on Hero SKUs
+        open_briefs_count:
+          type: integer
+        skus_published_this_week:
+          type: integer
+        avg_readiness_hero:
+          type: number
+          minimum: 0
+          maximum: 100
+
+    WeeklyScoresResponse:
+      # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 5.4 (query family mapping);
+      #         CIE_v232_UI_Restructure_Instructions.docx (KPI reviewer weekly scoring)
+      type: object
+      properties:
+        scores:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeeklyScoreEntry'
+
+    WeeklyScoreEntry:
+      # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 5.4;
+      #         CIE_v232_UI_Restructure_Instructions.docx
+      type: object
+      properties:
+        week_start_date:
+          type: string
+          format: date
+        category:
+          type: string
+        avg_score:
+          type: number
+          minimum: 0
+          maximum: 3
+        engine_scores:
+          type: object
+          properties:
+            chatgpt:
+              type: number
+            gemini:
+              type: number
+            perplexity:
+              type: number
+            google_sge:
+              type: number
+        questions_at_zero:
+          type: integer

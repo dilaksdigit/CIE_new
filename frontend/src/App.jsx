@@ -1,9 +1,10 @@
-import React from 'react';
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 2.4
+import React, { createContext, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/common/Sidebar';
+import Header from './components/common/Header';
 import Toast from './components/common/Toast';
 import Login from './components/auth/Login';
-import Register from './components/auth/Register';
 import AuthGuard from './components/auth/AuthGuard';
 import DefaultRedirect from './components/auth/DefaultRedirect';
 import Dashboard from './pages/Dashboard';
@@ -19,12 +20,73 @@ import TierMgmt from './pages/TierMgmt';
 import AuditTrail from './pages/AuditTrail';
 import BulkOps from './pages/BulkOps';
 import StaffKpis from './pages/StaffKpis';
+import BusinessRules from './pages/BusinessRules';
+import SemrushImport from './pages/SemrushImport';
 
+export const AppContext = createContext(null);
+
+const getStoredUser = () => {
+  try {
+    const u = sessionStorage.getItem('cie_user');
+    return u ? JSON.parse(u) : null;
+  } catch {
+    return null;
+  }
+};
+
+const getStoredToken = () => sessionStorage.getItem('cie_token') || null;
+
+const AppProvider = ({ children }) => {
+  const [user, setUser] = useState(getStoredUser);
+  const [token, setToken] = useState(getStoredToken);
+  const [notifications, setNotifications] = useState([]);
+
+  const isAuthenticated = !!token;
+
+  const login = (nextUser, nextToken) => {
+    sessionStorage.setItem('cie_token', nextToken);
+    sessionStorage.setItem('cie_user', JSON.stringify(nextUser));
+    setUser(nextUser);
+    setToken(nextToken);
+  };
+
+  const logout = () => {
+    sessionStorage.removeItem('cie_token');
+    sessionStorage.removeItem('cie_user');
+    setUser(null);
+    setToken(null);
+  };
+
+  const addNotification = (notification) => {
+    const id = Date.now();
+    setNotifications((prev) => [...prev, { ...notification, id }]);
+    setTimeout(() => {
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+    }, 4000);
+  };
+
+  const value = {
+    user,
+    token,
+    isAuthenticated,
+    login,
+    logout,
+    notifications,
+    addNotification,
+  };
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+};
+
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 4; Step 7 — Header shared by writer and reviewer layouts (both)
 const AppLayout = ({ children }) => (
-  <div className="app-layout">
-    <Sidebar />
-    <div className="main-content">
-      {children}
+  <div className="app-layout app-layout-with-header">
+    <Header />
+    <div className="app-body">
+      <Sidebar />
+      <div className="main-content">
+        {children}
+      </div>
     </div>
     <Toast />
   </div>
@@ -33,48 +95,51 @@ const AppLayout = ({ children }) => (
 const App = () => {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+      <AppProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
 
-        <Route path="/writer/queue" element={<AuthGuard><AppLayout><WriterQueue /></AppLayout></AuthGuard>} />
-        <Route path="/writer/edit/:skuId" element={<AuthGuard><AppLayout><WriterEdit /></AppLayout></AuthGuard>} />
-        <Route path="/writer/*" element={<AuthGuard><Navigate to="/writer/queue" replace /></AuthGuard>} />
+          <Route path="/writer/queue" element={<AuthGuard><AppLayout><WriterQueue /></AppLayout></AuthGuard>} />
+          <Route path="/writer/edit/:skuId" element={<AuthGuard><AppLayout><WriterEdit /></AppLayout></AuthGuard>} />
+          <Route path="/writer/*" element={<AuthGuard><Navigate to="/writer/queue" replace /></AuthGuard>} />
 
-        <Route path="/review/dashboard" element={<AuthGuard><AppLayout><Dashboard /></AppLayout></AuthGuard>} />
-        <Route path="/review/maturity" element={<AuthGuard><AppLayout><Maturity /></AppLayout></AuthGuard>} />
-        <Route path="/review/ai-audit" element={<AuthGuard><AppLayout><AiAudit /></AppLayout></AuthGuard>} />
-        <Route path="/review/channels" element={<AuthGuard><AppLayout><Channels /></AppLayout></AuthGuard>} />
-        <Route path="/review/kpis" element={<AuthGuard><AppLayout><StaffKpis /></AppLayout></AuthGuard>} />
-        <Route path="/review" element={<AuthGuard><Navigate to="/review/dashboard" replace /></AuthGuard>} />
-        <Route path="/review/*" element={<AuthGuard><Navigate to="/review/dashboard" replace /></AuthGuard>} />
+          <Route path="/review/dashboard" element={<AuthGuard><AppLayout><Dashboard /></AppLayout></AuthGuard>} />
+          <Route path="/review/maturity" element={<AuthGuard><AppLayout><Maturity /></AppLayout></AuthGuard>} />
+          <Route path="/review/ai-audit" element={<AuthGuard><AppLayout><AiAudit /></AppLayout></AuthGuard>} />
+          <Route path="/review/channels" element={<AuthGuard><AppLayout><Channels /></AppLayout></AuthGuard>} />
+          <Route path="/review/kpis" element={<AuthGuard><AppLayout><StaffKpis /></AppLayout></AuthGuard>} />
+          <Route path="/review" element={<AuthGuard><Navigate to="/review/dashboard" replace /></AuthGuard>} />
+          <Route path="/review/*" element={<AuthGuard><Navigate to="/review/dashboard" replace /></AuthGuard>} />
 
-        <Route path="/admin/clusters" element={<AuthGuard><AppLayout><Clusters /></AppLayout></AuthGuard>} />
-        <Route path="/admin/config" element={<AuthGuard><AppLayout><Config /></AppLayout></AuthGuard>} />
-        <Route path="/admin/tiers" element={<AuthGuard><AppLayout><TierMgmt /></AppLayout></AuthGuard>} />
-        <Route path="/admin/audit-trail" element={<AuthGuard><AppLayout><AuditTrail /></AppLayout></AuthGuard>} />
-        <Route path="/admin/bulk-ops" element={<AuthGuard><AppLayout><BulkOps /></AppLayout></AuthGuard>} />
-        <Route path="/admin/*" element={<AuthGuard><Navigate to="/admin/clusters" replace /></AuthGuard>} />
+          <Route path="/admin/clusters" element={<AuthGuard><AppLayout><Clusters /></AppLayout></AuthGuard>} />
+          <Route path="/admin/config" element={<AuthGuard><AppLayout><Config /></AppLayout></AuthGuard>} />
+          <Route path="/admin/business-rules" element={<AuthGuard><AppLayout><BusinessRules /></AppLayout></AuthGuard>} />
+          <Route path="/admin/tiers" element={<AuthGuard><AppLayout><TierMgmt /></AppLayout></AuthGuard>} />
+          <Route path="/admin/audit-trail" element={<AuthGuard><AppLayout><AuditTrail /></AppLayout></AuthGuard>} />
+          <Route path="/admin/bulk-ops" element={<AuthGuard><AppLayout><BulkOps /></AppLayout></AuthGuard>} />
+          <Route path="/admin/semrush-import" element={<AuthGuard><AppLayout><SemrushImport /></AppLayout></AuthGuard>} />
+          <Route path="/admin/*" element={<AuthGuard><Navigate to="/admin/clusters" replace /></AuthGuard>} />
 
-        <Route path="/help" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
-        <Route path="/help/flow" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
-        <Route path="/help/gates" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
-        <Route path="/help/roles" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
+          <Route path="/help" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
+          <Route path="/help/flow" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
+          <Route path="/help/gates" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
+          <Route path="/help/roles" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
 
-        <Route path="/" element={<DefaultRedirect />} />
-        <Route path="/dashboard" element={<AuthGuard><Navigate to="/review/dashboard" replace /></AuthGuard>} />
-        <Route path="/maturity" element={<AuthGuard><Navigate to="/review/maturity" replace /></AuthGuard>} />
-        <Route path="/audit" element={<AuthGuard><Navigate to="/review/ai-audit" replace /></AuthGuard>} />
-        <Route path="/channels" element={<AuthGuard><Navigate to="/review/channels" replace /></AuthGuard>} />
-        <Route path="/staff" element={<AuthGuard><Navigate to="/review/kpis" replace /></AuthGuard>} />
-        <Route path="/clusters" element={<AuthGuard><Navigate to="/admin/clusters" replace /></AuthGuard>} />
-        <Route path="/config" element={<AuthGuard><Navigate to="/admin/config" replace /></AuthGuard>} />
-        <Route path="/tiers" element={<AuthGuard><Navigate to="/admin/tiers" replace /></AuthGuard>} />
-        <Route path="/audit-trail" element={<AuthGuard><Navigate to="/admin/audit-trail" replace /></AuthGuard>} />
-        <Route path="/bulk" element={<AuthGuard><Navigate to="/admin/bulk-ops" replace /></AuthGuard>} />
+          <Route path="/" element={<DefaultRedirect />} />
+          <Route path="/dashboard" element={<AuthGuard><Navigate to="/review/dashboard" replace /></AuthGuard>} />
+          <Route path="/maturity" element={<AuthGuard><Navigate to="/review/maturity" replace /></AuthGuard>} />
+          <Route path="/audit" element={<AuthGuard><Navigate to="/review/ai-audit" replace /></AuthGuard>} />
+          <Route path="/channels" element={<AuthGuard><Navigate to="/review/channels" replace /></AuthGuard>} />
+          <Route path="/staff" element={<AuthGuard><Navigate to="/review/kpis" replace /></AuthGuard>} />
+          <Route path="/clusters" element={<AuthGuard><Navigate to="/admin/clusters" replace /></AuthGuard>} />
+          <Route path="/config" element={<AuthGuard><Navigate to="/admin/config" replace /></AuthGuard>} />
+          <Route path="/tiers" element={<AuthGuard><Navigate to="/admin/tiers" replace /></AuthGuard>} />
+          <Route path="/audit-trail" element={<AuthGuard><Navigate to="/admin/audit-trail" replace /></AuthGuard>} />
+          <Route path="/bulk" element={<AuthGuard><Navigate to="/admin/bulk-ops" replace /></AuthGuard>} />
 
-        <Route path="*" element={<DefaultRedirect />} />
-      </Routes>
+          <Route path="*" element={<DefaultRedirect />} />
+        </Routes>
+      </AppProvider>
     </BrowserRouter>
   );
 };

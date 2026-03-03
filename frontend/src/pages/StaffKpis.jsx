@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { MiniBarChart, RoleBadge } from '../components/common/UIComponents';
+import { MiniBarChart, RoleBadge, TrendLine } from '../components/common/UIComponents';
 import { auditResultApi, dashboardApi } from '../services/api';
 
 const StaffKpis = () => {
@@ -66,11 +66,12 @@ const StaffKpis = () => {
             color: (s.gate_pass_rate || 0) >= 80 ? 'var(--green)' : (s.gate_pass_rate || 0) >= 60 ? 'var(--amber)' : 'var(--accent)',
         }));
 
-    const weeklyTrendData = weeklyScores.map((row) => ({
+    const weeklyTrendData = weeklyScores.slice(0, 12).map((row) => ({
         label: String(row.week_start || '').slice(5),
         value: Number(row.score || 0),
         color: Number(row.score || 0) >= 8 ? 'var(--green)' : Number(row.score || 0) >= 6 ? 'var(--amber)' : 'var(--red)',
     }));
+    // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §7 Step 5
 
     return (
         <div>
@@ -136,7 +137,8 @@ const StaffKpis = () => {
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Score (1–10)</span>
-                        <input type="number" min={1} max={10} value={score} onChange={(e) => setScore(Number(e.target.value))} style={{ width: 56, padding: 6, borderRadius: 4, border: '1px solid var(--border)' }} />
+                        {/* SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §4.1 */}
+                        <input type="number" min={1} max={10} step={1} value={score} onChange={(e) => setScore(Number(e.target.value))} style={{ width: 56, padding: 6, borderRadius: 4, border: '1px solid var(--border)' }} />
                     </label>
                     <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 200px' }}>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Notes</span>
@@ -175,7 +177,8 @@ const StaffKpis = () => {
             {weeklyTrendData.length > 0 && (
                 <div className="card">
                     <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text)", marginBottom: 12 }}>Weekly score trend</div>
-                    <MiniBarChart width={420} height={65} data={weeklyTrendData} />
+                    {/* SOURCE: CIE_v232_UI_Restructure_Instructions.docx §7 Step 5 */}
+                    <TrendLine data={weeklyTrendData.map((d) => d.value)} width={420} height={65} />
                 </div>
             )}
         </div>

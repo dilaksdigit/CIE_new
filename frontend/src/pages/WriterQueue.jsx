@@ -1,51 +1,24 @@
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2.1 — Writer Queue Screen
+//         (My Product Queue: sorted Hero > Support > Harvest > Kill,
+//          stats bar, AI suggestion count, tier filter, Kill-tier locked)
+// SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §4.1 — Route Map /writer/queue
+// SOURCE: CIE_v232_Writer_View.jsx — QueueScreen component (canonical visual reference)
+// SOURCE: CIE_v232_Developer_README.docx Phase 3 — Writer Queue Screen build spec
+
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { dashboardApi, queueApi } from '../services/api';
+import THEME from '../theme';
 
-const C = {
-  bg: "#FAFAF8",
-  surface: "#FFFFFF",
-  muted: "#F5F4F1",
-  border: "#E5E3DE",
-  text: "#2D2B28",
-  textMid: "#6B6860",
-  textLight: "#9B978F",
-  accent: "#5B7A3A",
-  accentLight: "#EEF2E8",
-  accentBorder: "#C5D4B0",
-  hero: "#8B6914",
-  heroBg: "#FDF6E3",
-  heroBorder: "#E8D5A0",
-  support: "#3D6B8E",
-  supportBg: "#EBF3F9",
-  supportBorder: "#B5D0E3",
-  harvest: "#9E7C1A",
-  harvestBg: "#FFF8E7",
-  harvestBorder: "#E8D49A",
-  kill: "#A63D2F",
-  killBg: "#FDEEEB",
-  killBorder: "#E5B5AD",
-  green: "#2E7D32",
-  greenBg: "#E8F5E9",
-  greenBorder: "#A5D6A7",
-  red: "#C62828",
-  redBg: "#FFEBEE",
-  redBorder: "#EF9A9A",
-  amber: "#E65100",
-  amberBg: "#FFFDE7",
-  amberBorder: "#FFCC80",
-  blue: "#1565C0",
-  blueBg: "#E3F2FD",
-  blueBorder: "#90CAF9",
-};
+const C = THEME;
 
 const tierOrder = { hero: 0, support: 1, harvest: 2, kill: 3 };
 
 const tierInfo = {
-    hero: { label: 'HERO', color: C.hero, bg: C.heroBg, border: C.heroBorder },
-    support: { label: 'SUPPORT', color: C.support, bg: C.supportBg, border: C.supportBorder },
-    harvest: { label: 'HARVEST', color: C.harvest, bg: C.harvestBg, border: C.harvestBorder },
-    kill: { label: 'KILL', color: C.kill, bg: C.killBg, border: C.killBorder },
+    hero: { label: 'HERO', color: THEME.hero, bg: THEME.heroBg, border: THEME.heroBorder },
+    support: { label: 'SUPPORT', color: THEME.support, bg: THEME.supportBg, border: THEME.supportBorder },
+    harvest: { label: 'HARVEST', color: THEME.harvest, bg: THEME.harvestBg, border: THEME.harvestBorder },
+    kill: { label: 'KILL', color: THEME.kill, bg: THEME.killBg, border: THEME.killBorder },
 };
 
 const normalizeTier = (tier) => String(tier || '').trim().toLowerCase();
@@ -59,7 +32,8 @@ const isDone = (item) => {
 };
 
 const normalizeQueueItem = (item) => {
-    const name = item?.name || item?.title || 'Untitled';
+    const name = item?.product_name || item?.name || item?.title || 'Untitled';
+    //const name = item?.name || item?.title || 'Untitled';
     const id = item?.id || item?.sku_id || item?.sku_code || '';
     const tier = normalizeTier(item?.tier);
     const done = isDone(item);
@@ -84,9 +58,9 @@ const normalizeQueueItem = (item) => {
 };
 
 const getUrgencyBorder = (urgency) => {
-    if (urgency === 'high') return C.red;
-    if (urgency === 'medium') return C.amber;
-    return C.border;
+    if (urgency === 'high') return THEME.red;
+    if (urgency === 'medium') return THEME.amber;
+    return THEME.border;
 };
 
 const TierTag = ({ tier }) => {
@@ -113,15 +87,15 @@ const TierTag = ({ tier }) => {
 };
 
 const FieldProgress = ({ done, total }) => {
-    if (total === 0) return <span style={{ fontSize: '0.7rem', color: C.textMid }}>—</span>;
+    if (total === 0) return <span style={{ fontSize: '0.7rem', color: THEME.textMid }}>—</span>;
     const pct = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
-    const color = pct === 100 ? C.green : pct >= 50 ? C.amber : C.red;
+    const color = pct === 100 ? THEME.green : pct >= 50 ? THEME.amber : THEME.red;
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 50, height: 5, background: C.border, borderRadius: 999, overflow: 'hidden' }}>
+            <div style={{ width: 50, height: 5, background: THEME.border, borderRadius: 999, overflow: 'hidden' }}>
                 <div style={{ width: `${pct}%`, height: '100%', background: color }} />
             </div>
-            <span style={{ fontSize: '0.68rem', color: C.textMid, minWidth: 28, textAlign: 'right' }}>
+            <span style={{ fontSize: '0.68rem', color: THEME.textMid, minWidth: 28, textAlign: 'right' }}>
                 {done}/{total}
             </span>
         </div>
@@ -137,9 +111,9 @@ const StatusPill = ({ label, tone }) => (
             padding: '2px 6px',
             fontWeight: 700,
             letterSpacing: '0.04em',
-            background: tone === 'done' ? C.greenBg : C.killBg,
-            color: tone === 'done' ? C.green : C.kill,
-            border: `1px solid ${tone === 'done' ? C.greenBorder : C.killBorder}`,
+            background: tone === 'done' ? THEME.greenBg : tone === 'locked' ? THEME.redBg : THEME.killBg,
+            color: tone === 'done' ? THEME.green : tone === 'locked' ? THEME.red : THEME.kill,
+            border: `1px solid ${tone === 'done' ? THEME.greenBorder : tone === 'locked' ? THEME.redBorder : THEME.killBorder}`,
         }}
     >
         {label}
@@ -174,12 +148,28 @@ const WriterQueue = () => {
             try {
                 setLoading(true);
                 setError('');
-                const [queueRes, summaryRes] = await Promise.all([
-                    queueApi.today(),
-                    dashboardApi.getSummary(),
-                ]);
+                // Load queue first; summary is optional for KPIs (don't fail whole page if summary fails)
+                let queueRes;
+                try {
+                    queueRes = await queueApi.today();
+                } catch (queueErr) {
+                    if (cancelled) return;
+                    const msg = queueErr.response?.data?.message
+                        || queueErr.response?.data?.error
+                        || queueErr.message
+                        || 'Queue request failed';
+                    const status = queueErr.response?.status;
+                    setError(status === 403
+                        ? 'You don’t have permission to load the queue.'
+                        : status === 404
+                            ? 'Queue endpoint not found. Check API base URL and version.'
+                            : `Failed to load queue: ${msg}`);
+                    setQueueItems([]);
+                    setLoading(false);
+                    return;
+                }
                 if (cancelled) return;
-                const rawList = queueRes?.data?.data || [];
+                const rawList = queueRes?.data?.data ?? queueRes?.data ?? [];
                 const normalized = (Array.isArray(rawList) ? rawList : [])
                     .map(normalizeQueueItem)
                     .sort((a, b) => {
@@ -188,17 +178,28 @@ const WriterQueue = () => {
                         return a.name.localeCompare(b.name);
                     });
                 setQueueItems(normalized);
-                const summary = summaryRes?.data?.data || {};
-                const effort = summary?.effort_allocation || {};
-                setKpis({
-                    doneToday: summary?.done_today ?? null,
-                    doneWeek: summary?.done_this_week ?? null,
-                    heroTimePct: effort?.hero_pct ?? summary?.hero_time_pct ?? null,
-                });
+
+                // Load summary for KPIs (best-effort)
+                try {
+                    const summaryRes = await dashboardApi.getSummary();
+                    if (cancelled) return;
+                    const summary = summaryRes?.data?.data || {};
+                    const effort = summary?.effort_allocation || {};
+                    setKpis({
+                        doneToday: summary?.done_today ?? null,
+                        doneWeek: summary?.done_this_week ?? null,
+                        heroTimePct: effort?.hero_pct ?? summary?.hero_time_pct ?? null,
+                    });
+                } catch (_summaryErr) {
+                    if (!cancelled) {
+                        setKpis({ doneToday: null, doneWeek: null, heroTimePct: null });
+                    }
+                }
             } catch (e) {
                 if (!cancelled) {
                     setQueueItems([]);
-                    setError('Failed to load queue.');
+                    const msg = e.response?.data?.message || e.response?.data?.error || e.message || 'Unknown error';
+                    setError(`Failed to load queue: ${msg}`);
                 }
             } finally {
                 if (!cancelled) setLoading(false);
@@ -217,15 +218,16 @@ const WriterQueue = () => {
     };
 
     const filtered = queueItems.filter((item) => {
-        if (activeTab === 'all' && (item.done || item.tier === 'kill')) return false;
-        if (activeTab === 'heroes' && !(item.tier === 'hero' && !item.done)) return false;
-        if (activeTab === 'support' && !(item.tier === 'support' && !item.done)) return false;
-        if (activeTab === 'harvest' && !(item.tier === 'harvest' && !item.done)) return false;
-        if (activeTab === 'done' && !item.done) return false;
-        if (activeTab === 'locked' && item.tier !== 'kill') return false;
         const q = query.trim().toLowerCase();
-        if (!q) return true;
-        return item.name.toLowerCase().includes(q) || item.id.toLowerCase().includes(q);
+        const searchMatch = !q || item.name.toLowerCase().includes(q) || item.id.toLowerCase().includes(q);
+        if (!searchMatch) return false;
+        if (activeTab === 'all') return !item.done && item.tier !== 'kill';
+        if (activeTab === 'heroes') return item.tier === 'hero';
+        if (activeTab === 'support') return item.tier === 'support';
+        if (activeTab === 'harvest') return item.tier === 'harvest';
+        if (activeTab === 'done') return item.done;
+        if (activeTab === 'locked') return item.tier === 'kill';
+        return true;
     });
 
     const tabs = [
@@ -238,7 +240,7 @@ const WriterQueue = () => {
     ];
 
     const renderStat = (label, value, color, sub) => (
-        <div style={{ flex: 1, minWidth: 150, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: '12px 16px' }}>
+        <div style={{ flex: 1, minWidth: 120, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: '12px 16px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
             <div style={{ fontSize: '0.64rem', color: C.textMid, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{label}</div>
             <div style={{ fontSize: '1.3rem', fontWeight: 700, color, marginTop: 4 }}>{value ?? '—'}</div>
             {sub && <div style={{ fontSize: '0.62rem', color: C.textMid, marginTop: 2 }}>{sub}</div>}
@@ -271,7 +273,7 @@ const WriterQueue = () => {
                 {renderStat('To Do', counts.todo, C.amber)}
                 {renderStat('Done Today', kpis.doneToday, C.green)}
                 {renderStat('Done This Week', kpis.doneWeek, C.accent)}
-                {renderStat('Hero Time %', kpis.heroTimePct === null ? null : `${kpis.heroTimePct}%`, C.hero, 'Target: 60%')}
+                {renderStat('Hero Time', kpis.heroTimePct === null ? null : `${kpis.heroTimePct}%`, C.hero, 'Target: 60%')}
             </div>
 
             <div className="card" style={{ padding: 14 }}>
@@ -283,17 +285,15 @@ const WriterQueue = () => {
                                 key={tab.key}
                                 type="button"
                                 onClick={() => setActiveTab(tab.key)}
-                                onMouseEnter={() => setHoveredTabKey(tab.key)}
-                                onMouseLeave={() => setHoveredTabKey(null)}
                                 style={{
-                                    border: `1px solid ${active ? C.accent : hoveredTabKey === tab.key ? C.accentBorder : C.border}`,
-                                    background: active ? C.accent : hoveredTabKey === tab.key ? C.muted : C.surface,
-                                    color: active ? C.surface : C.textMid,
-                                    borderRadius: 6,
-                                    padding: '6px 10px',
-                                    fontSize: '0.72rem',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
+                                padding: '6px 14px',
+                                borderRadius: 4,
+                                fontSize: '0.72rem',
+                                cursor: 'pointer',
+                                background: active ? C.accent : C.surface,
+                                color: active ? THEME.surface : C.textMid,
+                                border: `1px solid ${active ? C.accent : C.border}`,
+                                fontWeight: active ? 700 : 500,
                                 }}
                             >
                                 {tab.label}
@@ -332,7 +332,9 @@ const WriterQueue = () => {
                                     onMouseEnter={() => clickable && setHoveredItemId(item.id)}
                                     onMouseLeave={() => setHoveredItemId(null)}
                                     style={{
-                                        border: `1px solid ${hoveredItemId === item.id ? C.accentBorder : C.border}`,
+                                        borderTop: `1px solid ${hoveredItemId === item.id ? C.accentBorder : C.border}`,
+                                        borderRight: `1px solid ${hoveredItemId === item.id ? C.accentBorder : C.border}`,
+                                        borderBottom: `1px solid ${hoveredItemId === item.id ? C.accentBorder : C.border}`,
                                         borderLeft: `4px solid ${getUrgencyBorder(item.urgency)}`,
                                         borderRadius: 6,
                                         padding: 12,
@@ -342,12 +344,28 @@ const WriterQueue = () => {
                                         justifyContent: 'space-between',
                                         gap: 12,
                                         opacity: kill ? 0.5 : 1,
-                                        cursor: kill ? 'default' : 'pointer',
+                                        pointerEvents: kill ? 'none' : 'auto',
+                                        cursor: kill ? 'not-allowed' : 'pointer',
                                     }}
                                 >
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                             <TierTag tier={item.tier} />
+                                            {(item.urgency === 'high' || item.urgency === 'medium') && (
+                                                <span
+                                                    style={{
+                                                        fontSize: '0.6rem',
+                                                        fontWeight: 700,
+                                                        padding: '2px 7px',
+                                                        borderRadius: 3,
+                                                        background: item.urgency === 'high' ? C.redBg : C.amberBg,
+                                                        color: item.urgency === 'high' ? C.red : C.amber,
+                                                        border: `1px solid ${item.urgency === 'high' ? C.redBorder : C.amberBorder}`,
+                                                    }}
+                                                >
+                                                    {item.urgency === 'high' ? 'HIGH' : 'MED'}
+                                                </span>
+                                            )}
                                             <span style={{ color: C.text, fontWeight: 600, fontSize: '0.83rem' }}>{item.name}</span>
                                             <span style={{ color: C.textMid, fontSize: '0.68rem' }}>{item.id}</span>
                                         </div>
@@ -365,7 +383,22 @@ const WriterQueue = () => {
                                         ) : item.done ? (
                                             <StatusPill label="DONE" tone="done" />
                                         ) : (
-                                            <FieldProgress done={item.doneFields} total={item.totalFields} />
+                                            <>
+                                                <FieldProgress done={item.doneFields} total={item.totalFields} />
+                                                {item.totalFields > 0 && (
+                                                    <span
+                                                        style={{
+                                                            fontSize: '0.65rem',
+                                                            fontWeight: 600,
+                                                            color: item.totalFields - item.doneFields > 0 ? C.red : C.green,
+                                                        }}
+                                                    >
+                                                        {item.totalFields - item.doneFields > 0
+                                                            ? `${item.totalFields - item.doneFields} missing`
+                                                            : 'Complete'}
+                                                    </span>
+                                                )}
+                                            </>
                                         )}
                                         <span style={{ color: C.textMid, fontSize: '0.95rem' }}>→</span>
                                     </div>

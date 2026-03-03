@@ -13,6 +13,7 @@ export const TIER_BANNER_COPY = {
 };
 
 export const TIER_FIELD_MAP = {
+    // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §3 — Hero=6, Support=5, Harvest=1, Kill=locked
     hero: {
         // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2 (Hero=6 fields)
         // SOURCE: CIE_v232_Writer_View.jsx fields object

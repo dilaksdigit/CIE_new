@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import useStore from '../../store';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useContext } from 'react';
+import { AppContext } from '../../App';
+import { useNavigate, Link } from 'react-router-dom';
+import { roleLabel } from './UIComponents';
 
 const Header = () => {
-    const { user, isAuthenticated, logout } = useStore();
+    const { user, isAuthenticated, logout } = useContext(AppContext);
     const navigate = useNavigate();
     const [showDropdown, setShowDropdown] = useState(false);
 
@@ -21,6 +22,28 @@ const Header = () => {
                 <span className="version">v2.3.2</span>
             </div>
             <div className="header-actions">
+                {/* SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 4 (top nav help icon); Section 1.5 (light palette) */}
+                {isAuthenticated && (
+                    <Link
+                        to="/help/flow"
+                        title="How the system works"
+                        style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 28,
+                            height: 28,
+                            borderRadius: '50%',
+                            border: '1.5px solid #E5E3DE',
+                            background: '#FFFFFF',
+                            color: '#5B7A3A',
+                            fontSize: '0.85rem',
+                            fontWeight: 700,
+                            textDecoration: 'none',
+                            cursor: 'pointer',
+                        }}
+                    >?</Link>
+                )}
                 <div className="header-status">
                     <span className="status-dot"></span>
                     <span>System Online</span>
@@ -39,7 +62,7 @@ const Header = () => {
                                 <div className="dropdown-user-info">
                                     <div className="user-name">{user?.name || 'User'}</div>
                                     <div className="user-email">{user?.email || 'No email'}</div>
-                                    <div className="user-role">{user?.role || 'No role'}</div>
+                                    <div className="user-role">{roleLabel(user?.role?.name ?? user?.role) || 'No role'}</div>
                                 </div>
                                 <div className="dropdown-divider"></div>
                                 <button className="dropdown-item logout-btn" onClick={handleLogout}>

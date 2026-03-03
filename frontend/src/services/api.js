@@ -44,14 +44,19 @@ export const authApi = {
 
 // ====== Writer Queue ======
 export const queueApi = {
-    today: () => api.get('/v1/queue/today'),
+    today: () => api.get('/v1/queue/today').catch((err) => {
+        if (err.response?.status === 404) {
+            return api.get('/queue/today');
+        }
+        throw err;
+    }),
 };
 
 // ====== Writer Edit (Phase 4) ======
 export const writerEditApi = {
     get: (skuId) => api.get(`/v1/skus/${skuId}`),
     validate: (skuId, data) => api.post(`/v1/skus/${skuId}/validate`, data),
-    publish: (skuId) => api.put(`/v1/skus/${skuId}`, { validation_status: 'VALID' }),
+    publish: (skuId, data) => api.put(`/v1/skus/${skuId}`, data),
 };
 
 // ====== SKUs ======
@@ -100,18 +105,42 @@ export const configApi = {
     update: (data) => api.put('/config', data),
 };
 
+// ====== Admin Business Rules (Phase 0 Check 0.1) ======
+export const businessRulesApi = {
+    list: (params) => api.get('/admin/business-rules', { params }),
+    update: (key, value) => api.put(`/admin/business-rules/${encodeURIComponent(key)}`, { value }),
+    approve: (key) => api.post(`/admin/business-rules/${encodeURIComponent(key)}/approve`),
+    getAudit: () => api.get('/admin/business-rules/audit'),
+};
+
+// ====== Semrush Import (Admin) ======
+export const semrushImportApi = {
+    importFile: (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        return api.post('/admin/semrush-import', formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
+    },
+    latest: () => api.get('/admin/semrush-import/latest'),
+    deleteBatch: (batchDate) => api.delete(`/admin/semrush-import/${encodeURIComponent(batchDate)}`),
+};
+
 // ====== Dashboard (S4 Maturity, Decay, Effort, Staff KPIs) ======
 export const dashboardApi = {
-    getSummary: () => api.get('/dashboard/summary'),
-    getDecayAlerts: () => api.get('/dashboard/decay-alerts'),
+    getSummary: () => api.get('/v1/dashboard/summary'),
+    getDecayAlerts: () => api.get('/v1/dashboard/decay-alerts'),
 };
 
 // ====== Audit Results ======
+// SOURCE: openapi.yaml /audit-results/weekly-scores GET (weeks param default 12)
 export const auditResultApi = {
     getBySkuId: (skuId) => api.get(`/skus/${skuId}/audit-results`),
-    getDecayAlerts: () => api.get('/dashboard/decay-alerts'),
-    getWeeklyScores: () => api.get('/audit-results/weekly-scores'),
-    saveWeeklyScore: (data) => api.post('/audit-results/weekly-scores', data),
+    getDecayAlerts: () => api.get('/v1/dashboard/decay-alerts'),
+    getWeeklyScores: () => api.get('/v1/audit-results/weekly-scores?weeks=12'),
+    saveWeeklyScore: (payload) => api.post('/v1/audit-results/weekly-scores', payload),
 };
 
 // ====== Audit Log (immutable trail) ======

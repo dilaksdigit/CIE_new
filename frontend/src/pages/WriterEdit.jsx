@@ -1,70 +1,39 @@
+// SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §4.1 | CIE_v232_UI_Restructure_Instructions.docx §2.1 | CIE_v232_Semrush_CSV_Import_Spec.docx §3.3 | CIE_v232_Writer_View.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { writerEditApi, skuApi } from '../services/api';
+import api, { writerEditApi } from '../services/api';
+import THEME from '../theme';
+import TierLockBanner from '../components/sku/TierLockBanner';
 
-const C = {
-  bg: "#FAFAF8",
-  surface: "#FFFFFF",
-  muted: "#F5F4F1",
-  border: "#E5E3DE",
-  text: "#2D2B28",
-  textMid: "#6B6860",
-  textLight: "#9B978F",
-  accent: "#5B7A3A",
-  accentLight: "#EEF2E8",
-  accentBorder: "#C5D4B0",
-  hero: "#8B6914",
-  heroBg: "#FDF6E3",
-  heroBorder: "#E8D5A0",
-  support: "#3D6B8E",
-  supportBg: "#EBF3F9",
-  supportBorder: "#B5D0E3",
-  harvest: "#9E7C1A",
-  harvestBg: "#FFF8E7",
-  harvestBorder: "#E8D49A",
-  kill: "#A63D2F",
-  killBg: "#FDEEEB",
-  killBorder: "#E5B5AD",
-  green: "#2E7D32",
-  greenBg: "#E8F5E9",
-  greenBorder: "#A5D6A7",
-  red: "#C62828",
-  redBg: "#FFEBEE",
-  redBorder: "#EF9A9A",
-  amber: "#E65100",
-  amberBg: "#FFFDE7",
-  amberBorder: "#FFCC80",
-  blue: "#1565C0",
-  blueBg: "#E3F2FD",
-  blueBorder: "#90CAF9",
-};
+const C = THEME;
 
 const TIER_BANNER = {
     hero: {
         text: 'HERO — Top earner. Give it your best work. Guide: ~90 min',
-        bg: C.heroBg,
-        color: C.hero,
+        bg: THEME.heroBg,
+        color: THEME.hero,
     },
     support: {
-        text: "SUPPORT — Solid product. Good content, don't overthink it. Guide: ~45 min",
-        bg: C.supportBg,
-        color: C.support,
+        text: 'SUPPORT SKU — Focused Coverage. This product supports revenue but does not lead. Primary intent + max 2 secondary intents enabled. Answer Block and Best-For/Not-For required. Max 2 hours per quarter. Guide: ~45 min',
+        bg: THEME.supportBg,
+        color: THEME.support,
     },
     harvest: {
         text: 'HARVEST — Basic info only. One field to fill. Guide: ~10 min',
-        bg: C.harvestBg,
-        color: C.harvest,
+        bg: THEME.harvestBg,
+        color: THEME.harvest,
     },
     kill: {
         text: 'KILL — Being removed from sale. Do nothing.',
-        bg: C.killBg,
-        color: C.kill,
+        bg: THEME.killBg,
+        color: THEME.kill,
     },
 };
 
 const FIELD_LABELS = {
     title: 'Title',
     description: 'Description',
+    specification: 'Basic Specification',
     answer_block: 'Answer Block',
     best_for: 'Best For',
     not_for: 'Not For',
@@ -74,6 +43,7 @@ const FIELD_LABELS = {
 const FIELD_TYPES = {
     title: 'input',
     description: 'textarea',
+    specification: 'textarea',
     answer_block: 'textarea',
     best_for: 'textarea',
     not_for: 'textarea',
@@ -81,34 +51,124 @@ const FIELD_TYPES = {
 };
 
 const FIELD_RANGES = {
-    title: { min: null, max: 250 },
-    description: { min: null, max: null }, // TODO: confirm exact range from OpenAPI schema if provided.
+    title: { min: 1, max: 250 },
+    description: { min: 50, max: null },
+    specification: { min: 50, max: null },
     answer_block: { min: 250, max: 300 },
-    best_for: { min: null, max: null }, // TODO: confirm exact range from OpenAPI schema if provided.
-    not_for: { min: null, max: null }, // TODO: confirm exact range from OpenAPI schema if provided.
-    expert_authority: { min: null, max: null }, // TODO: confirm exact range from OpenAPI schema if provided.
+    best_for: { min: 1, max: null },
+    not_for: { min: 1, max: null },
+    expert_authority: { min: 1, max: null },
 };
 
 const FIELDS_BY_TIER = {
     hero: ['title', 'description', 'answer_block', 'best_for', 'not_for', 'expert_authority'],
     support: ['title', 'description', 'answer_block', 'best_for', 'not_for'],
-    harvest: ['description'],
+    harvest: ['specification'],
     kill: [],
 };
 
 const normalizeTier = (tier) => String(tier || '').trim().toLowerCase();
-const SUGGESTION_TYPE_COLORS = {
-    keyword_opportunity: { icon: '*', color: C.accent },
-    ai_visibility_issue: { icon: '*', color: C.red },
-    trending_search: { icon: '*', color: C.blue },
-    competitor_gap: { icon: '*', color: C.amber },
+const SUGGESTION_CARD_TYPE_META = {
+    // SOURCE: CIE_v232_Writer_View.jsx — SuggestionCard icon/label map
+    keyword:    { icon: '🔍', label: 'Keyword Opportunity', iconColor: '#5B7A3A' },   // olive green
+    citation:   { icon: '🤖', label: 'AI Visibility Issue', iconColor: '#C62828' },   // red
+    trend:      { icon: '📈', label: 'Trending Search', iconColor: '#1565C0' },       // blue
+    competitor: { icon: '⚔️', label: 'Competitor Gap', iconColor: '#E65100' },       // amber
+};
+
+const PRIORITY_META = {
+    // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2.1 priority mapping
+    high:   { badgeText: 'HIGH', color: THEME.red,   bg: THEME.redBg },
+    medium: { badgeText: 'MED',  color: THEME.amber, bg: THEME.amberBg },
+    low:    { badgeText: 'LOW',  color: THEME.amber, bg: THEME.amberBg },
+};
+
+const PRIORITY_ORDER = ['high', 'medium', 'low'];
+
+const ALLOWED_SUGGESTION_TYPES = ['keyword', 'citation', 'trend', 'competitor'];
+
+const resolveSuggestionType = (item) => {
+    const rawType = String(item?.type || '').toLowerCase().replace(/\s+/g, '_');
+    if (ALLOWED_SUGGESTION_TYPES.includes(rawType)) return rawType;
+
+    const source = String(item?.source_label || item?.source || '').toLowerCase();
+    const title = String(item?.title || '').toLowerCase();
+    const text = String(item?.explanation || item?.body || item?.message || '').toLowerCase();
+
+    if (source.includes('semrush')) return 'keyword';
+    if (source.includes('ai audit') || title.includes('ai visibility') || text.includes('ai visibility')) return 'citation';
+    if (source.includes('analytics') || title.includes('trend') || text.includes('trend')) return 'trend';
+    if (source.includes('competitor') || title.includes('competitor') || text.includes('competitor')) return 'competitor';
+
+    // Fallback: unknown/legacy types are dropped by normalisation
+    // SOURCE: README_First_CIE_v232_Developer_README.docx §5; CIE_v232_UI_Restructure_Instructions.docx §2.1
+    return null;
 };
 
 const SUGGESTION_SOURCE_BY_TYPE = {
-    keyword_opportunity: 'Semrush',
-    ai_visibility_issue: 'AI Audit',
-    trending_search: 'Google Analytics',
-    competitor_gap: 'Semrush + AI Audit',
+    // SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §4.1; README_First_CIE_v232_Developer_README.docx §5
+    keyword:    'Semrush',
+    citation:   'AI Audit',
+    trend:      'Google Analytics',
+    competitor: 'Semrush + AI Audit',
+};
+
+// FIX 5 — Canonical source by type only; never use item.source_label (Amendment Pack v2 §4.1)
+const CANONICAL_SOURCE = {
+    keyword:    'Semrush',
+    citation:   'AI Audit',
+    trend:      'Google Analytics',
+    competitor: 'Semrush + AI Audit',
+};
+
+/** FIX 1 — Structured card content per type. Extract specific API fields; never pass raw explanation/body. */
+const transformCardContent = (item, type) => {
+    if (type === 'keyword') {
+        const keyword = item?.keyword || item?.title || '';
+        const searchVolume = item?.search_volume;
+        const volText = searchVolume != null && searchVolume !== '' ? String(searchVolume) : 'Search volume unavailable';
+        const trendRaw = typeof item?.trend === 'string' ? item.trend : (Array.isArray(item?.trend) ? item.trend.join(',') : '');
+        const parts = trendRaw ? String(trendRaw).split(',').map((s) => s.trim()).filter(Boolean) : [];
+        const first = parts.length ? Number(parts[0]) : null;
+        const last = parts.length ? Number(parts[parts.length - 1]) : null;
+        let trendLabel = '→ Stable';
+        if (first != null && last != null && !Number.isNaN(first) && !Number.isNaN(last)) {
+            if (last > first) trendLabel = '↑ Rising';
+            else if (last < first) trendLabel = '↓ Falling';
+        }
+        const instruction = item?.instruction || (keyword ? `Add '${keyword}' to your description. Monthly searches: ${volText}.` : `Monthly searches: ${volText}.`);
+        return {
+            title: item?.title || 'Keyword Opportunity',
+            explanation: `Search volume: ${volText}. Trend: ${trendLabel}. ${instruction}`,
+        };
+    }
+    if (type === 'citation') {
+        const engine = item?.engine?.trim() || 'Engine not specified';
+        const dropReason = item?.drop_reason?.trim() || 'Reason not provided';
+        const fixInstruction = item?.fix_instruction?.trim() || '';
+        const title = item?.title || 'AI Visibility Issue';
+        const explanation = [engine, dropReason, fixInstruction].filter(Boolean).join(' — ') || 'No details available.';
+        return { title, explanation };
+    }
+    if (type === 'trend') {
+        const pct = item?.traffic_change_pct;
+        const trafficText = pct != null && pct !== '' ? (Number(pct) >= 0 ? `+${Number(pct)}% traffic increase` : `${Number(pct)}% traffic drop`) : 'Traffic data unavailable';
+        const action = item?.action?.trim() || '';
+        const title = item?.title || 'Trending Search';
+        const explanation = action ? `${trafficText}. ${action}` : trafficText;
+        return { title, explanation };
+    }
+    if (type === 'competitor') {
+        const competitorAction = item?.competitor_action?.trim();
+        const ourGap = item?.our_gap?.trim();
+        const gapText = (competitorAction || ourGap) ? [competitorAction, ourGap].filter(Boolean).join('. We are missing: ') : 'Gap data unavailable';
+        const title = item?.title || 'Competitor Gap';
+        return { title, explanation: gapText };
+    }
+    return {
+        title: item?.title || item?.suggestion_title || '',
+        explanation: item?.explanation || item?.body || item?.message || '',
+    };
 };
 
 const normalizeGateKey = (value) => {
@@ -126,7 +186,7 @@ const normalizeGateKey = (value) => {
 
 const gateKeysForField = (field) => {
     if (field === 'title') return ['g1', 'g2', 'g3'];
-    if (field === 'description') return ['g6', 'vector_similarity'];
+    if (field === 'description' || field === 'specification') return ['g6', 'vector_similarity'];
     if (field === 'answer_block') return ['g4'];
     if (field === 'best_for' || field === 'not_for') return ['g5'];
     if (field === 'expert_authority') return ['g7'];
@@ -138,7 +198,13 @@ const normalizeGates = (rawGates) => {
     if (Array.isArray(rawGates)) {
         rawGates.forEach((g) => {
             const key = normalizeGateKey(g?.gate ?? g?.code ?? g?.id);
-            const status = g?.passed ? 'pass' : 'fail';
+            const rawStatus = (g && (g.status || g.state)) || (g?.passed === true ? 'pass' : g?.passed === false ? 'fail' : null);
+            const status =
+                rawStatus === 'pass'
+                    ? 'pass'
+                    : rawStatus === 'warning' || rawStatus === 'pending'
+                    ? 'warning'
+                    : 'fail';
             map[key] = {
                 status,
                 reason: g?.reason || '',
@@ -150,7 +216,13 @@ const normalizeGates = (rawGates) => {
     if (rawGates && typeof rawGates === 'object') {
         Object.entries(rawGates).forEach(([k, v]) => {
             const key = normalizeGateKey(k);
-            const status = v?.passed ? 'pass' : 'fail';
+            const rawStatus = (v && (v.status || v.state)) || (v?.passed === true ? 'pass' : v?.passed === false ? 'fail' : null);
+            const status =
+                rawStatus === 'pass'
+                    ? 'pass'
+                    : rawStatus === 'warning' || rawStatus === 'pending'
+                    ? 'warning'
+                    : 'fail';
             map[key] = {
                 status,
                 reason: v?.reason || '',
@@ -171,80 +243,73 @@ const pickList = (...values) => {
 
 const normalizeSuggestions = (raw) => {
     if (!Array.isArray(raw)) return [];
+    // SOURCE: README_First_CIE_v232_Developer_README.docx §5 — AI Suggestions Panel normalisation
     return raw
-        .slice(0, 8)
-        .map((item, idx) => ({
-            id: item?.id || `${idx}`,
-            type: String(item?.type || '').toLowerCase().replace(/\s+/g, '_'),
-            title: item?.title || 'Suggestion',
-            body: item?.body || item?.message || '',
-            source:
-                item?.source_label ||
-                SUGGESTION_SOURCE_BY_TYPE[String(item?.type || '').toLowerCase().replace(/\s+/g, '_')] ||
-                'Semrush',
-        }));
-};
-
-const normalizeFaqSuggestions = (raw) => {
-    if (!Array.isArray(raw)) return [];
-    return raw.slice(0, 6).map((item, idx) => {
-        if (typeof item === 'string') {
+        .map((item, idx) => {
+            const type = resolveSuggestionType(item);
+            if (type === null) return null;
+            const transformed = transformCardContent(item, type);
+            const rawPriority = String(item?.priority || '').toLowerCase();
+            const priority = PRIORITY_ORDER.includes(rawPriority) ? rawPriority : 'medium';
             return {
-                id: `faq-${idx}`,
-                question: item,
-                answer: '',
+                id: item?.id || `${idx}`,
+                type,
+                title: transformed.title,
+                explanation: transformed.explanation,
+                priority,
+                source: CANONICAL_SOURCE[type],
+                dateRange: item?.date_range || item?.dateRange || item?.window || '',
             };
-        }
-        return {
-            id: String(item.id ?? `faq-${idx}`),
-            question: item.question || item.q || item.heading || 'Suggested FAQ',
-            answer: item.answer || item.a || item.body || '',
-        };
-    });
-};
-
-const buildGateSuggestions = (gates, values) => {
-    const labelMap = {
-        g1: 'Title pattern',
-        g2: 'Main search intent',
-        g3: 'Supporting intents',
-        g4: 'Answer Block length',
-        g5: 'Technical details',
-        g6: 'Commercial info',
-        g7: 'Expert authority',
-        vector_similarity: 'Category focus drift',
-    };
-    const items = [];
-    Object.entries(gates || {}).forEach(([key, gate]) => {
-        if (!gate || gate.status !== 'fail') return;
-        const hint = gateHintText(key, gate, values);
-        if (!hint) return;
-        items.push({
-            id: `gate-${key}`,
-            title: labelMap[key] || 'Content check',
-            body: hint,
-        });
-    });
-    return items.slice(0, 6);
+        })
+        .filter((s) => s !== null && s.type !== null)
+        .filter(Boolean)
+        .slice(0, 8);
 };
 
 const gateHintText = (gateKey, gate, values) => {
     const meta = gate?.metadata || {};
-    const terms = pickList(meta.terms, meta.missing_terms, meta.key_terms) || '[terms from gate data]';
-    const missingElements = pickList(meta.missing_elements, meta.elements, meta.missing) || '[missing elements from gate data]';
-    const categoryTerms = pickList(meta.category_terms, meta.terms) || '[category terms]';
-    const min = meta.min ?? FIELD_RANGES.answer_block.min ?? '[min]';
-    const max = meta.max ?? FIELD_RANGES.answer_block.max ?? '[max]';
-    const currentLen = meta.current_length ?? String(values?.answer_block || '').length ?? '[X]';
+    const missingTerms = gate?.missing_terms ?? meta.missing_terms ?? meta.terms ?? meta.key_terms;
+    const termsStr = Array.isArray(missingTerms) ? missingTerms.join(', ') : (typeof missingTerms === 'string' ? missingTerms : '');
+    const missingElements = gate?.missing_elements ?? meta.missing_elements ?? meta.elements ?? meta.missing;
+    const elementsArr = Array.isArray(missingElements) ? missingElements : (typeof missingElements === 'string' ? [missingElements] : []);
+    const categoryTerms = gate?.category_terms ?? meta.category_terms ?? meta.terms;
+    const categoryStr = Array.isArray(categoryTerms) ? categoryTerms.join(', ') : (typeof categoryTerms === 'string' ? categoryTerms : '');
+    const minChars = gate?.min_chars ?? meta.min_chars ?? meta.min ?? FIELD_RANGES.answer_block?.min;
+    const maxChars = gate?.max_chars ?? meta.max_chars ?? meta.max ?? FIELD_RANGES.answer_block?.max;
+    const currentChars = gate?.current_chars ?? meta.current_chars ?? meta.current_length ?? (values?.answer_block != null ? String(values.answer_block).length : null);
 
-    if (gateKey === 'g1') return 'Title format needs fixing. Follow: [Key Feature] + [Product Type] + [Differentiator].';
-    if (gateKey === 'g2') return `Main search intent missing. Add ${terms} to match what customers search for.`;
-    if (gateKey === 'g3') return `Supporting intent phrases missing. Add related use cases: ${terms}.`;
-    if (gateKey === 'g4') return `Too short (${currentLen} chars). Needs ${min}-${max}. Add ${missingElements}.`;
+    if (gateKey === 'g1') {
+        if (elementsArr.length >= 3) {
+            const [keyFeature, productType, differentiator] = elementsArr;
+            return `Title format needs fixing. Follow: ${keyFeature} + ${productType} + ${differentiator}.`;
+        }
+        return 'Title format needs fixing. Check your title includes a key feature, product type, and a differentiator.';
+    }
+    if (gateKey === 'g2') {
+        if (termsStr) return `Main search intent missing. Add ${termsStr} to match what customers search for.`;
+        return 'Main search intent missing. Review your primary keywords.';
+    }
+    if (gateKey === 'g3') {
+        if (termsStr) return `Supporting intent phrases missing. Add related use cases: ${termsStr}.`;
+        return 'Supporting intent phrases missing. Add related use cases.';
+    }
+    if (gateKey === 'g4') {
+        const parts = [];
+        if (currentChars != null && currentChars !== '') parts.push(`Currently ${currentChars} chars`);
+        if (minChars != null && maxChars != null) parts.push(`needs ${minChars}-${maxChars}`);
+        else if (minChars != null) parts.push(`needs at least ${minChars}`);
+        else if (maxChars != null) parts.push(`needs up to ${maxChars}`);
+        if (elementsArr.length) parts.push(`Add: ${elementsArr.join(', ')}`);
+        if (parts.length) return `Too short. ${parts.join('. ')}.`;
+        return 'Answer block is too short. Add more detail to meet the required length.';
+    }
     if (gateKey === 'g5') return 'Technical details incomplete. Add certifications, specs, or standards that prove quality.';
     if (gateKey === 'g6') return 'Missing commercial info. Add pricing context, warranty, or delivery details as needed.';
     if (gateKey === 'g7') return 'Authority section needs expert credentials. Add industry standards, testing results, or certifications.';
-    if (gateKey === 'vector_similarity') return `Your content has drifted from the category focus. Rewrite to include more ${categoryTerms}.`;
+    if (gateKey === 'vector_similarity') {
+        if (categoryStr) return `Your content has drifted from the category focus. Rewrite to include more ${categoryStr}.`;
+        return 'Your content has drifted from the category focus. Review the category keywords.';
+    }
     return '';
 };
 
@@ -254,20 +319,42 @@ const fieldStateAndHint = (field, gates, values) => {
     if (related.length === 0) return { state: 'neutral', hint: '' };
 
     const hasFail = related.some((r) => r.gate.status === 'fail');
-    const primary = related.find((r) => r.gate.status === 'fail') || null;
-    const hint = primary ? gateHintText(primary.key, primary.gate, values) : '';
+    const hasWarning = related.some((r) => r.gate.status === 'warning');
 
-    if (hasFail) return { state: 'fail', hint };
+    if (hasFail) {
+        const primaryFail = related.find((r) => r.gate.status === 'fail') || null;
+        const hint = primaryFail ? gateHintText(primaryFail.key, primaryFail.gate, values) : '';
+        return { state: 'fail', hint };
+    }
+
+    if (hasWarning) {
+        const primaryWarning = related.find((r) => r.gate.status === 'warning') || null;
+        const hint = primaryWarning ? gateHintText(primaryWarning.key, primaryWarning.gate, values) : '';
+        return { state: 'warning', hint };
+    }
+
     return { state: 'pass', hint: '' };
 };
 
-const borderColorForState = (state) => {
-    if (state === 'pass') return C.green;
-    if (state === 'fail') return C.red;
-    return C.border;
+/** Client-side completion: field has enough content to count as "complete" for progress. */
+const isFieldComplete = (field, values) => {
+    const v = String((values && values[field]) || '').trim();
+    const range = FIELD_RANGES[field];
+    if (!range) return false;
+    const len = v.length;
+    if (range.min != null && len < range.min) return false;
+    if (range.max != null && len > range.max) return false;
+    return true;
 };
 
-const hintColorForState = () => C.red;
+const borderColorForState = (state) => {
+    if (state === 'pass') return THEME.green;
+    if (state === 'warning') return THEME.amber;
+    if (state === 'fail') return THEME.red;
+    return THEME.border;
+};
+
+const hintColorForState = (state) => (state === 'warning' ? THEME.amber : THEME.red);
 
 const counterText = (field, value) => {
     const len = String(value || '').length;
@@ -286,6 +373,7 @@ const WriterEdit = () => {
     const [values, setValues] = useState({
         title: '',
         description: '',
+        specification: '',
         answer_block: '',
         best_for: '',
         not_for: '',
@@ -300,20 +388,14 @@ const WriterEdit = () => {
 
     const [suggestionsOpen, setSuggestionsOpen] = useState(true);
     const [suggestions, setSuggestions] = useState([]);
-    const [faqSuggestions, setFaqSuggestions] = useState([]);
-    const [faqLoading, setFaqLoading] = useState(false);
-    const [faqError, setFaqError] = useState('');
-
-    const [gateSuggestionDismissedIds, setGateSuggestionDismissedIds] = useState([]);
-    const [faqDismissedIds, setFaqDismissedIds] = useState([]);
     const [hoveredId, setHoveredId] = useState(null);
-
-    const gateSuggestions = useMemo(
-        () => buildGateSuggestions(gates, values).filter((s) => !gateSuggestionDismissedIds.includes(s.id)),
-        [gates, values, gateSuggestionDismissedIds]
-    );
+    const [hasSemrushData, setHasSemrushData] = useState(false);
 
     const requiredFields = useMemo(() => FIELDS_BY_TIER[tier] || [], [tier]);
+    const gatedRequiredFields = useMemo(
+        () => requiredFields.filter((f) => gateKeysForField(f).length > 0),
+        [requiredFields]
+    );
 
     useEffect(() => {
         let cancelled = false;
@@ -332,21 +414,158 @@ const WriterEdit = () => {
                 setValues({
                     title: item?.title || '',
                     description: item?.description || item?.long_description || '',
+                    specification: item?.specification || item?.description || item?.long_description || '',
                     answer_block: item?.answer_block || item?.short_description || '',
                     best_for: item?.best_for || '',
                     not_for: item?.not_for || '',
                     expert_authority: item?.expert_authority || item?.expert_authority_name || '',
                 });
-                const rawSuggestions = normalizeSuggestions(payload?.suggestions || payload?.ai_suggestions || []);
+
+                // SOURCE: README_First_CIE_v232_Developer_README.docx §5
+                // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 2 RIGHT PANEL
+                // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §1 §3.3
+                // SOURCE: openapi.yaml (endpoint paths)
+                const category =
+                    item?.category ||
+                    item?.primaryCluster?.category ||
+                    null;
+
+                // Start from any backend-provided suggestions (e.g. AI audit)
+                const baseRawSuggestions =
+                    payload?.suggestions ||
+                    payload?.ai_suggestions ||
+                    item?.ai_suggestions ||
+                    item?.suggestions ||
+                    [];
+
+                const suggestionItems = Array.isArray(baseRawSuggestions)
+                    ? [...baseRawSuggestions]
+                    : [];
+
+                // Semrush empty-state: use dedicated Semrush fetch when available (FIX 6)
+                let semrushHasData =
+                    Array.isArray(payload?.semrush_imports) && payload.semrush_imports.length > 0;
+
+                // FIX 6 — Fetch Semrush data for this SKU (existing endpoint per openapi / Integration Spec)
                 try {
-                    const storageKey = `cie_suggestions_dismiss_${skuId}`;
-                    const dismissedRaw = window.localStorage.getItem(storageKey);
-                    const dismissedIds = dismissedRaw ? JSON.parse(dismissedRaw) : [];
-                    const filtered = rawSuggestions.filter((s) => !dismissedIds.includes(s.id));
-                    setSuggestions(filtered);
+                    const semrushRes = await api.get(`/v1/sku/${encodeURIComponent(skuId)}/semrush`);
+                    if (!cancelled && semrushRes?.data) {
+                        const semrushData = semrushRes.data?.data ?? semrushRes.data;
+                        const semrushList = Array.isArray(semrushData) ? semrushData : (semrushData?.items ?? []);
+                        if (semrushList.length > 0) {
+                            semrushHasData = true;
+
+                            // Card Type 1 — Keyword Opportunity: sort by search_volume DESC
+                            const keywordRows = [...semrushList].filter((row) => row && row.keyword).sort((a, b) => {
+                                const av = Number(a.search_volume || 0);
+                                const bv = Number(b.search_volume || 0);
+                                return bv - av;
+                            });
+                            keywordRows.forEach((row, idx) => {
+                                suggestionItems.push({
+                                    id: `semrush-keyword-${skuId}-${idx}`,
+                                    type: 'keyword',
+                                    keyword: row.keyword,
+                                    search_volume: row.search_volume,
+                                    trend: row.trend,
+                                    instruction: row.instruction,
+                                    title: row.title || (row.keyword ? `Keyword: ${row.keyword}` : 'Keyword Opportunity'),
+                                    date_range: row.date_range || row.window || '',
+                                    priority: row.priority || 'medium',
+                                });
+                            });
+
+                            // Card Type 4 — Competitor Gap: prev_position > position, sorted by improvement DESC
+                            const competitorRows = [...semrushList].filter((row) => {
+                                if (!row) return false;
+                                const pos = Number(row.position);
+                                const prev = Number(row.prev_position);
+                                return !Number.isNaN(pos) && !Number.isNaN(prev) && prev > pos;
+                            }).sort((a, b) => {
+                                const aDelta = Number(a.prev_position || 0) - Number(a.position || 0);
+                                const bDelta = Number(b.prev_position || 0) - Number(b.position || 0);
+                                return bDelta - aDelta;
+                            });
+
+                            competitorRows.forEach((row, idx) => {
+                                suggestionItems.push({
+                                    id: `semrush-competitor-${skuId}-${idx}`,
+                                    type: 'competitor',
+                                    competitor_action: row.competitor_action,
+                                    our_gap: row.our_gap,
+                                    title: row.title || 'Competitor Gap',
+                                    date_range: row.date_range || row.window || '',
+                                    priority: row.priority || 'medium',
+                                });
+                            });
+                        }
+                    }
                 } catch {
-                    setSuggestions(rawSuggestions);
+                    // No Semrush endpoint or error: leave semrushHasData from payload or false
                 }
+
+                // FIX 6 — Fetch Google Analytics data for this SKU (existing endpoint)
+                try {
+                    const gaRes = await api.get(`/v1/sku/${encodeURIComponent(skuId)}/analytics`);
+                    if (!cancelled && gaRes?.data) {
+                        const gaData = gaRes.data?.data ?? gaRes.data;
+                        const gaList = Array.isArray(gaData) ? gaData : (gaData?.items ?? gaData?.trends ?? []);
+                        if (Array.isArray(gaList) && gaList.length > 0) {
+                            gaList.forEach((row, idx) => {
+                                suggestionItems.push({
+                                    id: `ga-trend-${skuId}-${idx}`,
+                                    type: 'trend',
+                                    traffic_change_pct: row.traffic_change_pct ?? row.traffic_change,
+                                    action: row.action,
+                                    title: row.title || 'Trending Search',
+                                    date_range: row.date_range || row.window || '',
+                                    priority: row.priority || 'medium',
+                                });
+                            });
+                        }
+                    }
+                } catch {
+                    // No GA endpoint or error: continue without trend cards
+                }
+
+                setHasSemrushData(semrushHasData);
+
+                // AI Audit → citation cards (existing endpoint)
+                if (category) {
+                    try {
+                        const aiRes = await api.get(`/v1/audit/results/${encodeURIComponent(category)}`);
+                        if (!cancelled && aiRes) {
+                            const aiData = aiRes.data?.data ?? aiRes.data ?? {};
+                            const aggregateRate =
+                                typeof aiData.aggregate_citation_rate === 'number'
+                                    ? aiData.aggregate_citation_rate
+                                    : null;
+                            const passFail = aiData.pass_fail || null;
+                            const runDate = aiData.run_date || '';
+                            if (aggregateRate !== null) {
+                                const pct = (aggregateRate * 100).toFixed(1);
+                                const fixInstruction = passFail === 'fail'
+                                    ? `AI citation rate is only ${pct}%. Strengthen Answer Block and Expert Authority to improve AI visibility.`
+                                    : `AI citation rate is ${pct}%. Maintain strong coverage in Answer Block and Expert Authority to keep visibility high.`;
+                                suggestionItems.push({
+                                    id: `ai-audit-${skuId}`,
+                                    type: 'citation',
+                                    engine: 'AI Audit',
+                                    drop_reason: passFail === 'fail' ? 'Low citation rate' : 'N/A',
+                                    fix_instruction: fixInstruction,
+                                    title: `AI visibility for ${aiData.category || 'this category'} is ${pct}%`,
+                                    date_range: runDate,
+                                    priority: passFail === 'fail' ? 'high' : 'medium',
+                                });
+                            }
+                        }
+                    } catch {
+                        // Fail-soft: if AI Audit is unavailable, fall back to SKU suggestions only
+                    }
+                }
+
+                const normalizedSuggestions = normalizeSuggestions(suggestionItems);
+                setSuggestions(normalizedSuggestions);
             } catch (e) {
                 if (!cancelled) {
                     setLoadError('Failed to load SKU.');
@@ -365,44 +584,6 @@ const WriterEdit = () => {
     useEffect(() => {
         if (!sku || tier === 'kill') return undefined;
         let cancelled = false;
-        const loadFaq = async () => {
-            try {
-                setFaqLoading(true);
-                setFaqError('');
-                const res = await skuApi.faqSuggestions(skuId);
-                if (cancelled) return;
-                const payload = res?.data?.data ?? res?.data ?? {};
-                const blocks = payload?.faq_blocks || payload?.blocks || payload || [];
-
-                const normalized = normalizeFaqSuggestions(blocks);
-                try {
-                    const storageKey = `cie_faq_dismiss_${skuId}`;
-                    const dismissedRaw = window.localStorage.getItem(storageKey);
-                    const dismissedIds = dismissedRaw ? JSON.parse(dismissedRaw) : [];
-                    setFaqDismissedIds(dismissedIds);
-                    const filtered = normalized.filter((b) => !dismissedIds.includes(b.id));
-                    setFaqSuggestions(filtered);
-                } catch {
-                    setFaqSuggestions(normalized);
-                }
-            } catch (e) {
-                if (!cancelled) {
-                    setFaqError('Failed to load FAQ suggestions.');
-                    setFaqSuggestions([]);
-                }
-            } finally {
-                if (!cancelled) setFaqLoading(false);
-            }
-        };
-        loadFaq();
-        return () => {
-            cancelled = true;
-        };
-    }, [sku, skuId, tier]);
-
-    useEffect(() => {
-        if (!sku || tier === 'kill') return undefined;
-        let cancelled = false;
         const timer = setTimeout(async () => {
             try {
                 setValidateBusy(true);
@@ -411,6 +592,7 @@ const WriterEdit = () => {
                     tier: tier.toUpperCase(),
                     title: values.title,
                     description: values.description,
+                    specification: values.specification,
                     answer_block: values.answer_block,
                     best_for: values.best_for,
                     not_for: values.not_for,
@@ -432,10 +614,19 @@ const WriterEdit = () => {
         };
     }, [sku, skuId, tier, values]);
 
-    const completedCount = requiredFields.filter((f) => fieldStateAndHint(f, gates, values).state === 'pass').length;
-    const totalRequired = requiredFields.length;
-    const allRequiredPass = totalRequired > 0 && completedCount === totalRequired;
-    const progressPct = totalRequired > 0 ? Math.round((completedCount / totalRequired) * 100) : 0;
+    const progressCompletedCount = requiredFields.filter(
+        (f) => isFieldComplete(f, values) || fieldStateAndHint(f, gates, values).state === 'pass'
+    ).length;
+    const progressTotalRequired = requiredFields.length;
+
+    const gatePassedCount = gatedRequiredFields.filter((f) => fieldStateAndHint(f, gates, values).state === 'pass').length;
+    const totalRequired = gatedRequiredFields.length;
+    const requiredGateKeys = gatedRequiredFields.flatMap((f) => gateKeysForField(f));
+    const relevantGates = requiredGateKeys.map((k) => gates[k]).filter(Boolean);
+    const hasGateData = relevantGates.length > 0;
+    const allRequiredPass = hasGateData && relevantGates.every((g) => g.status === 'pass');
+    const progressPct =
+        progressTotalRequired > 0 ? Math.round((progressCompletedCount / progressTotalRequired) * 100) : 0;
 
     const handleChange = (field, nextValue) => {
         setValues((prev) => ({ ...prev, [field]: nextValue }));
@@ -445,11 +636,25 @@ const WriterEdit = () => {
         setPublishError('');
         try {
             setPublishBusy(true);
-            await writerEditApi.publish(skuId);
+            const payload = {
+                title: values.title,
+                short_description: values.description || values.answer_block || '',
+                long_description: values.description || '',
+                ai_answer_block: values.answer_block || '',
+                best_for: values.best_for || '',
+                not_for: values.not_for || '',
+                expert_authority: values.expert_authority || '',
+                validation_status: 'VALID',
+            };
+            await writerEditApi.publish(skuId, payload);
             navigate('/writer/queue', { state: { published: true } });
         } catch (e) {
-            if (e?.response?.status === 400) {
-                setPublishError('Publish failed. Please resolve highlighted issues and try again.');
+            const status = e?.response?.status;
+            const message = e?.response?.data?.message || e?.response?.data?.error;
+            if (status === 400 || status === 403) {
+                setPublishError(message || 'Publish failed. Please resolve highlighted issues and try again.');
+            } else if (status === 409) {
+                setPublishError('Publish failed because this SKU was updated in another window. Please reload and try again.');
             } else {
                 setPublishError('Publish failed. Please try again.');
             }
@@ -458,62 +663,47 @@ const WriterEdit = () => {
         }
     };
 
-    const dismissSuggestion = (id) => {
-        setSuggestions((prev) => {
-            const next = prev.filter((x) => x.id !== id);
-            try {
-                const storageKey = `cie_suggestions_dismiss_${skuId}`;
-                const dismissedRaw = window.localStorage.getItem(storageKey);
-                const dismissedIds = dismissedRaw ? JSON.parse(dismissedRaw) : [];
-                if (!dismissedIds.includes(id)) {
-                    const updated = [...dismissedIds, id];
-                    window.localStorage.setItem(storageKey, JSON.stringify(updated));
-                }
-            } catch {
-                // ignore storage issues
+    const dismissSuggestion = async (id) => {
+        // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2.1; README_First_CIE_v232_Developer_README.docx §5; openapi.yaml /sku/{sku_id}/suggestions/{suggestion_id}/status
+        setSuggestions((prev) =>
+            prev.map((s) => (s.id === id ? { ...s, dismissBusy: true, dismissError: '' } : s))
+        );
+        try {
+            const res = await fetch(`/api/v1/sku/${encodeURIComponent(skuId)}/suggestions/${encodeURIComponent(id)}/status`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    suggestion_id: id,
+                    status: 'seen',
+                }),
+            });
+            if (!res.ok) {
+                throw new Error('Failed to update suggestion status');
             }
-            return next;
-        });
-    };
-
-    const dismissFaqSuggestion = (id) => {
-        setFaqSuggestions((prev) => {
-            const next = prev.filter((x) => x.id !== id);
-            try {
-                const storageKey = `cie_faq_dismiss_${skuId}`;
-                const dismissedRaw = window.localStorage.getItem(storageKey);
-                const dismissedIds = dismissedRaw ? JSON.parse(dismissedRaw) : [];
-                if (!dismissedIds.includes(id)) {
-                    const updated = [...dismissedIds, id];
-                    window.localStorage.setItem(storageKey, JSON.stringify(updated));
-                    setFaqDismissedIds(updated);
-                }
-            } catch {
-                // ignore storage issues
-            }
-            return next;
-        });
-    };
-
-    const dismissGateSuggestion = (id) => {
-        setGateSuggestionDismissedIds((prev) => {
-            const next = prev.includes(id) ? prev : [...prev, id];
-            try {
-                const storageKey = `cie_gate_dismiss_${skuId}`;
-                window.localStorage.setItem(storageKey, JSON.stringify(next));
-            } catch {
-                // ignore storage issues
-            }
-            return next;
-        });
+            setSuggestions((prev) => prev.filter((s) => s.id !== id));
+        } catch (e) {
+            setSuggestions((prev) =>
+                prev.map((s) =>
+                    s.id === id
+                        ? {
+                              ...s,
+                              dismissBusy: false,
+                              dismissError: 'Could not dismiss this suggestion. Please try again.',
+                          }
+                        : s
+                )
+            );
+        }
     };
 
     if (loading) {
-        return <div style={{ padding: 30, textAlign: 'center', color: C.textMid }}>Loading product...</div>;
+        return <div style={{ padding: 30, textAlign: 'center', color: THEME.textMid }}>Loading product...</div>;
     }
 
     if (loadError || !sku) {
-        return <div style={{ padding: 30, textAlign: 'center', color: C.red }}>{loadError || 'SKU not found.'}</div>;
+        return <div style={{ padding: 30, textAlign: 'center', color: THEME.red }}>{loadError || 'SKU not found.'}</div>;
     }
 
     const banner = TIER_BANNER[tier] || TIER_BANNER.support;
@@ -540,51 +730,48 @@ const WriterEdit = () => {
                 </button>
             </div>
 
-            <div
-                style={{
-                    marginBottom: 12,
-                    background: banner.bg,
-                    border: `1px solid ${tier === 'kill' ? C.killBorder : C.border}`,
-                    borderRadius: 6,
-                    padding: '10px 12px',
-                    color: banner.color,
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
-                }}
-            >
-                {banner.text}
-            </div>
-
-            <div className="card" style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <div style={{ fontSize: '0.72rem', color: C.textMid }}>Progress</div>
-                    <div style={{ fontSize: '0.72rem', color: C.text }}>{completedCount} of {totalRequired} fields complete</div>
-                </div>
-                <div style={{ height: 7, borderRadius: 999, background: C.border, overflow: 'hidden' }}>
-                    <div style={{ width: `${progressPct}%`, height: '100%', background: allRequiredPass ? C.green : C.accent }} />
-                </div>
-            </div>
-
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{ flex: 7, minWidth: 0 }}>
-                    {tier === 'kill' ? (
-                        <div className="card" style={{ border: `1px solid ${C.killBorder || C.border}` }}>
-                            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: C.kill, marginBottom: 6 }}>Locked</div>
-                            <div style={{ color: C.textMid, fontSize: '0.78rem' }}>
-                                This product is scheduled for removal and cannot be edited.
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                        style={{
+                            marginBottom: 12,
+                            background: banner.bg,
+                            border: `1px solid ${tier === 'kill' ? C.killBorder : C.border}`,
+                            borderRadius: 6,
+                            padding: '10px 12px',
+                            color: banner.color,
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                        }}
+                    >
+                        {banner.text}
+                    </div>
+
+                    <div className="card" style={{ marginBottom: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                            <div style={{ fontSize: '0.72rem', color: THEME.textMid }}>Progress</div>
+                            <div style={{ fontSize: '0.72rem', color: THEME.text }}>
+                                {progressCompletedCount} of {progressTotalRequired} fields complete
                             </div>
                         </div>
+                        <div style={{ height: 7, borderRadius: 999, background: THEME.border, overflow: 'hidden' }}>
+                            <div style={{ width: `${progressPct}%`, height: '100%', background: allRequiredPass ? THEME.green : THEME.accent }} />
+                        </div>
+                    </div>
+
+                    {tier === 'kill' ? (
+                        <TierLockBanner />
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                             {requiredFields.map((field) => {
                                 const state = fieldStateAndHint(field, gates, values);
-                                const showHint = state.state === 'fail';
+                                const showHint = state.state === 'fail' || state.state === 'warning';
                                 const isInput = FIELD_TYPES[field] === 'input';
                                 return (
                                     <div
                                         key={field}
                                         style={{
-                                            background: C.surface,
+                                            background: THEME.surface,
                                             border: `1px solid ${borderColorForState(state.state)}`,
                                             borderLeft: `4px solid ${borderColorForState(state.state)}`,
                                             borderRadius: 6,
@@ -610,7 +797,7 @@ const WriterEdit = () => {
                                                 style={{ background: C.bg, borderColor: C.border }}
                                             />
                                         )}
-                                        <div style={{ marginTop: 5, fontSize: '0.65rem', color: C.textMid }}>
+                                        <div style={{ marginTop: 5, fontSize: '0.65rem', color: THEME.textMid }}>
                                             {counterText(field, values[field])}
                                         </div>
                                         {showHint && state.hint && (
@@ -625,7 +812,7 @@ const WriterEdit = () => {
                     )}
 
                     {publishError && (
-                        <div style={{ marginTop: 10, color: C.red, fontSize: '0.72rem' }}>
+                        <div style={{ marginTop: 10, color: THEME.red, fontSize: '0.72rem' }}>
                             {publishError}
                         </div>
                     )}
@@ -640,9 +827,9 @@ const WriterEdit = () => {
                                 onMouseEnter={() => setHoveredId('publish')}
                                 onMouseLeave={() => setHoveredId(null)}
                                 style={{
-                                    background: hoveredId === 'publish' ? C.accentLight : undefined,
-                                    borderColor: hoveredId === 'publish' ? C.accentBorder : undefined,
-                                    color: hoveredId === 'publish' ? C.text : undefined,
+                                    background: hoveredId === 'publish' ? THEME.accentLight : undefined,
+                                    borderColor: hoveredId === 'publish' ? THEME.accentBorder : undefined,
+                                    color: hoveredId === 'publish' ? THEME.text : undefined,
                                 }}
                             >
                                 {publishBusy ? 'Publishing...' : 'Publish'}
@@ -651,7 +838,7 @@ const WriterEdit = () => {
                     )}
                 </div>
 
-                <aside style={{ flex: 3, minWidth: 260 }}>
+                <aside style={{ flex: '0 0 30%', width: '30%' }}>
                     <div className="card">
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: suggestionsOpen ? 10 : 0 }}>
                             <div style={{ fontSize: '0.76rem', fontWeight: 700, color: C.text }}>AI Suggestions</div>
@@ -672,172 +859,144 @@ const WriterEdit = () => {
 
                         {suggestionsOpen && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                <div
-                                    style={{
-                                        borderRadius: 6,
-                                        border: `1px solid ${C.border}`,
-                                        padding: 8,
-                                        background: C.surface,
-                                    }}
-                                >
-                                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: C.text, marginBottom: 4 }}>
-                                        Semrush
+                                {suggestions.length === 0 ? (
+                                    <div
+                                        style={{
+                                            borderRadius: 6,
+                                            border: `1px solid ${C.border}`,
+                                            padding: 8,
+                                            background: C.surface,
+                                            fontSize: '0.7rem',
+                                            color: C.textMid,
+                                        }}
+                                    >
+                                        No suggestions right now. This product looks good.
                                     </div>
-                                    {suggestions.length === 0 ? (
-                                        <div style={{ color: C.textMid, fontSize: '0.7rem' }}>
-                                            No keyword or traffic suggestions right now.
-                                        </div>
-                                    ) : (
-                                        suggestions.slice(0, 4).map((s) => (
-                                            <div key={s.id} style={{ padding: '6px 0', borderBottom: `1px solid ${C.border}` }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                                                    <div style={{ fontSize: '0.7rem', color: C.text, fontWeight: 600 }}>
-                                                        <span
-                                                            style={{
-                                                                color:
-                                                                    (SUGGESTION_TYPE_COLORS[s.type] || SUGGESTION_TYPE_COLORS.keyword_opportunity).color,
-                                                                marginRight: 6,
-                                                            }}
-                                                        >
-                                                            {(SUGGESTION_TYPE_COLORS[s.type] || SUGGESTION_TYPE_COLORS.keyword_opportunity).icon}
-                                                        </span>
+                                ) : (
+                                    <>
+                                        {!hasSemrushData && (
+                                            <div
+                                                style={{
+                                                    borderRadius: 6,
+                                                    border: `1px solid ${C.border}`,
+                                                    padding: 8,
+                                                    background: C.surface,
+                                                    fontSize: '0.7rem',
+                                                    color: C.textMid,
+                                                }}
+                                            >
+                                                No keyword data yet. Ask your admin to upload the latest Semrush CSV export under Admin → Semrush Import.
+                                            </div>
+                                        )}
+                                        {suggestions
+                                            .filter((s) => hasSemrushData || (s.type !== 'keyword' && s.type !== 'competitor'))
+                                            .map((s) => {
+                                                const typeMeta = SUGGESTION_CARD_TYPE_META[s.type] || SUGGESTION_CARD_TYPE_META.keyword;
+                                                const priorityMeta = PRIORITY_META[s.priority] || PRIORITY_META.medium;
+                                                const prioColor = priorityMeta.color;
+                                                return (
+                                            <div
+                                                key={s.id}
+                                                style={{
+                                                    borderRadius: 6,
+                                                    border: `1px solid ${C.border}`,
+                                                    borderLeft: `4px solid ${prioColor}`,
+                                                    padding: 10,
+                                                    background: C.surface,
+                                                    fontSize: '0.7rem',
+                                                }}
+                                            >
+                                                <div
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        gap: 8,
+                                                        marginBottom: 4,
+                                                    }}
+                                                >
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <span style={{ fontSize: '0.9rem', color: typeMeta.iconColor }}>{typeMeta.icon}</span>
+                                                        <span style={{ fontWeight: 700, color: C.text }}>{typeMeta.label}</span>
+                                                    </div>
+                                                    <div
+                                                        style={{
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            padding: '2px 6px',
+                                                            borderRadius: 999,
+                                                            border: `1px solid ${priorityMeta.color}`,
+                                                            background: priorityMeta.bg,
+                                                            color: priorityMeta.color,
+                                                            fontSize: '0.6rem',
+                                                            fontWeight: 700,
+                                                            textTransform: 'uppercase',
+                                                        }}
+                                                    >
+                                                        {priorityMeta.badgeText}
+                                                    </div>
+                                                </div>
+                                                <div style={{ color: C.text, marginBottom: 6 }}>
+                                                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: C.text, marginBottom: 6, lineHeight: 1.3 }}>
                                                         {s.title}
                                                     </div>
+                                                    {s.explanation
+                                                        ? <p style={{ fontSize: '0.75rem', color: C.text, margin: '6px 0' }}>{s.explanation}</p>
+                                                        : <p style={{ fontSize: '0.75rem', color: C.textLight, margin: '6px 0', fontStyle: 'italic' }}>No explanation available for this suggestion.</p>
+                                                    }
+                                                </div>
+                                                {s.dismissError && (
+                                                    <div style={{ color: C.red, fontSize: '0.65rem', marginBottom: 4 }}>
+                                                        {s.dismissError}
+                                                    </div>
+                                                )}
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                                                    <span style={{ fontSize: '0.62rem', color: C.textLight }}>Source:</span>
+                                                    <span style={{
+                                                        fontSize: '0.62rem', fontWeight: 700,
+                                                        padding: '1px 6px', borderRadius: 3,
+                                                        background: C.accentLight, color: C.accent,
+                                                        border: `1px solid ${C.accentBorder}`
+                                                    }}>
+                                                        {s.source}
+                                                    </span>
+                                                    <span style={{ fontSize: '0.62rem', color: C.textLight }}>
+                                                        ({s.dateRange || 'Date unavailable'})
+                                                    </span>
+                                                </div>
+                                                <div
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'flex-end',
+                                                        marginTop: 6,
+                                                    }}
+                                                >
                                                     <button
                                                         type="button"
                                                         className="btn btn-secondary btn-sm"
                                                         onClick={() => dismissSuggestion(s.id)}
+                                                        disabled={s.dismissBusy}
                                                         onMouseEnter={() => setHoveredId(`dismiss-suggestion-${s.id}`)}
                                                         onMouseLeave={() => setHoveredId(null)}
                                                         style={{
+                                                            marginLeft: 6,
                                                             background: hoveredId === `dismiss-suggestion-${s.id}` ? C.muted : undefined,
-                                                            borderColor: hoveredId === `dismiss-suggestion-${s.id}` ? C.accentBorder : undefined,
+                                                            borderColor:
+                                                                hoveredId === `dismiss-suggestion-${s.id}` ? C.accentBorder : undefined,
+                                                            fontSize: '0.6rem',
+                                                            padding: '2px 6px',
                                                         }}
                                                     >
-                                                        Dismiss
+                                                        {s.dismissBusy ? 'Dismissing...' : 'Dismiss'}
                                                     </button>
                                                 </div>
-                                                <div style={{ fontSize: '0.66rem', color: C.textMid, marginTop: 3 }}>{s.body}</div>
-                                                <div style={{ fontSize: '0.6rem', color: C.textLight, marginTop: 2 }}>
-                                                    Source: {s.source}
-                                                </div>
                                             </div>
-                                        ))
-                                    )}
-                                </div>
-
-                                <div
-                                    style={{
-                                        borderRadius: 6,
-                                        border: `1px solid ${C.border}`,
-                                        padding: 8,
-                                        background: C.surface,
-                                    }}
-                                >
-                                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: C.text, marginBottom: 4 }}>
-                                        FAQ blocks from Best For / Not For
-                                    </div>
-                                    {faqLoading ? (
-                                        <div style={{ color: C.textMid, fontSize: '0.7rem' }}>Loading FAQ suggestions…</div>
-                                    ) : faqError ? (
-                                        <div style={{ color: C.red, fontSize: '0.7rem' }}>{faqError}</div>
-                                    ) : faqSuggestions.length === 0 ? (
-                                        <div style={{ color: C.textMid, fontSize: '0.7rem' }}>
-                                            No FAQ suggestions yet. Add Best For / Not For content first.
-                                        </div>
-                                    ) : (
-                                        faqSuggestions.map((f) => (
-                                            <div key={f.id} style={{ padding: '6px 0', borderBottom: `1px solid ${C.border}` }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                                                    <div style={{ fontSize: '0.7rem', color: C.text, fontWeight: 600 }}>
-                                                        Q: {f.question}
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-secondary btn-sm"
-                                                        onClick={() => dismissFaqSuggestion(f.id)}
-                                                        onMouseEnter={() => setHoveredId(`dismiss-faq-${f.id}`)}
-                                                        onMouseLeave={() => setHoveredId(null)}
-                                                        style={{
-                                                            background: hoveredId === `dismiss-faq-${f.id}` ? C.muted : undefined,
-                                                            borderColor: hoveredId === `dismiss-faq-${f.id}` ? C.accentBorder : undefined,
-                                                        }}
-                                                    >
-                                                        Dismiss
-                                                    </button>
-                                                </div>
-                                                {f.answer && (
-                                                    <div style={{ fontSize: '0.66rem', color: C.textMid, marginTop: 3 }}>
-                                                        A: {f.answer}
-                                                    </div>
-                                                )}
-                                                <div style={{ fontSize: '0.6rem', color: C.textLight, marginTop: 2 }}>
-                                                    Source: CIE FAQ Engine
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-
-                                <div
-                                    style={{
-                                        borderRadius: 6,
-                                        border: `1px solid ${C.border}`,
-                                        padding: 8,
-                                        background: C.surface,
-                                    }}
-                                >
-                                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: C.text, marginBottom: 4 }}>
-                                        Validation gate hints
-                                    </div>
-                                    {gateSuggestions.length === 0 ? (
-                                        <div style={{ color: C.textMid, fontSize: '0.7rem' }}>
-                                            No failing gates. You’re aligned with CIE rules.
-                                        </div>
-                                    ) : (
-                                        gateSuggestions.map((g) => (
-                                            <div key={g.id} style={{ padding: '6px 0', borderBottom: `1px solid ${C.border}` }}>
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                                                    <div style={{ fontSize: '0.7rem', color: C.text, fontWeight: 600 }}>{g.title}</div>
-                                                    <button
-                                                        type="button"
-                                                        className="btn btn-secondary btn-sm"
-                                                        onClick={() => dismissGateSuggestion(g.id)}
-                                                        onMouseEnter={() => setHoveredId(`dismiss-gate-${g.id}`)}
-                                                        onMouseLeave={() => setHoveredId(null)}
-                                                        style={{
-                                                            background: hoveredId === `dismiss-gate-${g.id}` ? C.muted : undefined,
-                                                            borderColor: hoveredId === `dismiss-gate-${g.id}` ? C.accentBorder : undefined,
-                                                        }}
-                                                    >
-                                                        Dismiss
-                                                    </button>
-                                                </div>
-                                                <div style={{ fontSize: '0.66rem', color: C.textMid, marginTop: 3 }}>{g.body}</div>
-                                                <div style={{ fontSize: '0.6rem', color: C.textLight, marginTop: 2 }}>
-                                                    Source: CIE Validation Gates
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-
-                                <div
-                                    style={{
-                                        borderRadius: 6,
-                                        border: `1px solid ${C.border}`,
-                                        padding: 8,
-                                        background: C.bg,
-                                    }}
-                                >
-                                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: C.text, marginBottom: 4 }}>
-                                        How this panel works
-                                    </div>
-                                    <div style={{ fontSize: '0.66rem', color: C.textMid }}>
-                                        Suggestions come from Semrush, Google Analytics, AI Audit, CIE FAQ engine, and validation gates. Dismissing a
-                                        suggestion hides it for this product in your browser.
-                                    </div>
-                                </div>
+                                                );
+                                            })
+                                        }
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>

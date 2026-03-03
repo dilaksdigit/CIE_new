@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { configApi } from '../services/api';
-import useStore from '../store';
+import { AppContext } from '../App';
 import { canModifyConfig } from '../lib/rbac';
 
 const DEFAULT_CONFIG = {
+    // fallback only — overridden by business_rules table at runtime
     gate_thresholds: {
         answer_block_min: 250,
         answer_block_max: 300,
@@ -11,6 +12,7 @@ const DEFAULT_CONFIG = {
         vector_threshold: 0.72,
         title_intent_min: 20,
     },
+    // fallback only — overridden by business_rules table at runtime
     tier_score_weights: {
         margin_weight: 0.30,
         velocity_weight: 0.30,
@@ -18,6 +20,7 @@ const DEFAULT_CONFIG = {
         margin_rank_weight: 0.20,
         hero_threshold: 75,
     },
+    // fallback only — overridden by business_rules table at runtime
     channel_thresholds: {
         hero_compete_min: 85,
         support_compete_min: 70,
@@ -25,6 +28,7 @@ const DEFAULT_CONFIG = {
         kill: "Excluded",
         feed_regen_time: "02:00",
     },
+    // fallback only — overridden by business_rules table at runtime
     audit_settings: {
         audit_day: "Monday",
         audit_time: "06:00",
@@ -45,7 +49,7 @@ function normalizeConfig(raw) {
 }
 
 const Config = () => {
-    const { user, addNotification } = useStore();
+    const { user, addNotification } = useContext(AppContext);
     const [config, setConfig] = useState(null);
     const [editingConfig, setEditingConfig] = useState(null);
     const [loading, setLoading] = useState(true);
