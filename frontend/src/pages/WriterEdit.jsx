@@ -1,7 +1,7 @@
-// SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §4.1 | CIE_v232_UI_Restructure_Instructions.docx §2.1 | CIE_v232_Semrush_CSV_Import_Spec.docx §3.3 | CIE_v232_Writer_View.jsx
+// SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §§4.1, 4.2, 5; Trap 2 | CIE_v232_UI_Restructure_Instructions.docx §2.1 | CIE_v232_Semrush_CSV_Import_Spec.docx §§1, 3.2, 3.3 | CIE_v232_Writer_View.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import api, { writerEditApi } from '../services/api';
+import api, { writerEditApi, publishSku } from '../services/api';
 import THEME from '../theme';
 import TierLockBanner from '../components/sku/TierLockBanner';
 
@@ -423,8 +423,8 @@ const WriterEdit = () => {
 
                 // SOURCE: README_First_CIE_v232_Developer_README.docx §5
                 // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 2 RIGHT PANEL
-                // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §1 §3.3
-                // SOURCE: openapi.yaml (endpoint paths)
+                // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §1 §3.2 §3.3
+                // SOURCE: openapi.yaml (AI Audit paths only) — Semrush/GA read endpoints not exposed to CMS layer (Trap 2)
                 const category =
                     item?.category ||
                     item?.primaryCluster?.category ||
@@ -442,90 +442,55 @@ const WriterEdit = () => {
                     ? [...baseRawSuggestions]
                     : [];
 
-                // Semrush empty-state: use dedicated Semrush fetch when available (FIX 6)
-                let semrushHasData =
-                    Array.isArray(payload?.semrush_imports) && payload.semrush_imports.length > 0;
+                // Semrush keyword / competitor gap cards: derive from semrush_imports already attached to SKU payload by CMS.
+                // FRONTEND-ONLY FIX (Trap 2): do NOT call non-existent /v1/sku/{skuId}/semrush engine endpoints.
+                const semrushList = Array.isArray(payload?.semrush_imports) ? payload.semrush_imports : [];
+                const semrushHasData = semrushList.length > 0;
 
-                // FIX 6 — Fetch Semrush data for this SKU (existing endpoint per openapi / Integration Spec)
-                try {
-                    const semrushRes = await api.get(`/v1/sku/${encodeURIComponent(skuId)}/semrush`);
-                    if (!cancelled && semrushRes?.data) {
-                        const semrushData = semrushRes.data?.data ?? semrushRes.data;
-                        const semrushList = Array.isArray(semrushData) ? semrushData : (semrushData?.items ?? []);
-                        if (semrushList.length > 0) {
-                            semrushHasData = true;
+                if (semrushHasData) {
+                    // Card Type 1 — Keyword Opportunity: sort by search_volume DESC
+                    const keywordRows = [...semrushList].filter((row) => row && row.keyword).sort((a, b) => {
+                        const av = Number(a.search_volume || 0);
+                        const bv = Number(b.search_volume || 0);
+                        return bv - av;
+                    });
+                    keywordRows.forEach((row, idx) => {
+                        suggestionItems.push({
+                            id: `semrush-keyword-${skuId}-${idx}`,
+                            type: 'keyword',
+                            keyword: row.keyword,
+                            search_volume: row.search_volume,
+                            trend: row.trend,
+                            instruction: row.instruction,
+                            title: row.title || (row.keyword ? `Keyword: ${row.keyword}` : 'Keyword Opportunity'),
+                            date_range: row.date_range || row.window || '',
+                            priority: row.priority || 'medium',
+                        });
+                    });
 
-                            // Card Type 1 — Keyword Opportunity: sort by search_volume DESC
-                            const keywordRows = [...semrushList].filter((row) => row && row.keyword).sort((a, b) => {
-                                const av = Number(a.search_volume || 0);
-                                const bv = Number(b.search_volume || 0);
-                                return bv - av;
-                            });
-                            keywordRows.forEach((row, idx) => {
-                                suggestionItems.push({
-                                    id: `semrush-keyword-${skuId}-${idx}`,
-                                    type: 'keyword',
-                                    keyword: row.keyword,
-                                    search_volume: row.search_volume,
-                                    trend: row.trend,
-                                    instruction: row.instruction,
-                                    title: row.title || (row.keyword ? `Keyword: ${row.keyword}` : 'Keyword Opportunity'),
-                                    date_range: row.date_range || row.window || '',
-                                    priority: row.priority || 'medium',
-                                });
-                            });
+                    // Card Type 4 — Competitor Gap: prev_position > position, sorted by improvement DESC
+                    const competitorRows = [...semrushList].filter((row) => {
+                        if (!row) return false;
+                        const pos = Number(row.position);
+                        const prev = Number(row.prev_position);
+                        return !Number.isNaN(pos) && !Number.isNaN(prev) && prev > pos;
+                    }).sort((a, b) => {
+                        const aDelta = Number(a.prev_position || 0) - Number(a.position || 0);
+                        const bDelta = Number(b.prev_position || 0) - Number(b.position || 0);
+                        return bDelta - aDelta;
+                    });
 
-                            // Card Type 4 — Competitor Gap: prev_position > position, sorted by improvement DESC
-                            const competitorRows = [...semrushList].filter((row) => {
-                                if (!row) return false;
-                                const pos = Number(row.position);
-                                const prev = Number(row.prev_position);
-                                return !Number.isNaN(pos) && !Number.isNaN(prev) && prev > pos;
-                            }).sort((a, b) => {
-                                const aDelta = Number(a.prev_position || 0) - Number(a.position || 0);
-                                const bDelta = Number(b.prev_position || 0) - Number(b.position || 0);
-                                return bDelta - aDelta;
-                            });
-
-                            competitorRows.forEach((row, idx) => {
-                                suggestionItems.push({
-                                    id: `semrush-competitor-${skuId}-${idx}`,
-                                    type: 'competitor',
-                                    competitor_action: row.competitor_action,
-                                    our_gap: row.our_gap,
-                                    title: row.title || 'Competitor Gap',
-                                    date_range: row.date_range || row.window || '',
-                                    priority: row.priority || 'medium',
-                                });
-                            });
-                        }
-                    }
-                } catch {
-                    // No Semrush endpoint or error: leave semrushHasData from payload or false
-                }
-
-                // FIX 6 — Fetch Google Analytics data for this SKU (existing endpoint)
-                try {
-                    const gaRes = await api.get(`/v1/sku/${encodeURIComponent(skuId)}/analytics`);
-                    if (!cancelled && gaRes?.data) {
-                        const gaData = gaRes.data?.data ?? gaRes.data;
-                        const gaList = Array.isArray(gaData) ? gaData : (gaData?.items ?? gaData?.trends ?? []);
-                        if (Array.isArray(gaList) && gaList.length > 0) {
-                            gaList.forEach((row, idx) => {
-                                suggestionItems.push({
-                                    id: `ga-trend-${skuId}-${idx}`,
-                                    type: 'trend',
-                                    traffic_change_pct: row.traffic_change_pct ?? row.traffic_change,
-                                    action: row.action,
-                                    title: row.title || 'Trending Search',
-                                    date_range: row.date_range || row.window || '',
-                                    priority: row.priority || 'medium',
-                                });
-                            });
-                        }
-                    }
-                } catch {
-                    // No GA endpoint or error: continue without trend cards
+                    competitorRows.forEach((row, idx) => {
+                        suggestionItems.push({
+                            id: `semrush-competitor-${skuId}-${idx}`,
+                            type: 'competitor',
+                            competitor_action: row.competitor_action,
+                            our_gap: row.our_gap,
+                            title: row.title || 'Competitor Gap',
+                            date_range: row.date_range || row.window || '',
+                            priority: row.priority || 'medium',
+                        });
+                    });
                 }
 
                 setHasSemrushData(semrushHasData);
@@ -636,28 +601,26 @@ const WriterEdit = () => {
         setPublishError('');
         try {
             setPublishBusy(true);
-            const payload = {
+            const contentPayload = {
+                tier: tier.toUpperCase(),
                 title: values.title,
-                short_description: values.description || values.answer_block || '',
-                long_description: values.description || '',
-                ai_answer_block: values.answer_block || '',
-                best_for: values.best_for || '',
-                not_for: values.not_for || '',
-                expert_authority: values.expert_authority || '',
-                validation_status: 'VALID',
+                description: values.description,
+                specification: values.specification,
+                answer_block: values.answer_block,
+                best_for: values.best_for,
+                not_for: values.not_for,
+                expert_authority: values.expert_authority,
             };
-            await writerEditApi.publish(skuId, payload);
+            await publishSku(skuId, contentPayload);
             navigate('/writer/queue', { state: { published: true } });
         } catch (e) {
-            const status = e?.response?.status;
-            const message = e?.response?.data?.message || e?.response?.data?.error;
-            if (status === 400 || status === 403) {
-                setPublishError(message || 'Publish failed. Please resolve highlighted issues and try again.');
-            } else if (status === 409) {
-                setPublishError('Publish failed because this SKU was updated in another window. Please reload and try again.');
-            } else {
-                setPublishError('Publish failed. Please try again.');
+            const res = e?.response;
+            if (res && (res.status === 400 || res.status === 403 || res.status === 409)) {
+                const msg = res?.data?.message || res?.data?.error || 'Publish failed. Please resolve highlighted issues and try again.';
+                setPublishError(msg);
+                return;
             }
+            setPublishError('Publish failed. Please try again.');
         } finally {
             setPublishBusy(false);
         }

@@ -8,9 +8,6 @@ use Illuminate\Support\Collection;
 
 class TierCalculationService
 {
- private const PROFITABILITY_THRESHOLD = 5.0; // 5% margin
- private const PERCENTILE_TOP = 20; // Top 20%
- 
     // SOURCE: CIE_Master_Developer_Build_Spec.docx §8.2 — Tier Assignment from Percentile
     // SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3 — Business Rules seed keys:
     //         tier.hero_percentile_threshold (0.80),
@@ -141,50 +138,50 @@ class TierCalculationService
 
     // calculateTierForSku is now inlined into recalculateAllTiers with percentile rules
  
- private function shouldBeKilled(Sku $sku): bool
- {
- if ($sku->margin_percent <= 0) { return true; }
- if ($sku->last_sale_date && strtotime($sku->last_sale_date) < strtotime('-90 days')) { return true; }
- if (($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0) === 0) { return true; }
- return false;
- }
- 
- private function calculatePercentile(Collection $skus, string $field, int $percentile): float|int
- {
- $values = $skus->pluck($field)->filter()->sort()->values();
- if ($values->isEmpty()) { return 0; }
- $index = (int) ceil($values->count() * ((100 - $percentile) / 100));
- return $values[$index] ?? $values->last();
- }
- 
- private function updateSkuTier(Sku $sku, TierType $oldTier, TierType $newTier): void
- {
- $velocity = $sku->erp_velocity_90d ?? $sku->annual_volume;
- $rationale = sprintf(
- 'Margin: %.1f%%, Velocity_90d: %d units',
- $sku->margin_percent,
- $velocity
- );
- $sku->update(['tier' => $newTier, 'tier_rationale' => $rationale]);
- \App\Models\TierHistory::create([
- 'sku_id' => $sku->id,
- 'old_tier' => $oldTier,
- 'new_tier' => $newTier,
- 'reason' => $rationale,
- 'margin_percent' => $sku->margin_percent,
- 'annual_volume' => $velocity,
- 'changed_by' => auth()->id()
- ]);
- }
+    private function shouldBeKilled(Sku $sku): bool
+    {
+        $profitabilityThreshold = $this->rule('tier.profitability_min_margin_pct', 5.0);
 
- private function weight(string $key, float $default): float
- {
- try {
- return (float) BusinessRules::get($key, $default);
- } catch (\Throwable $e) {
- return $default;
- }
- }
+        if ((float) ($sku->margin_percent ?? 0) < $profitabilityThreshold) {
+            return true;
+        }
+        if ($sku->last_sale_date && strtotime($sku->last_sale_date) < strtotime('-90 days')) {
+            return true;
+        }
+        if ((int) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0) === 0) {
+            return true;
+        }
+        return false;
+    }
+
+    private function updateSkuTier(Sku $sku, TierType $oldTier, TierType $newTier): void
+    {
+        $velocity = $sku->erp_velocity_90d ?? $sku->annual_volume;
+        $rationale = sprintf(
+            'Margin: %.1f%%, Velocity_90d: %d units',
+            $sku->margin_percent,
+            $velocity
+        );
+        $sku->update(['tier' => $newTier, 'tier_rationale' => $rationale]);
+        \App\Models\TierHistory::create([
+            'sku_id'        => $sku->id,
+            'old_tier'      => $oldTier,
+            'new_tier'      => $newTier,
+            'reason'        => $rationale,
+            'margin_percent'=> $sku->margin_percent,
+            'annual_volume' => $velocity,
+            'changed_by'    => auth()->id(),
+        ]);
+    }
+
+    private function weight(string $key, float $default): float
+    {
+        try {
+            return (float) BusinessRules::get($key, $default);
+        } catch (\Throwable $e) {
+            return $default;
+        }
+    }
 
     private function rule(string $key, float $default): float
     {
@@ -196,22 +193,22 @@ class TierCalculationService
         }
     }
 
- private function normalise(float $value, float $min, float $max): float
- {
- if ($max <= $min) {
- return 0.0;
- }
+    private function normalise(float $value, float $min, float $max): float
+    {
+        if ($max <= $min) {
+            return 0.0;
+        }
 
- $normalised = ($value - $min) / ($max - $min);
+        $normalised = ($value - $min) / ($max - $min);
 
- if ($normalised < 0.0) {
- return 0.0;
- }
+        if ($normalised < 0.0) {
+            return 0.0;
+        }
 
- if ($normalised > 1.0) {
- return 1.0;
- }
+        if ($normalised > 1.0) {
+            return 1.0;
+        }
 
- return $normalised;
- }
+        return $normalised;
+    }
 }

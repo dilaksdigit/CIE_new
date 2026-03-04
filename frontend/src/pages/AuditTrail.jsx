@@ -84,28 +84,28 @@ const AuditTrail = () => {
                     </thead>
                     <tbody>
                         {loading && (
-                            <tr>
+                            <tr key="loading">
                                 <td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-dim)' }}>
                                     Loading audit trail...
                                 </td>
                             </tr>
                         )}
                         {!loading && error && (
-                            <tr>
+                            <tr key="error">
                                 <td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: 'var(--red)' }}>
                                     {error}
                                 </td>
                             </tr>
                         )}
                         {!loading && !error && logs.length === 0 && (
-                            <tr>
+                            <tr key="empty">
                                 <td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-dim)' }}>
                                     No audit log entries found.
                                 </td>
                             </tr>
                         )}
                         {!loading && !error && logs.map((row, i) => (
-                            <tr key={row.id ?? i}>
+                            <tr key={row.id}>
                                 <td className="mono" style={{ fontSize: '0.65rem' }}>
                                     {row.timestamp ?? row.created_at ?? '—'}
                                 </td>

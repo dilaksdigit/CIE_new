@@ -20,7 +20,6 @@ const NAV_BY_GROUP = {
     admin: [
         { to: '/admin/clusters', icon: 'C', label: 'Clusters' },
         { to: '/admin/config', icon: 'S', label: 'Config' },
-        { to: '/admin/business-rules', icon: 'R', label: 'Business Rules' },
         { to: '/admin/tiers', icon: 'T', label: 'Tiers' },
         { to: '/admin/audit-trail', icon: 'A', label: 'Audit Trail' },
         { to: '/admin/bulk-ops', icon: 'B', label: 'Bulk Ops' },

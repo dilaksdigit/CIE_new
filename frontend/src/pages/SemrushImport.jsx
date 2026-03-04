@@ -1,6 +1,7 @@
-// SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx Section 5.1 (6-zone layout)
+// SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx Section 5.1 (6-zone layout) & Section 5.2–5.3
 // SOURCE: CIE_v232_Writer_View.jsx — visual theme reference
 import React, { useContext, useEffect, useRef, useState } from 'react';
+import { format, parseISO } from 'date-fns';
 import THEME from '../theme';
 import { AppContext } from '../App';
 import { canModifyConfig } from '../lib/rbac';
@@ -17,14 +18,19 @@ const SemrushImport = () => {
     const [status, setStatus] = useState(null); // { type: 'success' | 'error', message: string }
     const [busy, setBusy] = useState(false);
 
-    const [latestImport, setLatestImport] = useState(null);
+    const [history, setHistory] = useState([]); // last 12 imports
     const [loadingHistory, setLoadingHistory] = useState(true);
     const [historyError, setHistoryError] = useState('');
     const [deleteBusy, setDeleteBusy] = useState(false);
+    const [confirmBatch, setConfirmBatch] = useState(null);
+    const [confirmCount, setConfirmCount] = useState(0);
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+
+    const [showHowTo, setShowHowTo] = useState(false);
 
     const inputRef = useRef(null);
 
-    const hasImports = !!latestImport && latestImport.import_batch && latestImport.row_count > 0;
+    const hasImports = Array.isArray(history) && history.length > 0;
 
     useEffect(() => {
         const loadLatest = async () => {
@@ -32,11 +38,18 @@ const SemrushImport = () => {
             setHistoryError('');
             try {
                 const res = await semrushImportApi.latest();
-                const data = res.data?.data ?? res.data ?? {};
-                setLatestImport({
-                    import_batch: data.import_batch || null,
-                    row_count: typeof data.row_count === 'number' ? data.row_count : 0,
-                });
+                const payload = res.data?.data ?? res.data ?? {};
+                const list = Array.isArray(payload.history) ? payload.history : (Array.isArray(payload) ? payload : []);
+                setHistory(
+                    list
+                        .map((row) => ({
+                            import_batch: row.import_batch,
+                            row_count: typeof row.row_count === 'number' ? row.row_count : 0,
+                            imported_by: row.imported_by || '',
+                        }))
+                        .sort((a, b) => String(b.import_batch).localeCompare(String(a.import_batch)))
+                        .slice(0, 12)
+                );
             } catch (e) {
                 setHistoryError('Failed to load import history.');
             } finally {
@@ -122,9 +135,16 @@ const SemrushImport = () => {
             const res = await semrushImportApi.importFile(file);
             const payload = res.data?.data ?? res.data ?? {};
             const rowsImported = payload.rows_imported ?? 0;
+            const batchDate = payload.import_batch ?? null;
+            let importDateStr = '';
+            try {
+                importDateStr = batchDate ? format(parseISO(batchDate), 'd MMMM yyyy') : (batchDate || '');
+            } catch {
+                importDateStr = batchDate || '';
+            }
             setStatus({
                 type: 'success',
-                message: `Import completed successfully. ${rowsImported} rows imported.`,
+                message: `Import complete. ${rowsImported} keywords imported for ${importDateStr}. Keyword suggestion cards updated.`,
             });
             addNotification({ type: 'success', message: 'Semrush CSV imported successfully.' });
             setFile(null);
@@ -134,11 +154,20 @@ const SemrushImport = () => {
             // Refresh latest history
             try {
                 const latestRes = await semrushImportApi.latest();
-                const data = latestRes.data?.data ?? latestRes.data ?? {};
-                setLatestImport({
-                    import_batch: data.import_batch || null,
-                    row_count: typeof data.row_count === 'number' ? data.row_count : 0,
-                });
+                const latestPayload = latestRes.data?.data ?? latestRes.data ?? {};
+                const list = Array.isArray(latestPayload.history)
+                    ? latestPayload.history
+                    : (Array.isArray(latestPayload) ? latestPayload : []);
+                setHistory(
+                    list
+                        .map((row) => ({
+                            import_batch: row.import_batch,
+                            row_count: typeof row.row_count === 'number' ? row.row_count : 0,
+                            imported_by: row.imported_by || '',
+                        }))
+                        .sort((a, b) => String(b.import_batch).localeCompare(String(a.import_batch)))
+                        .slice(0, 12)
+                );
             } catch {
                 // ignore, already have previous history
             }
@@ -155,13 +184,16 @@ const SemrushImport = () => {
         }
     };
 
-    const handleDeleteBatch = async () => {
-        if (!isAdmin || !latestImport || !latestImport.import_batch) return;
+    const handleDeleteConfirm = async () => {
+        if (!isAdmin || !confirmBatch) return;
         setDeleteBusy(true);
         try {
-            await semrushImportApi.deleteBatch(latestImport.import_batch);
-            addNotification({ type: 'success', message: `Deleted Semrush import for ${latestImport.import_batch}.` });
-            setLatestImport({ import_batch: null, row_count: 0 });
+            await semrushImportApi.deleteBatch(confirmBatch);
+            addNotification({ type: 'success', message: `Deleted Semrush import for ${confirmBatch}.` });
+            setHistory((prev) => prev.filter((row) => row.import_batch !== confirmBatch));
+            setIsConfirmOpen(false);
+            setConfirmBatch(null);
+            setConfirmCount(0);
         } catch (e) {
             setStatus({
                 type: 'error',
@@ -289,7 +321,7 @@ const SemrushImport = () => {
             </div>
 
             {/* Zone C — Import History + Zone D Empty State */}
-            <div className="card">
+            <div className="card" style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <div style={{ fontSize: '0.78rem', fontWeight: 700, color: THEME.text }}>
                         Import History
@@ -307,26 +339,32 @@ const SemrushImport = () => {
                                 <tr style={{ textAlign: 'left', borderBottom: `1px solid ${THEME.border}` }}>
                                     <th style={{ padding: '6px 4px' }}>Date</th>
                                     <th style={{ padding: '6px 4px' }}>Keywords imported</th>
-                                    <th style={{ padding: '6px 4px' }}>Uploaded by</th>
+                                    <th style={{ padding: '6px 4px' }}>Imported by</th>
                                     <th style={{ padding: '6px 4px' }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr>
-                                    <td style={{ padding: '6px 4px' }}>{latestImport.import_batch}</td>
-                                    <td style={{ padding: '6px 4px' }}>{latestImport.row_count}</td>
-                                    <td style={{ padding: '6px 4px' }}>Admin</td>
-                                    <td style={{ padding: '6px 4px' }}>
-                                        <button
-                                            type="button"
-                                            className="btn btn-secondary btn-sm"
-                                            onClick={handleDeleteBatch}
-                                            disabled={deleteBusy}
-                                        >
-                                            {deleteBusy ? 'Deleting…' : 'Delete'}
-                                        </button>
-                                    </td>
-                                </tr>
+                                {history.map((row) => (
+                                    <tr key={row.import_batch}>
+                                        <td style={{ padding: '6px 4px' }}>{row.import_batch}</td>
+                                        <td style={{ padding: '6px 4px' }}>{row.row_count}</td>
+                                        <td style={{ padding: '6px 4px' }}>{row.imported_by || '—'}</td>
+                                        <td style={{ padding: '6px 4px' }}>
+                                            <button
+                                                type="button"
+                                                className="btn btn-secondary btn-sm"
+                                                onClick={() => {
+                                                    setConfirmBatch(row.import_batch);
+                                                    setConfirmCount(row.row_count);
+                                                    setIsConfirmOpen(true);
+                                                }}
+                                                disabled={deleteBusy}
+                                            >
+                                                Delete
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
                             </tbody>
                         </table>
                         {historyError && (
@@ -351,9 +389,99 @@ const SemrushImport = () => {
                     </div>
                 )}
             </div>
+
+            {/* Zone C — How to export from Semrush (collapsible instructions) */}
+            <div className="card">
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                    }}
+                    onClick={() => setShowHowTo((v) => !v)}
+                >
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: THEME.text }}>
+                        How to export from Semrush
+                    </div>
+                    <div style={{ fontSize: '0.9rem', color: THEME.textMid }}>
+                        {showHowTo ? '▴' : '▾'}
+                    </div>
+                </div>
+                {showHowTo && (
+                    <div style={{ marginTop: 8, fontSize: '0.76rem', color: THEME.text }}>
+                        <ol style={{ paddingLeft: 18, margin: 0 }}>
+                            <li>
+                                Log into Semrush → Organic Research → enter your domain → Positions tab.
+                            </li>
+                            <li>
+                                Click Export → Export to CSV.
+                            </li>
+                            <li>
+                                Upload that file here. Runs on any Semrush subscription level — no API key needed.
+                            </li>
+                        </ol>
+                    </div>
+                )}
+            </div>
+
+            {isConfirmOpen && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        background: 'rgba(0,0,0,0.4)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 40,
+                    }}
+                >
+                    <div
+                        className="card"
+                        style={{
+                            maxWidth: 420,
+                            width: '90%',
+                            padding: 16,
+                            background: THEME.surface,
+                            border: `1px solid ${THEME.border}`,
+                            borderRadius: 6,
+                        }}
+                    >
+                        <div style={{ fontSize: '0.86rem', fontWeight: 700, color: THEME.text, marginBottom: 8 }}>
+                            Confirm delete
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: THEME.text, marginBottom: 12 }}>
+                            {`Delete all ${confirmCount} keywords from ${confirmBatch}? This cannot be undone.`}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => {
+                                    if (deleteBusy) return;
+                                    setIsConfirmOpen(false);
+                                    setConfirmBatch(null);
+                                    setConfirmCount(0);
+                                }}
+                                disabled={deleteBusy}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={handleDeleteConfirm}
+                                disabled={deleteBusy}
+                            >
+                                {deleteBusy ? 'Deleting…' : 'Delete'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
 export default SemrushImport;
-

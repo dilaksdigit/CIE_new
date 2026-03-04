@@ -132,6 +132,7 @@ const WriterQueue = () => {
     const [queueItems, setQueueItems] = useState([]);
     const [activeTab, setActiveTab] = useState('all');
     const [query, setQuery] = useState('');
+    const [tierFilter, setTierFilter] = useState('all'); // all | hero | support | harvest | kill
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [kpis, setKpis] = useState({
@@ -221,6 +222,11 @@ const WriterQueue = () => {
         const q = query.trim().toLowerCase();
         const searchMatch = !q || item.name.toLowerCase().includes(q) || item.id.toLowerCase().includes(q);
         if (!searchMatch) return false;
+
+        if (tierFilter !== 'all' && normalizeTier(item.tier) !== tierFilter) {
+            return false;
+        }
+
         if (activeTab === 'all') return !item.done && item.tier !== 'kill';
         if (activeTab === 'heroes') return item.tier === 'hero';
         if (activeTab === 'support') return item.tier === 'support';
@@ -277,7 +283,7 @@ const WriterQueue = () => {
             </div>
 
             <div className="card" style={{ padding: 14 }}>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
                     {tabs.map((tab) => {
                         const active = activeTab === tab.key;
                         return (
@@ -300,13 +306,38 @@ const WriterQueue = () => {
                             </button>
                         );
                     })}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                        <label htmlFor="tier-filter" style={{ fontSize: '0.7rem', color: THEME.textMid }}>
+                            Tier:
+                        </label>
+                        <select
+                            id="tier-filter"
+                            value={tierFilter}
+                            onChange={(e) => setTierFilter(e.target.value)}
+                            style={{
+                                height: 32,
+                                fontSize: '0.72rem',
+                                padding: '4px 8px',
+                                borderRadius: 4,
+                                border: `1px solid ${THEME.border}`,
+                                background: THEME.surface,
+                                color: THEME.text,
+                            }}
+                        >
+                            <option value="all">All tiers</option>
+                            <option value="hero">Hero</option>
+                            <option value="support">Support</option>
+                            <option value="harvest">Harvest</option>
+                            <option value="kill">Kill</option>
+                        </select>
+                    </div>
                     <input
                         type="text"
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         placeholder="Search by product name or SKU ID"
                         className="field-input"
-                        style={{ marginLeft: 'auto', minWidth: 230, maxWidth: 340, height: 32 }}
+                        style={{ minWidth: 230, maxWidth: 340, height: 32 }}
                     />
                 </div>
 

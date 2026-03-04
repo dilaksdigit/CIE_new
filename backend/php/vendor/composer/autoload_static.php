@@ -148,6 +148,7 @@ class ComposerStaticInit9b854d13d571bf4abfaf669f87440f6d
             'Doctrine\\Common\\Lexer\\' => 22,
             'Dflydev\\DotAccessData\\' => 22,
             'DeepCopy\\' => 9,
+            'Database\\Seeders\\' => 17,
         ),
         'C' =>
         array (
@@ -453,6 +454,10 @@ class ComposerStaticInit9b854d13d571bf4abfaf669f87440f6d
         'DeepCopy\\' =>
         array (
             0 => __DIR__ . '/..' . '/myclabs/deep-copy/src/DeepCopy',
+        ),
+        'Database\\Seeders\\' =>
+        array (
+            0 => __DIR__ . '/../..' . '/database/seeders',
         ),
         'Cron\\' =>
         array (

@@ -8,7 +8,7 @@ const StaffKpis = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [weekStart, setWeekStart] = useState('');
-    const [score, setScore] = useState(7);
+    const [score, setScore] = useState(1);
     const [notes, setNotes] = useState('');
     const [saveBusy, setSaveBusy] = useState(false);
     const [saveMessage, setSaveMessage] = useState('');
@@ -43,7 +43,7 @@ const StaffKpis = () => {
             await auditResultApi.saveWeeklyScore({ week_start: weekStart, score: Number(score), notes: notes || null });
             setSaveMessage('Saved.');
             setWeekStart('');
-            setScore(7);
+            setScore(1);
             setNotes('');
             fetchKpis();
         } catch (err) {
@@ -144,7 +144,7 @@ const StaffKpis = () => {
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Notes</span>
                         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes" rows={1} style={{ padding: 6, borderRadius: 4, border: '1px solid var(--border)', resize: 'vertical' }} />
                     </label>
-                    <button type="submit" disabled={saveBusy} className="btn btn-primary" style={{ padding: '8px 14px' }}>{saveBusy ? 'Saving…' : 'Save'}</button>
+                    <button type="submit" disabled={saveBusy || score < 1 || score > 10} className="btn btn-primary" style={{ padding: '8px 14px' }}>{saveBusy ? 'Saving…' : 'Save'}</button>
                 </form>
                 {saveMessage && <div style={{ marginTop: 8, fontSize: '0.8rem', color: saveMessage === 'Saved.' ? 'var(--green)' : 'var(--red)' }}>{saveMessage}</div>}
             </div>

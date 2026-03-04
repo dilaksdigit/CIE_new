@@ -15,6 +15,7 @@ use App\Controllers\AdminBusinessRulesController;
 use App\Controllers\SemrushImportController;
 use App\Controllers\BaselineController;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Http;
 
 // GET /api — base URL (avoids 404 when visiting http://localhost:8080/api)
 Route::get('/', function () {
@@ -140,4 +141,21 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     Route::get('/audit/results/{category}', [AuditController::class, 'resultsByCategory']);
     Route::post('/brief/generate', [BriefController::class, 'generate']);
     Route::post('/erp/sync', [TierController::class, 'erpSync'])->middleware('rbac:FINANCE,ADMIN');
+
+    // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2.1; CIE_v232_Developer_Amendment_Pack_v2.docx §4.2; openapi.yaml /sku/{sku_id}/suggestions/{suggestion_id}/status
+    // Pass-through only: proxy dismiss/seen status to Python Engine endpoint without adding new controller logic.
+    Route::post('/sku/{sku_id}/suggestions/{suggestion_id}/status', function (\Illuminate\Http\Request $request, string $sku_id, string $suggestion_id) {
+        $engineBase = rtrim(env('CIE_ENGINE_BASE_URL', 'http://localhost:8000/api/v1'), '/');
+        $url = $engineBase . '/sku/' . urlencode($sku_id) . '/suggestions/' . urlencode($suggestion_id) . '/status';
+
+        $client = Http::acceptJson();
+        $token = env('CIE_ENGINE_TOKEN');
+        if (!empty($token)) {
+            $client = $client->withToken($token);
+        }
+
+        $response = $client->post($url, $request->all());
+
+        return response()->json($response->json(), $response->status());
+    })->name('sku.suggestions.status');
 });

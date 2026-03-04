@@ -8,8 +8,8 @@ class AnthropicEngine:
     
     async def query(self, prompt: str) -> dict:
         message = await self.client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=10,
+            model="claude-sonnet-4-6",
+            max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )
         text = message.content[0].text

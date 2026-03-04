@@ -83,10 +83,10 @@ class DashboardController
         }
 
         $query = DB::table('weekly_scores')
-            ->orderBy('week', 'desc')
+            ->orderBy('week_start', 'desc')
             ->limit(12);
 
-        $columns = ['id', 'week', 'score', 'created_at', 'actor_id'];
+        $columns = ['id', 'week_start', 'score', 'created_at', 'actor_id'];
         if ($hasNotes) {
             $columns[] = 'notes';
         }
@@ -96,7 +96,7 @@ class DashboardController
             ->map(function ($row) use ($hasNotes) {
                 return [
                     'id' => (int) $row->id,
-                    'week_start' => (string) $row->week,
+                    'week_start' => (string) $row->week_start,
                     'score' => (int) $row->score,
                     'notes' => $hasNotes ? (string) ($row->notes ?? '') : '',
                     'created_at' => (string) $row->created_at,
@@ -127,8 +127,7 @@ class DashboardController
 
         $actorId = auth()->id();
 
-        // Canonical schema uses "week" (VARCHAR) rather than "week_start" DATE.
-        $existing = DB::table('weekly_scores')->where('week', $data['week_start'])->first();
+        $existing = DB::table('weekly_scores')->where('week_start', $data['week_start'])->first();
         $hasNotes = false;
         try {
             $hasNotes = Schema::hasColumn('weekly_scores', 'notes');
@@ -155,7 +154,7 @@ class DashboardController
             ];
         } else {
             $insert = [
-                'week' => $data['week_start'],
+                'week_start' => $data['week_start'],
                 'score' => (int) $data['score'],
                 'user_id' => $actorId,
                 'actor_id' => $actorId,

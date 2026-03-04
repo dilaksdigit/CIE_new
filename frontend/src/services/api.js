@@ -1,3 +1,4 @@
+// SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx Sections 4.2 & 5; openapi validate + content flow
 import axios from 'axios';
 
 const api = axios.create({
@@ -58,6 +59,21 @@ export const writerEditApi = {
     validate: (skuId, data) => api.post(`/v1/skus/${skuId}/validate`, data),
     publish: (skuId, data) => api.put(`/v1/skus/${skuId}`, data),
 };
+
+/**
+ * Publish SKU: validate then persist content (openapi flow — no separate /publish endpoint).
+ * Step 1: POST /v1/sku/validate with sku_id and content payload.
+ * Step 2: If all gates pass (200), PUT /v1/skus/{skuId} to persist content.
+ */
+export async function publishSku(skuId, contentPayload) {
+    await api.post('/v1/sku/validate', {
+        sku_id: skuId,
+        action: 'publish',
+        ...contentPayload,
+    });
+    await api.put(`/v1/skus/${skuId}`, contentPayload);
+    return { ok: true };
+}
 
 // ====== SKUs ======
 export const skuApi = {

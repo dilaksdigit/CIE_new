@@ -18,39 +18,53 @@ class SemrushImportController
         }
 
         if (!$request->hasFile('file')) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'File is not a valid CSV.'], 422);
+            return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file opened correctly in Excel or a text editor. It must be a plain CSV, not an Excel .xlsx file.'], 422);
         }
 
         $file = $request->file('file');
 
         if (!$file->isValid()) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'File is not a valid CSV.'], 422);
+            return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file opened correctly in Excel or a text editor. It must be a plain CSV, not an Excel .xlsx file.'], 422);
         }
 
         $path = $file->getRealPath();
         if ($path === false) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'File is not a valid CSV.'], 422);
+            return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file opened correctly in Excel or a text editor. It must be a plain CSV, not an Excel .xlsx file.'], 422);
         }
 
         $handle = fopen($path, 'r');
         if ($handle === false) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'File is not a valid CSV.'], 422);
+            return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file opened correctly in Excel or a text editor. It must be a plain CSV, not an Excel .xlsx file.'], 422);
         }
 
         $header = fgetcsv($handle);
         if ($header === false || !is_array($header)) {
             fclose($handle);
-            return response()->json(['error' => 'Validation failed', 'message' => 'File is not a valid CSV.'], 422);
+            return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file opened correctly in Excel or a text editor. It must be a plain CSV, not an Excel .xlsx file.'], 422);
         }
 
         $normalizedHeader = array_map(function ($h) {
             return strtolower(trim((string) $h));
         }, $header);
 
+        $columnMap = [
+            'keyword'              => 'keyword',
+            'position'             => 'position',
+            'previous position'    => 'prev_position',
+            'search volume'        => 'search_volume',
+            'keyword difficulty'   => 'keyword_diff',
+            'cpc (usd)'            => 'cpc_usd',
+            'url'                  => 'url',
+            'traffic (%)'          => 'traffic_pct',
+            'traffic volume'       => 'traffic_volume',
+            'trends'               => 'trend',
+            'timestamp'            => 'timestamp',
+        ];
+
         $keywordIndex = array_search('keyword', $normalizedHeader, true);
         if ($keywordIndex === false) {
             fclose($handle);
-            return response()->json(['error' => 'Validation failed', 'message' => 'Missing required Keyword column.'], 422);
+            return response()->json(['error' => 'Validation failed', 'message' => 'Missing required column: Keyword. Check you exported from Organic Research → Positions, not a different Semrush report.'], 422);
         }
 
         $rows = [];
@@ -62,27 +76,33 @@ class SemrushImportController
             $rowCount++;
             if ($rowCount > 100000) {
                 fclose($handle);
-                return response()->json(['error' => 'Validation failed', 'message' => 'File exceeds maximum row limit of 100000.'], 422);
+                return response()->json(['error' => 'Validation failed', 'message' => 'File contains more than 100,000 rows. Split the export into smaller files and import each separately.'], 422);
             }
 
             $row = [];
             foreach ($normalizedHeader as $idx => $name) {
                 $row[$name] = $data[$idx] ?? null;
             }
-            $rows[] = $row;
+            $remapped = [];
+            foreach ($columnMap as $normalisedKey => $dbKey) {
+                if (array_key_exists($normalisedKey, $row)) {
+                    $remapped[$dbKey] = $row[$normalisedKey];
+                }
+            }
+            $rows[] = $remapped;
         }
 
         fclose($handle);
 
         if ($rowCount === 0) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'File contains no data rows.'], 422);
+            return response()->json(['error' => 'Validation failed', 'message' => 'The file contains no data rows. Export again from Semrush and try uploading the new file.'], 422);
         }
 
         $importBatch = now()->toDateString();
 
         $existing = DB::table('semrush_imports')->where('import_batch', $importBatch)->count();
         if ($existing > 0) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'An import for this batch date already exists.'], 422);
+            return response()->json(['error' => 'Validation failed', 'message' => 'A batch for this date has already been imported. Delete the existing batch first if you want to re-import.'], 422);
         }
 
         $username = (string) ($user->name ?? $user->email ?? 'system');
@@ -139,20 +159,30 @@ class SemrushImportController
             return response()->json(['error' => 'Forbidden'], 403);
         }
 
-        $row = DB::table('semrush_imports')
-            ->select('import_batch', DB::raw('COUNT(*) as row_count'))
+        $rows = DB::table('semrush_imports')
+            ->select(
+                'import_batch',
+                DB::raw('COUNT(*) as row_count'),
+                DB::raw('MIN(imported_by) as imported_by')
+            )
             ->groupBy('import_batch')
             ->orderByDesc('import_batch')
-            ->first();
+            ->limit(12)
+            ->get();
 
-        if (!$row) {
-            return response()->json(['import_batch' => null, 'row_count' => 0], 200);
+        if ($rows->isEmpty()) {
+            return response()->json(['history' => []], 200);
         }
 
-        return response()->json([
-            'import_batch' => $row->import_batch,
-            'row_count'    => (int) $row->row_count,
-        ], 200);
+        $history = $rows->map(function ($row) {
+            return [
+                'import_batch' => $row->import_batch,
+                'row_count'    => (int) $row->row_count,
+                'imported_by'  => (string) ($row->imported_by ?? ''),
+            ];
+        })->values()->all();
+
+        return response()->json(['history' => $history], 200);
     }
 
     /**
