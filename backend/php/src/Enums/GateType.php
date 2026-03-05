@@ -8,8 +8,8 @@ enum GateType: string
  case G3_SEO = 'G3_SEO';
  case G3_SECONDARY_INTENT = 'G3_SECONDARY_INTENT';
  case G4_ANSWER_BLOCK = 'G4_ANSWER_BLOCK';
- case G4_VECTOR = 'G4_VECTOR';   // Legacy alias; use G5_VECTOR for semantic/vector gate
- case G5_VECTOR = 'G5_VECTOR';   // Semantic validation (cluster match)
+ case G4_VECTOR = 'G4_VECTOR';   // Vector gate (distinct from G5_VECTOR; see CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7)
+ case G5_VECTOR = 'G5_VECTOR';   // Best-For/Not-For gate (distinct from G4_VECTOR)
  case G5_TECHNICAL = 'G5_TECHNICAL';
  case G6_COMMERCIAL = 'G6_COMMERCIAL';
  case G6_COMMERCIAL_POLICY = 'G6_COMMERCIAL_POLICY';

@@ -1,4 +1,5 @@
 <?php
+// SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 7 (error codes); CIE_v231_Developer_Build_Pack.pdf (sku_gate_status schema)
 namespace App\Validators\Gates;
 
 use App\Models\Sku;
@@ -16,7 +17,7 @@ class G4_VectorGate implements GateInterface
  {
  if (!$sku->primary_cluster_id) {
  return new GateResult(
- gate: GateType::G5_VECTOR,
+ gate: GateType::G4_VECTOR,
  passed: false,
  reason: 'No cluster assigned. SKU must belong to at least one cluster.',
  blocking: true
@@ -25,12 +26,12 @@ class G4_VectorGate implements GateInterface
  
         $minLen = (int) BusinessRules::get('content.description_vector_min_length', 100);
         if (!$sku->long_description || strlen(trim($sku->long_description)) < $minLen) {
-            return new GateResult(
-                gate: GateType::G5_VECTOR,
-                passed: false,
-                reason: "Long description missing or too short (minimum {$minLen} characters required for vector validation).",
-                blocking: true
-            );
+             return new GateResult(
+             gate: GateType::G4_VECTOR,
+             passed: false,
+             reason: "Long description missing or too short (minimum {$minLen} characters required for vector validation).",
+             blocking: true
+             );
         }
  
         try {
@@ -43,22 +44,22 @@ class G4_VectorGate implements GateInterface
             }
 
             if ($response['valid']) {
-                return new GateResult(
-                    gate: GateType::G5_VECTOR,
-                    passed: true,
-                    reason: sprintf('Semantic match confirmed (similarity: %.2f)', $response['similarity']),
-                    blocking: false,
-                    metadata: ['similarity' => $response['similarity']]
-                );
+                 return new GateResult(
+                 gate: GateType::G4_VECTOR,
+                 passed: true,
+                 reason: 'Semantic match confirmed',
+                 blocking: false,
+                 metadata: []
+                 );
             }
 
-            return new GateResult(
-                gate: GateType::G5_VECTOR,
-                passed: false,
-                reason: $response['reason'],
-                blocking: true,
-                metadata: ['similarity' => $response['similarity']]
-            );
+             return new GateResult(
+             gate: GateType::G4_VECTOR,
+             passed: false,
+             reason: 'Content semantic mismatch',
+             blocking: true,
+             metadata: []
+             );
         } catch (\Exception $e) {
             // Fail-soft: queue for retry and mark as degraded
             try {
@@ -73,13 +74,13 @@ class G4_VectorGate implements GateInterface
                 // Swallow queue errors to avoid blocking saves
             }
 
-            return new GateResult(
-                gate: GateType::G5_VECTOR,
-                passed: false,
-                reason: 'Vector validation temporarily unavailable. Save allowed with DEGRADED status.',
-                blocking: false,
-                metadata: ['degraded' => true, 'error' => $e->getMessage()]
-            );
+             return new GateResult(
+             gate: GateType::G4_VECTOR,
+             passed: false,
+             reason: 'Vector validation temporarily unavailable. Save allowed with DEGRADED status.',
+             blocking: false,
+             metadata: ['degraded' => true, 'error' => $e->getMessage()]
+             );
         }
  }
  
