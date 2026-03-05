@@ -1,4 +1,5 @@
 {
+  // SOURCE: CLAUDE.md §4 DECISION-001; CIE_v232_FINAL_Developer_Instruction.docx §1.5
   "name": "W6 Channel Deploy",
   "id": "W6_channel_deploy",
   "nodes": [
@@ -103,20 +104,13 @@
       }
     },
     {
-      "id": "HTTP_Amazon",
-      "name": "Amazon SP-API push",
-      "type": "n8n-nodes-base.httpRequest",
+      "id": "Sticky_Note_Amazon",
+      "name": "Amazon SP-API: DEFERRED per DECISION-001 (CLAUDE.md §4). Do not add Amazon integration to this workflow in v2.3.2.",
+      "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [1300, 420],
+      "position": [100, 40],
       "parameters": {
-        "method": "POST",
-        "url": "https://amazon.example.com/sp-api",
-        "responseFormat": "json",
-        "jsonParameters": true,
-        "options": {
-          "timeout": 60000
-        },
-        "bodyParametersJson": "={{$json}}"
+        "noteContent": "Amazon SP-API: DEFERRED per DECISION-001 (CLAUDE.md §4).\nDo not add Amazon integration to this workflow in v2.3.2."
       }
     },
     {
@@ -132,10 +126,7 @@
               "value1": "={{$json[\"statusCode\"] || 200}}",
               "operation": "smallerOrEqual",
               "value2": 299
-            }
-          ]
-        }
-      }
+            // Amazon branch removed per DECISION-001
     },
     {
       "id": "HTTP_Channel_Deployed",
@@ -220,13 +211,7 @@
             "index": 0
           }
         ],
-        [
-          {
-            "node": "Amazon SP-API push",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        // Amazon connection removed per DECISION-001
       ]
     },
     "Shopify metafield push": {
@@ -251,17 +236,7 @@
         ]
       ]
     },
-    "Amazon SP-API push": {
-      "main": [
-        [
-          {
-            "node": "Deploy OK?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
+    // Amazon node connections removed per DECISION-001
     "Deploy OK?": {
       "main": [
         [
