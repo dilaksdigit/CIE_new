@@ -35,14 +35,4 @@ class IntentsController
         ];
         return response()->json(['data' => ['intents' => $intents, 'tier_rules' => $tierRules]]);
     }
-
-    /**
-     * PUT /taxonomy/intents/{id} — 3.2: Only ADMIN can modify the 9-intent taxonomy (should rarely be used).
-     */
-    public function update(Request $request, $id)
-    {
-        $intent = IntentTaxonomy::findOrFail($id);
-        $intent->update($request->only(['label', 'definition', 'tier_access', 'intent_key']));
-        return response()->json(['data' => $intent->fresh()]);
-    }
 }

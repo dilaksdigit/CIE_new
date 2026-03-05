@@ -1,7 +1,7 @@
 // SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §§4.1, 4.2, 5; Trap 2 | CIE_v232_UI_Restructure_Instructions.docx §2.1 | CIE_v232_Semrush_CSV_Import_Spec.docx §§1, 3.2, 3.3 | CIE_v232_Writer_View.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import api, { writerEditApi, publishSku } from '../services/api';
+import api, { writerEditApi } from '../services/api';
 import THEME from '../theme';
 import TierLockBanner from '../components/sku/TierLockBanner';
 
@@ -597,30 +597,28 @@ const WriterEdit = () => {
         setValues((prev) => ({ ...prev, [field]: nextValue }));
     };
 
-    const handlePublish = async () => {
+    const handleSubmit = async () => {
+        // SOURCE: Amendment Pack §4.2 — Submit calls publish endpoint directly
         setPublishError('');
+        setPublishBusy(true);
         try {
-            setPublishBusy(true);
-            const contentPayload = {
-                tier: tier.toUpperCase(),
-                title: values.title,
-                description: values.description,
-                specification: values.specification,
-                answer_block: values.answer_block,
-                best_for: values.best_for,
-                not_for: values.not_for,
-                expert_authority: values.expert_authority,
-            };
-            await publishSku(skuId, contentPayload);
-            navigate('/writer/queue', { state: { published: true } });
-        } catch (e) {
-            const res = e?.response;
-            if (res && (res.status === 400 || res.status === 403 || res.status === 409)) {
-                const msg = res?.data?.message || res?.data?.error || 'Publish failed. Please resolve highlighted issues and try again.';
-                setPublishError(msg);
+            const res = await api.post(`/v1/sku/${encodeURIComponent(skuId)}/publish`);
+            if (res.status >= 200 && res.status < 300) {
+                // After successful publish: redirect to queue with success message
+                navigate('/writer/queue', { state: { successMessage: 'Product published successfully.' } });
                 return;
             }
-            setPublishError('Publish failed. Please try again.');
+        } catch (e) {
+            const status = e?.response?.status;
+            if (status === 400) {
+                // Gate validation failed — keep per-field hints, surface generic message only
+                setPublishError('Some content checks failed. Please review the fields and try again.');
+            } else if (status === 403) {
+                setPublishError("You don't have permission to publish this product.");
+            } else {
+                setPublishError('Something went wrong. Please try again.');
+            }
+            return;
         } finally {
             setPublishBusy(false);
         }
@@ -774,18 +772,12 @@ const WriterEdit = () => {
                         </div>
                     )}
 
-                    {publishError && (
-                        <div style={{ marginTop: 10, color: THEME.red, fontSize: '0.72rem' }}>
-                            {publishError}
-                        </div>
-                    )}
-
                     {tier !== 'kill' && allRequiredPass && (
                         <div style={{ marginTop: 12 }}>
                             <button
                                 type="button"
                                 className="btn btn-primary"
-                                onClick={handlePublish}
+                                onClick={handleSubmit}
                                 disabled={publishBusy}
                                 onMouseEnter={() => setHoveredId('publish')}
                                 onMouseLeave={() => setHoveredId(null)}
@@ -795,8 +787,23 @@ const WriterEdit = () => {
                                     color: hoveredId === 'publish' ? THEME.text : undefined,
                                 }}
                             >
-                                {publishBusy ? 'Publishing...' : 'Publish'}
+                                {publishBusy ? 'Publishing…' : 'Submit ✓'}
                             </button>
+                            {publishError && (
+                                <div
+                                    style={{
+                                        marginTop: 8,
+                                        color: '#C62828',
+                                        fontSize: '0.8rem',
+                                        padding: '8px 12px',
+                                        background: '#FFEBEE',
+                                        borderRadius: 4,
+                                        border: '1px solid #EF9A9A',
+                                    }}
+                                >
+                                    {publishError}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

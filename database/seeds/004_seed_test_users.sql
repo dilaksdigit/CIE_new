@@ -1,2 +1,1 @@
--- Seed test users
-INSERT INTO users (id, email, password_hash, first_name, last_name) VALUES (UUID(), 'test@example.com', 'hash', 'Test', 'User');
+-- Seed test users (removed per CIE_v232_Developer_Amendment_Pack_v2 §3.1 - no unsanctioned test accounts)

@@ -33,7 +33,7 @@ class ApprovalService
         $user = auth()->user();
 
         // Dual sign-off logic (Q7)
-        if ($user->hasRole('FINANCE_DIRECTOR')) {
+        if ($user->hasRole('FINANCE')) {
             $request->update([
                 'finance_approver_id' => $user->id,
                 'finance_approved_at' => now()

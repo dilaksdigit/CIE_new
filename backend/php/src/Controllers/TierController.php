@@ -13,10 +13,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class TierController {
-    public function recalculate() {
-        return ResponseFormatter::format(['message' => 'Tier recalculation queued'], 'OK', 200);
-    }
-
     /**
      * POST /api/v1/erp/sync — receive ERP data push; recompute tiers. Unified API 7.1.
      * Re-validates SKUs after tier change and logs tier_change to audit_log for traceability.

@@ -1,4 +1,5 @@
--- CIE v2.3.2 – Seed exactly 52 business rules. No hard-coded values in tier/gate/readiness engines.
+-- SOURCE: CIE_Master_Developer_Build_Spec.docx Section 5.3
+-- Seed exactly 52 business rules. No hard-coded values in tier/gate/readiness engines.
 
 INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 (UUID(), 'gates.vector_similarity_min', '0.72', 'float', 'Minimum cosine similarity for vector gate (fail below, pass at or above)'),
@@ -34,7 +35,7 @@ INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 (UUID(), 'channel.ai_assistants_weight', '1.0', 'float', 'Channel weight AI assistants'),
 (UUID(), 'channel.own_website_weight', '1.0', 'float', 'Channel weight own website'),
 (UUID(), 'intent.taxonomy_locked_count', '9', 'integer', 'Number of locked intents'),
-// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 5.3 — tier hero/support/harvest percentile thresholds
+-- SOURCE: CIE_Master_Developer_Build_Spec.docx Section 5.3 — tier hero/support/harvest percentile thresholds
 (UUID(), 'g3.hero_secondary_max', '3', 'integer', 'Max secondary intents for Hero'),
 (UUID(), 'g3.support_secondary_max', '2', 'integer', 'Max secondary intents for Support'),
 (UUID(), 'g3.harvest_secondary_max', '1', 'integer', 'Max secondary intents for Harvest'),
@@ -52,8 +53,5 @@ INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 (UUID(), 'content.title_max_length', '250', 'integer', 'Max title length'),
 (UUID(), 'content.description_min_length', '50', 'integer', 'Min short description length'),
 (UUID(), 'content.description_vector_min_length', '100', 'integer', 'Min long description length for vector validation'),
-(UUID(), 'validation.http_fail_status', '400', 'integer', 'HTTP status when validation fails with blocking errors'),
-(UUID(), 'audit_log.immutable', 'true', 'boolean', 'Audit log allows no UPDATE/DELETE'),
-(UUID(), 'harvest.intent_primary_allowed', 'specification', 'string', 'Harvest: primary intent must be specification'),
-(UUID(), 'harvest.intent_secondary_max', '1', 'integer', 'Harvest: max one additional intent')
+(UUID(), 'validation.http_fail_status', '400', 'integer', 'HTTP status when validation fails with blocking errors')
 ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP;

@@ -191,6 +191,7 @@ const Config = () => {
                 )}
             </div>
 
+            {/* SPEC: CLAUDE.md §11 — 0.72 visible to ADMIN only. Writer roles are blocked at RBAC level via canModifyConfig. */}
             {!canEditConfig && (
                 <div style={{
                     padding: '12px 16px',

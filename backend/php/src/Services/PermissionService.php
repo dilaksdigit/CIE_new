@@ -24,8 +24,6 @@ class PermissionService
     private const ROLE_CHANNEL_MANAGER = 'CHANNEL_MANAGER';
     private const ROLE_FINANCE = 'FINANCE';
     private const ROLE_AI_OPS = 'AI_OPS';
-    private const ROLE_VIEWER = 'VIEWER';
-    private const ROLE_SYSTEM = 'SYSTEM';
 
     /** Content fields (create/edit). Matrix: Editor, Prod Spec, Ch Mgr YES; PH/Finance/Admin NO for content. */
     private const CONTENT_FIELDS = [
@@ -102,11 +100,11 @@ class PermissionService
         return $this->role($user) === self::ROLE_CONTENT_LEAD;
     }
 
-    /** Run AI audit. AI_OPS, ADMIN, SYSTEM. */
+    /** Run AI audit. AI_OPS, ADMIN. */
     public function canRunAIAudit(?Authenticatable $user): bool
     {
         $r = $this->role($user);
-        return in_array($r, [self::ROLE_AI_OPS, self::ROLE_ADMIN, self::ROLE_SYSTEM], true);
+        return in_array($r, [self::ROLE_AI_OPS, self::ROLE_ADMIN], true);
     }
 
     /** Manage golden queries. Matrix: Editor, Ch Mgr, AI Ops, PH, Finance, Admin. */
@@ -127,11 +125,11 @@ class PermissionService
         return $r === self::ROLE_ADMIN || $r === self::ROLE_FINANCE;
     }
 
-    /** ERP sync. Finance, Admin, System. */
+    /** ERP sync. Finance, Admin. */
     public function canTriggerERPSync(?Authenticatable $user): bool
     {
         $r = $this->role($user);
-        return in_array($r, [self::ROLE_FINANCE, self::ROLE_ADMIN, self::ROLE_SYSTEM], true);
+        return in_array($r, [self::ROLE_FINANCE, self::ROLE_ADMIN], true);
     }
 
     /** Manage users/roles. ADMIN only. */

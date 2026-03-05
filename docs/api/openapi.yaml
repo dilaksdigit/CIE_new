@@ -711,15 +711,10 @@ components:
           type: boolean
 
     SimilarityResponse:
-      # SOURCE: cie_v231_openapi.yaml components/schemas/SimilarityResponse
+      # SOURCE: CLAUDE.md §11 — cosine_similarity and threshold are INTERNAL ONLY.
+      # Removed from wire response. PHP caller (G4_VectorGate.php) uses status + message only.
       type: object
       properties:
-        cosine_similarity:
-          type: number
-          example: 0.87
-        threshold:
-          type: number
-          example: 0.72
         status:
           type: string
           enum: [pass, fail]

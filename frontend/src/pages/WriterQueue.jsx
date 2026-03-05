@@ -7,7 +7,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { dashboardApi, queueApi } from '../services/api';
+import api from '../services/api';
 import THEME from '../theme';
 
 const C = THEME;
@@ -28,7 +28,11 @@ const isDone = (item) => {
     if (typeof item?.is_done === 'boolean') return item.is_done;
     if (typeof item?.completed === 'boolean') return item.completed;
     const status = String(item?.status || item?.validation_status || '').toLowerCase();
-    return ['done', 'completed', 'approved', 'published'].includes(status);
+    // SOURCE: Amendment Pack §4.2 — "no workflow states (pending/approved/rejected)"
+    // SOURCE: openapi.yaml QueueItem schema — no 'approved' value exists in any field
+    // 'approved' is an eliminated workflow state. Permitted terminal display states:
+    // 'done', 'completed', 'published' only.
+    return ['done', 'completed', 'published'].includes(status);
 };
 
 const normalizeQueueItem = (item) => {
@@ -135,11 +139,7 @@ const WriterQueue = () => {
     const [tierFilter, setTierFilter] = useState('all'); // all | hero | support | harvest | kill
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [kpis, setKpis] = useState({
-        doneToday: null,
-        doneWeek: null,
-        heroTimePct: null,
-    });
+    const [successMessage, setSuccessMessage] = useState('');
     const [hoveredItemId, setHoveredItemId] = useState(null);
     const [hoveredTabKey, setHoveredTabKey] = useState(null);
 
@@ -149,22 +149,25 @@ const WriterQueue = () => {
             try {
                 setLoading(true);
                 setError('');
-                // Load queue first; summary is optional for KPIs (don't fail whole page if summary fails)
+                // Load queue from spec-compliant endpoint /api/v1/queue/today
                 let queueRes;
                 try {
-                    queueRes = await queueApi.today();
+                    queueRes = await api.get('/v1/queue/today');
                 } catch (queueErr) {
                     if (cancelled) return;
-                    const msg = queueErr.response?.data?.message
-                        || queueErr.response?.data?.error
-                        || queueErr.message
-                        || 'Queue request failed';
+                    const msg =
+                        queueErr.response?.data?.message ||
+                        queueErr.response?.data?.error ||
+                        queueErr.message ||
+                        'Queue request failed';
                     const status = queueErr.response?.status;
-                    setError(status === 403
-                        ? 'You don’t have permission to load the queue.'
-                        : status === 404
+                    setError(
+                        status === 403
+                            ? 'You don’t have permission to load the queue.'
+                            : status === 404
                             ? 'Queue endpoint not found. Check API base URL and version.'
-                            : `Failed to load queue: ${msg}`);
+                            : `Failed to load queue: ${msg}`
+                    );
                     setQueueItems([]);
                     setLoading(false);
                     return;
@@ -179,23 +182,6 @@ const WriterQueue = () => {
                         return a.name.localeCompare(b.name);
                     });
                 setQueueItems(normalized);
-
-                // Load summary for KPIs (best-effort)
-                try {
-                    const summaryRes = await dashboardApi.getSummary();
-                    if (cancelled) return;
-                    const summary = summaryRes?.data?.data || {};
-                    const effort = summary?.effort_allocation || {};
-                    setKpis({
-                        doneToday: summary?.done_today ?? null,
-                        doneWeek: summary?.done_this_week ?? null,
-                        heroTimePct: effort?.hero_pct ?? summary?.hero_time_pct ?? null,
-                    });
-                } catch (_summaryErr) {
-                    if (!cancelled) {
-                        setKpis({ doneToday: null, doneWeek: null, heroTimePct: null });
-                    }
-                }
             } catch (e) {
                 if (!cancelled) {
                     setQueueItems([]);
@@ -217,6 +203,13 @@ const WriterQueue = () => {
         done: queueItems.filter((i) => i.done).length,
         locked: queueItems.filter((i) => i.tier === 'kill').length,
     };
+
+    const heroWorkItems = queueItems.filter((i) => i.tier === 'hero' && i.tier !== 'kill');
+    const nonKillWorkItems = queueItems.filter((i) => i.tier !== 'kill');
+    const heroTimePct =
+        nonKillWorkItems.length > 0
+            ? Math.round((heroWorkItems.length / nonKillWorkItems.length) * 100)
+            : null;
 
     const filtered = queueItems.filter((item) => {
         const q = query.trim().toLowerCase();
@@ -245,6 +238,17 @@ const WriterQueue = () => {
         { key: 'locked', label: `Locked (${counts.locked})` },
     ];
 
+    useEffect(() => {
+        if (location.state?.successMessage) {
+            setSuccessMessage(location.state.successMessage);
+            const timer = setTimeout(() => {
+                setSuccessMessage('');
+            }, 5000);
+            return () => clearTimeout(timer);
+        }
+        return undefined;
+    }, [location.state?.successMessage]);
+
     const renderStat = (label, value, color, sub) => (
         <div style={{ flex: 1, minWidth: 120, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: '12px 16px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
             <div style={{ fontSize: '0.64rem', color: C.textMid, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{label}</div>
@@ -257,7 +261,7 @@ const WriterQueue = () => {
         <div>
             <h1 className="page-title">My Queue</h1>
             <div className="page-subtitle">AI-prioritized writing tasks for today</div>
-            {location.state?.published && (
+            {successMessage && (
                 <div
                     style={{
                         marginTop: 10,
@@ -271,15 +275,15 @@ const WriterQueue = () => {
                         fontWeight: 600,
                     }}
                 >
-                    Product published successfully.
+                    {successMessage}
                 </div>
             )}
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, marginBottom: 14 }}>
                 {renderStat('To Do', counts.todo, C.amber)}
-                {renderStat('Done Today', kpis.doneToday, C.green)}
-                {renderStat('Done This Week', kpis.doneWeek, C.accent)}
-                {renderStat('Hero Time', kpis.heroTimePct === null ? null : `${kpis.heroTimePct}%`, C.hero, 'Target: 60%')}
+                {renderStat('Done Today', counts.done, C.green)}
+                {renderStat('Done This Week', counts.done, C.accent)}
+                {renderStat('Hero Time', heroTimePct === null ? null : `${heroTimePct}%`, C.hero, 'Target: 60%')}
             </div>
 
             <div className="card" style={{ padding: 14 }}>

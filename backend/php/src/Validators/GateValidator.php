@@ -120,28 +120,65 @@ class GateValidator
  $nextAction = $blockingFailure ? $blockingFailure->reason : 'Fix validation errors before publication';
  }
  
-        // Patch: If status is PENDING (submitted for review), do not overwrite it with automated status
-        // We still run validation to get the results, but we keep the PENDING state for the queue.
-        $currentStatus = $sku->fresh()->validation_status;
-        
+        // SOURCE: CIE_v232_Hardening_Addendum.pdf §1 (Patch 1 — Fail-Soft Vector Validation)
+        // 'pending' is a valid gate status for the VECTOR gate ONLY, when the OpenAI embedding API
+        // is unavailable (timeout / 500 / 503). It is NOT a review-queue state. The Review Queue
+        // is permanently eliminated per CIE_v232_Developer_Amendment_Pack_v2.docx §4.2.
+        // All other gates use only: pass | fail | not_applicable.
+        // VECTOR gate uses: pass | fail | not_applicable | pending (degraded mode only).
+        // A SKU with any gate = 'pending' CANNOT be published (can_publish = false).
         $updateData = [
             'can_publish' => $canPublish,
             'last_validated_at' => now(),
             'ai_validation_pending' => $isDegraded
         ];
 
-        if (!$preserveStatus && $currentStatus !== ValidationStatus::PENDING) {
+        if (! $preserveStatus) {
             $updateData['validation_status'] = $status;
         }
 
         $sku->update($updateData);
- 
- return [
- 'sku_id' => $sku->id,
- 'overall_status' => $status->value,
- 'can_publish' => $canPublish,
- 'gates' => array_map(fn($r) => $r->toArray(), $results),
- 'next_action' => $nextAction
- ];
- }
+
+        // Final defence-in-depth sanitiser: ensure no cosine similarity values leak to writer.
+        $gatePayload = array_map(fn ($r) => $r->toArray(), $results);
+        foreach ($gatePayload as &$gate) {
+            $gateKey = strtolower((string)($gate['gate'] ?? ''));
+            if ($gateKey === 'g5_vector' || $gateKey === 'vector_similarity') {
+                // Ensure metadata contains no numeric values.
+                if (isset($gate['metadata']) && is_array($gate['metadata'])) {
+                    foreach ($gate['metadata'] as $k => $v) {
+                        if (is_int($v) || is_float($v)) {
+                            $gate['metadata'][$k] = '[internal]';
+                            \Log::warning('SECURITY: similarity value reached GateValidator sanitiser — check G4_VectorGate.php', [
+                                'sku_id' => $sku->id,
+                                'gate'   => $gate['gate'] ?? null,
+                                'key'    => $k,
+                            ]);
+                        }
+                    }
+                }
+
+                // Ensure reason/detail contain no decimal similarity patterns like 0.72.
+                foreach (['reason', 'detail'] as $field) {
+                    if (isset($gate[$field]) && is_string($gate[$field]) && preg_match('/\d+\.\d{2}/', $gate[$field])) {
+                        $gate[$field] = '[internal]';
+                        \Log::warning('SECURITY: similarity value reached GateValidator sanitiser — check G4_VectorGate.php', [
+                            'sku_id' => $sku->id,
+                            'gate'   => $gate['gate'] ?? null,
+                            'field'  => $field,
+                        ]);
+                    }
+                }
+            }
+        }
+        unset($gate); // break reference
+
+        return [
+            'sku_id'        => $sku->id,
+            'overall_status'=> $status->value,
+            'can_publish'   => $canPublish,
+            'gates'         => $gatePayload,
+            'next_action'   => $nextAction,
+        ];
+    }
 }

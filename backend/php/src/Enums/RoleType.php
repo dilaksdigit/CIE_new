@@ -16,8 +16,6 @@ enum RoleType: string
     case CONTENT_LEAD      = 'content_lead';
     case FINANCE           = 'finance';
     case ADMIN             = 'admin';
-    case SYSTEM            = 'system';
-    case VIEWER            = 'viewer';
 
     /** Human-readable description for UI (e.g. role selector). */
     public function description(): string
@@ -31,8 +29,6 @@ enum RoleType: string
             self::AI_OPS => 'Run AI audits; manage golden queries.',
             self::CONTENT_LEAD => 'Portfolio Holder: publish, assign briefs, effort reports.',
             self::FINANCE => 'Trigger tier recalculation; ERP sync; golden queries.',
-            self::SYSTEM => 'System and automated actions.',
-            self::VIEWER => 'Read-only access.',
         };
     }
 
@@ -48,8 +44,6 @@ enum RoleType: string
             'PORTFOLIO_HOLDER'  => self::CONTENT_LEAD,
             'FINANCE'           => self::FINANCE,
             'ADMIN'             => self::ADMIN,
-            'SYSTEM'            => self::SYSTEM,
-            'VIEWER'            => self::VIEWER,
             default             => null,
         };
     }

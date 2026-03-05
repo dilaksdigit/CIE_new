@@ -7,6 +7,18 @@ use Illuminate\Http\Request;
 class RBACMiddleware
 {
     private const ROLE_ADMIN = 'ADMIN';
+    // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §1.4; CIE_v232_Developer_Amendment_Pack_v2.docx §3
+    // Canonical 8-role set for RBAC checks.
+    private const VALID_ROLES = [
+        'CONTENT_EDITOR',
+        'PRODUCT_SPECIALIST',
+        'SEO_GOVERNOR',
+        'CHANNEL_MANAGER',
+        'FINANCE',
+        'CONTENT_LEAD',
+        'AI_OPS',
+        'ADMIN',
+    ];
 
     /**
      * ADMIN: Full access to all fields and actions, modify 9-intent taxonomy,

@@ -1,7 +1,7 @@
 // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx Section 5.1 (6-zone layout) & Section 5.2–5.3
 // SOURCE: CIE_v232_Writer_View.jsx — visual theme reference
+// SOURCE: CIE_v232_Developer_LLM_Workspace_Guide.docx Trap 10 — no third-party upload/date libraries
 import React, { useContext, useEffect, useRef, useState } from 'react';
-import { format, parseISO } from 'date-fns';
 import THEME from '../theme';
 import { AppContext } from '../App';
 import { canModifyConfig } from '../lib/rbac';
@@ -136,12 +136,13 @@ const SemrushImport = () => {
             const payload = res.data?.data ?? res.data ?? {};
             const rowsImported = payload.rows_imported ?? 0;
             const batchDate = payload.import_batch ?? null;
-            let importDateStr = '';
-            try {
-                importDateStr = batchDate ? format(parseISO(batchDate), 'd MMMM yyyy') : (batchDate || '');
-            } catch {
-                importDateStr = batchDate || '';
-            }
+            const importDateStr = batchDate
+                ? new Date(batchDate).toLocaleDateString('en-GB', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                  })
+                : '';
             setStatus({
                 type: 'success',
                 message: `Import complete. ${rowsImported} keywords imported for ${importDateStr}. Keyword suggestion cards updated.`,

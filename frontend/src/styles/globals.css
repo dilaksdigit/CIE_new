@@ -1103,27 +1103,6 @@ tr:last-child td {
   margin-bottom: 20px;
 }
 
-/* ====== RESPONSIVE ====== */
-@media (max-width: 768px) {
-  .sidebar {
-    width: 52px !important;
-  }
-
-  .sidebar .label,
-  .sidebar-logo-text,
-  .sidebar-footer>div:not(.sidebar-avatar) {
-    display: none;
-  }
-
-  .sidebar .badge-count {
-    display: none;
-  }
-
-  .main-content {
-    padding: 12px;
-  }
-}
-
 /* ====== SCROLLBAR ====== */
 ::-webkit-scrollbar {
   width: 5px;

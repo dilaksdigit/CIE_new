@@ -9,35 +9,4 @@ use Illuminate\Support\Facades\Schema;
 
 class AuditLogController
 {
-    /**
-     * GET /api/audit-logs
-     * Returns paginated audit log entries with optional filters.
-     *
-     * Query params:
-     *   sku    — filter by entity_id (SKU code or ID)
-     *   user   — filter by actor_id
-     *   action — filter by action type
-     *   per_page — number of results per page (default 50)
-     */
-    public function index(Request $request)
-    {
-        $table = (new AuditLog())->getTable();
-        $orderCol = Schema::hasColumn($table, 'timestamp') ? 'timestamp' : 'created_at';
-        $q = AuditLog::query()->orderBy($orderCol, 'desc');
-
-        if ($request->filled('sku')) {
-            $q->where('entity_id', $request->input('sku'));
-        }
-        if ($request->filled('user') && Schema::hasColumn($table, 'actor_id')) {
-            $q->where('actor_id', $request->input('user'));
-        }
-        if ($request->filled('action')) {
-            $q->where('action', $request->input('action'));
-        }
-
-        $perPage = max(1, min(200, $request->integer('per_page', 50)));
-        $logs = $q->paginate($perPage);
-
-        return ResponseFormatter::format($logs);
-    }
 }

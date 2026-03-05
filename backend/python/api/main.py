@@ -21,7 +21,6 @@ from fastapi.responses import JSONResponse
 
 from src.vector.validation import validate_cluster_match
 from src.vector.embedding import get_embedding
-from src.title.validation import validate_title as validate_title_rules, suggest_title as suggest_title_from_attrs
 
 # -------- Request body models (same field names as Flask request.json) --------
 
@@ -35,34 +34,6 @@ class EmbedRequest(BaseModel):
 class SimilarityRequest(BaseModel):
     description: str = ""
     cluster_id: str = ""
-
-
-class ValidateVectorRequest(BaseModel):
-    description: Optional[str] = None
-    cluster_id: Optional[str] = None
-    sku_id: str = "unknown"
-    threshold: Optional[float] = None  # from BusinessRules.get('gates.vector_similarity_min'); default 0.72
-
-
-class QueueAuditRequest(BaseModel):
-    sku_id: Optional[str] = None
-
-
-class QueueBriefRequest(BaseModel):
-    sku_id: Optional[str] = None
-    title: Optional[str] = None
-
-
-class TitleValidateRequest(BaseModel):
-    title: str = ""
-    primary_intent: str = ""
-    cluster_id: str = ""
-
-
-class TitleSuggestRequest(BaseModel):
-    cluster_id: str = ""
-    primary_intent: str = ""
-    attributes: dict[str, Any] = {}
 
 
 # -------- App and in-memory queues (unchanged behavior) --------
@@ -84,33 +55,6 @@ MASTER_CLUSTER_IDS = get_master_cluster_ids()
 
 
 # -------- Routes (paths and response structure identical to Flask) --------
-
-@app.get("/")
-def index():
-    """Root endpoint — same JSON as Flask."""
-    return {
-        "service": "CIE Python Worker API",
-        "status": "running",
-        "version": "1.0.0",
-        "endpoints": [
-            "/health",
-            "/validate-vector",
-            "/api/v1/sku/embed",
-            "/api/v1/sku/similarity",
-            "/api/v1/sku/validate",
-            "/api/v1/title/validate",
-            "/api/v1/title/suggest",
-            "/queue/audit",
-            "/queue/brief-generation",
-        ],
-    }
-
-
-@app.get("/health")
-def health():
-    """Health check — same JSON as Flask."""
-    return {"status": "healthy", "service": "python-worker"}
-
 
 # OpenAI text-embedding-3-small dimension (v2.3.1 §8.1)
 EMBED_DIMENSIONS = 1536
@@ -168,51 +112,40 @@ def sku_similarity(body: SimilarityRequest):
         # Cluster not in Redis = validation unavailable; fail-soft to pending so save is allowed
         if sim == 0.0 and "not initialized" in reason.lower():
             logger.warning("Similarity unavailable (cluster not in cache): cluster_id=%s", cluster_id)
+            logger.info(
+                "AUDIT similarity_check cluster_id=%s status=pending reason=%s",
+                cluster_id,
+                "cluster_not_initialized",
+            )
             return {
-                "cosine_similarity": 0.0,
-                "threshold": SIMILARITY_THRESHOLD,
                 "status": "pending",
                 "message": PENDING_MESSAGE,
-                "degraded_mode": True,
             }
+
+        status = "pass" if sim >= SIMILARITY_THRESHOLD else "fail"
+        logger.info(
+            "AUDIT similarity_check cluster_id=%s status=%s",
+            cluster_id,
+            status,
+        )
         return {
-            "cosine_similarity": round(float(sim), 4),
-            "threshold": SIMILARITY_THRESHOLD,
-            "status": "pass" if sim >= SIMILARITY_THRESHOLD else "fail",
-            "message": reason if sim < SIMILARITY_THRESHOLD else None,
+            "status": status,
+            "message": reason if status == "fail" else None,
         }
     except Exception as e:
         logger.warning(
             "Similarity validation unavailable (fail-soft): cluster_id=%s error=%s",
             cluster_id, e, exc_info=True,
         )
+        logger.info(
+            "AUDIT similarity_check cluster_id=%s status=pending reason=%s",
+            cluster_id,
+            "engine_unavailable",
+        )
         return {
-            "cosine_similarity": 0.0,
-            "threshold": SIMILARITY_THRESHOLD,
             "status": "pending",
             "message": PENDING_MESSAGE,
-            "degraded_mode": True,
         }
-
-
-@app.post("/api/v1/title/validate")
-def title_validate(body: TitleValidateRequest):
-    """
-    Validate product title against CIE rules: pipe separator, intent before pipe, attributes after, no brand first, G2 no colour/material/dimension before pipe, max 250 chars (6.1).
-    Returns { valid, issues[], suggested_fix }.
-    """
-    result = validate_title_rules(body.title, body.primary_intent, body.cluster_id)
-    return result
-
-
-@app.post("/api/v1/title/suggest")
-def title_suggest(body: TitleSuggestRequest):
-    """
-    Generate a CIE-compliant title from cluster_id + primary_intent + attributes (product_type, use_case, size, colour, fitting, etc.).
-    User can accept or edit.
-    """
-    suggested = suggest_title_from_attrs(body.cluster_id, body.primary_intent, body.attributes or {})
-    return {"suggested_title": suggested, "max_length": 250}
 
 
 @app.post("/api/v1/sku/validate")
@@ -260,99 +193,6 @@ async def sku_validate(request: Request):
             message="One or more gates failed.",
         ).model_dump(),
     )
-
-
-@app.post("/validate-vector")
-def validate_vector(body: ValidateVectorRequest):
-    """Validate SKU description against cluster vectors. Threshold from request (BusinessRules) or default 0.72. Fail-soft: return 200 with degraded on error (no 500)."""
-    description = body.description or ""
-    cluster_id = body.cluster_id or ""
-    sku_id = body.sku_id or "unknown"
-    threshold = body.threshold if body.threshold is not None else SIMILARITY_THRESHOLD
-    if not description or not cluster_id:
-        return JSONResponse(
-            status_code=400,
-            content={"valid": False, "similarity": 0.0, "reason": "description and cluster_id required"},
-        )
-    try:
-        sku_vector = get_embedding(description)
-        result = validate_cluster_match(sku_vector, cluster_id, threshold=threshold)
-        return result
-    except Exception as e:
-        logger.warning("validate-vector fail-soft: %s", e)
-        # Return 200 with degraded so clients don't treat as server error; save allowed, publish blocked
-        return JSONResponse(
-            status_code=200,
-            content={
-                "valid": False,
-                "similarity": 0.0,
-                "reason": "Vector validation temporarily unavailable. Save allowed, publish blocked.",
-                "degraded": True,
-                "error_message": str(e),
-            },
-        )
-
-
-@app.post("/queue/audit")
-def queue_audit(body: QueueAuditRequest):
-    """Queue an AI audit job — same JSON as Flask."""
-    sku_id = body.sku_id
-    if not sku_id:
-        return JSONResponse(status_code=400, content={"error": "sku_id required"})
-    audit_id = str(uuid.uuid4())
-    audit_queue[audit_id] = {
-        "sku_id": sku_id,
-        "status": "queued",
-        "audit_id": audit_id,
-    }
-    return JSONResponse(
-        status_code=202,
-        content={
-            "queued": True,
-            "audit_id": audit_id,
-            "message": "Audit job queued",
-        },
-    )
-
-
-@app.post("/queue/brief-generation")
-def queue_brief_generation(body: QueueBriefRequest):
-    """Queue a brief generation job — same JSON as Flask."""
-    sku_id = body.sku_id
-    title = body.title
-    if not sku_id or not title:
-        return JSONResponse(status_code=400, content={"error": "sku_id and title required"})
-    brief_id = str(uuid.uuid4())
-    brief_queue[brief_id] = {
-        "sku_id": sku_id,
-        "title": title,
-        "status": "queued",
-        "brief_id": brief_id,
-    }
-    return JSONResponse(
-        status_code=202,
-        content={
-            "queued": True,
-            "brief_id": brief_id,
-            "message": "Brief generation job queued",
-        },
-    )
-
-
-@app.get("/audits/{audit_id}")
-def get_audit_result(audit_id: str):
-    """Get audit result (polling) — same JSON as Flask."""
-    if audit_id in audit_queue:
-        return audit_queue[audit_id]
-    return JSONResponse(status_code=202, content={"status": "pending"})
-
-
-@app.get("/briefs/{brief_id}")
-def get_brief_result(brief_id: str):
-    """Get brief generation result (polling) — same JSON as Flask."""
-    if brief_id in brief_queue:
-        return brief_queue[brief_id]
-    return JSONResponse(status_code=202, content={"status": "pending"})
 
 
 if __name__ == "__main__":

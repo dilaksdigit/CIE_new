@@ -56,16 +56,6 @@ class DashboardController
     }
 
     /**
-     * GET /api/dashboard/decay-alerts
-     * Hero SKUs with consecutive zero citation weeks (decay_status != 'none').
-     */
-    public function decayAlerts()
-    {
-        $list = $this->buildDecayMonitor();
-        return ResponseFormatter::format($list);
-    }
-
-    /**
      * GET /api/audit-results/weekly-scores
      * Returns weekly score trend rows for reviewer KPI view.
      */
@@ -108,78 +98,6 @@ class DashboardController
             ->all();
 
         return ResponseFormatter::format(array_reverse($rows));
-    }
-
-    /**
-     * POST /api/audit-results/weekly-scores
-     * KPI Reviewer: save a weekly score (1-10 + notes). One row per week_start.
-     */
-    public function storeWeeklyScore(Request $request)
-    {
-        if (!Schema::hasTable('weekly_scores')) {
-            return ResponseFormatter::format(['error' => 'weekly_scores table not available'], 'Table not found', 503);
-        }
-        $data = $request->validate([
-            'week_start' => 'required|date',
-            'score' => 'required|integer|min:1|max:10',
-            'notes' => 'nullable|string|max:2000',
-        ]);
-
-        $actorId = auth()->id();
-
-        $existing = DB::table('weekly_scores')->where('week_start', $data['week_start'])->first();
-        $hasNotes = false;
-        try {
-            $hasNotes = Schema::hasColumn('weekly_scores', 'notes');
-        } catch (\Throwable $e) {
-            $hasNotes = false;
-        }
-
-        if ($existing) {
-            $update = [
-                'score' => (int) $data['score'],
-                'actor_id' => $actorId,
-            ];
-            if ($hasNotes) {
-                $update['notes'] = $data['notes'] ?? null;
-            }
-            DB::table('weekly_scores')->where('id', $existing->id)->update($update);
-            $row = (object) [
-                'id' => $existing->id,
-                'week_start' => $data['week_start'],
-                'score' => (int) $data['score'],
-                'notes' => $data['notes'] ?? '',
-                'created_at' => $existing->created_at ?? now(),
-                'actor_id' => $actorId,
-            ];
-        } else {
-            $insert = [
-                'week_start' => $data['week_start'],
-                'score' => (int) $data['score'],
-                'user_id' => $actorId,
-                'actor_id' => $actorId,
-            ];
-            if ($hasNotes) {
-                $insert['notes'] = $data['notes'] ?? null;
-            }
-            $id = DB::table('weekly_scores')->insertGetId($insert);
-            $row = (object) [
-                'id' => $id,
-                'week_start' => $data['week_start'],
-                'score' => (int) $data['score'],
-                'notes' => $data['notes'] ?? '',
-                'created_at' => now(),
-                'actor_id' => $actorId,
-            ];
-        }
-        return ResponseFormatter::format([
-            'id' => (int) $row->id,
-            'week_start' => (string) $row->week_start,
-            'score' => (int) $row->score,
-            'notes' => (string) ($row->notes ?? ''),
-            'created_at' => (string) ($row->created_at ?? ''),
-            'actor_id' => $row->actor_id !== null ? (int) $row->actor_id : null,
-        ], 'Saved', 201);
     }
 
     private function buildTierSummary(): array
