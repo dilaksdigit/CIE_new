@@ -31,15 +31,15 @@ function normalizeRole(roleLike) {
 
 function getUserRoles(user) {
     if (!user) return [];
+    // Prefer roles array from backend (multi-role writers/reviewers)
     if (Array.isArray(user.roles) && user.roles.length > 0) {
         return user.roles.map(normalizeRole).filter(Boolean);
     }
-
+    // Fallback: single role (backend may send only user.role, or old session)
     const single =
-        user.role?.name ||
-        user.role ||
-        user;
-
+        (typeof user.role === 'object' && user.role !== null)
+            ? (user.role.name || user.role.role || '')
+            : (user.role ?? '');
     const normalized = normalizeRole(single);
     return normalized ? [normalized] : [];
 }
@@ -89,4 +89,16 @@ export function isPathAllowedForUser(user, pathname) {
         return true;
     }
     return path.startsWith('/help');
+}
+
+/**
+ * Nav group for Sidebar: 'writer' | 'reviewer' | 'admin' | 'other'.
+ * Use so sidebar and route guards stay in sync.
+ */
+export function getNavGroupForUser(user) {
+    if (!user) return 'other';
+    if (hasRole(user, 'CONTENT_EDITOR', 'PRODUCT_SPECIALIST')) return 'writer';
+    if (hasRole(user, 'CONTENT_LEAD', 'SEO_GOVERNOR')) return 'reviewer';
+    if (hasRole(user, 'ADMIN')) return 'admin';
+    return 'other';
 }

@@ -53,7 +53,7 @@ const SkuList = () => {
             <div className="data-table-container">
                 <div className="table-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
                     <div className="table-search">
-                        <span>🔍</span>
+                        <span>Search</span>
                         <input
                             type="text"
                             placeholder="Search SKUs, titles, clusters..."

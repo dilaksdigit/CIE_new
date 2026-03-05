@@ -2,10 +2,10 @@ import React from 'react';
 
 // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §3 — AI Suggestions panel exactly 4 card types
 const SUGGESTION_TYPES = [
-    { key: 'keyword', label: 'Keyword Opportunity', icon: '🔍', iconColor: 'var(--green)', sourceTag: 'Semrush' },
-    { key: 'citation', label: 'AI Visibility Issue', icon: '🤖', iconColor: 'var(--red)', sourceTag: 'AI Audit' },
-    { key: 'trend', label: 'Trending Search', icon: '📈', iconColor: 'var(--blue)', sourceTag: 'Google Analytics' },
-    { key: 'competitor', label: 'Competitor Gap', icon: '⚔️', iconColor: 'var(--amber)', sourceTag: 'AI Audit + Semrush' },
+    { key: 'keyword', label: 'Keyword Opportunity', iconColor: 'var(--green)', sourceTag: 'Semrush' },
+    { key: 'citation', label: 'AI Visibility Issue', iconColor: 'var(--red)', sourceTag: 'AI Audit' },
+    { key: 'trend', label: 'Trending Search', iconColor: 'var(--blue)', sourceTag: 'Google Analytics' },
+    { key: 'competitor', label: 'Competitor Gap', iconColor: 'var(--amber)', sourceTag: 'AI Audit + Semrush' },
 ];
 
 const PRIORITY_BADGE = { high: 'HIGH', medium: 'MED', low: 'LOW' };

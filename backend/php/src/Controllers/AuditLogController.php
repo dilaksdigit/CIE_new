@@ -5,6 +5,7 @@ namespace App\Controllers;
 use App\Models\AuditLog;
 use App\Utils\ResponseFormatter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class AuditLogController
 {
@@ -20,12 +21,14 @@ class AuditLogController
      */
     public function index(Request $request)
     {
-        $q = AuditLog::query()->orderBy('timestamp', 'desc');
+        $table = (new AuditLog())->getTable();
+        $orderCol = Schema::hasColumn($table, 'timestamp') ? 'timestamp' : 'created_at';
+        $q = AuditLog::query()->orderBy($orderCol, 'desc');
 
         if ($request->filled('sku')) {
             $q->where('entity_id', $request->input('sku'));
         }
-        if ($request->filled('user')) {
+        if ($request->filled('user') && Schema::hasColumn($table, 'actor_id')) {
             $q->where('actor_id', $request->input('user'));
         }
         if ($request->filled('action')) {

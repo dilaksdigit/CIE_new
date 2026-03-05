@@ -16,9 +16,22 @@ class User extends Model implements AuthenticatableContract
     public $incrementing = false;
     protected $keyType = 'string';
 
-    public function role()
+    public function roles()
     {
-        return $this->belongsTo(Role::class);
+        return $this->belongsToMany(Role::class, 'user_roles');
+    }
+
+    /**
+     * Primary role for backward compatibility (first of user's roles).
+     * Schema uses user_roles (many-to-many); this exposes a single role for code that uses $user->role.
+     */
+    public function getRoleAttribute()
+    {
+        if ($this->relationLoaded('roles') && $this->roles->isNotEmpty()) {
+            return $this->roles->first();
+        }
+        $this->loadMissing('roles');
+        return $this->roles->first();
     }
     
     public function getNameAttribute()

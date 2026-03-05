@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
 
 class AuthController {
@@ -84,8 +85,9 @@ class AuthController {
             // Refresh user to get all attributes
             $user->refresh();
             
-            // Generate token
-            $token = bin2hex(random_bytes(32));
+            // Generate token that encodes this user so API requests resolve to the same user
+            $tokenPayload = json_encode(['user_id' => $userId]);
+            $token = Crypt::encryptString($tokenPayload);
             
             // Return user with name field for frontend
             $userArray = $user->toArray();
@@ -109,20 +111,53 @@ class AuthController {
             return response()->json(['error' => 'Invalid credentials'], 401);
         }
         
-        // Custom token generation for this standalone setup
-        $token = bin2hex(random_bytes(32));
+        // Custom token: encrypted payload so AuthMiddleware can resolve the correct user
+        $tokenPayload = json_encode(['user_id' => $user->id]);
+        $token = Crypt::encryptString($tokenPayload);
         
-        // Get user's role
-        $userRole = DB::table('user_roles')
+        // Get ALL roles for the user (writers may have CONTENT_EDITOR + PRODUCT_SPECIALIST)
+        $userRoleNames = DB::table('user_roles')
             ->join('roles', 'user_roles.role_id', '=', 'roles.id')
             ->where('user_roles.user_id', $user->id)
-            ->select('roles.name')
-            ->first();
+            ->pluck('roles.name')
+            ->values()
+            ->all();
         
-        // Return user with name field for frontend
+        // If no roles in DB (e.g. seed not run), infer from known seed emails so writer/reviewer/admin can still access
+        $writerEmails = ['writer@cie.example.com'];
+        $reviewerEmails = ['reviewer@cie.example.com'];
+        $adminEmails = ['admin@cie.example.com'];
+        $email = strtolower(trim($user->email ?? ''));
+        if (count($userRoleNames) === 0) {
+            if (in_array($email, $writerEmails)) {
+                $userRoleNames = ['CONTENT_EDITOR', 'PRODUCT_SPECIALIST'];
+            } elseif (in_array($email, $reviewerEmails)) {
+                $userRoleNames = ['CONTENT_LEAD', 'SEO_GOVERNOR'];
+            } elseif (in_array($email, $adminEmails)) {
+                $userRoleNames = ['ADMIN'];
+            }
+        }
+        
+        // Primary role for backward compatibility: prefer writer/reviewer/admin for routing
+        $primaryRole = 'VIEWER';
+        if (count($userRoleNames) > 0) {
+            $prefer = ['CONTENT_EDITOR', 'PRODUCT_SPECIALIST', 'CONTENT_LEAD', 'PORTFOLIO_HOLDER', 'SEO_GOVERNOR', 'ADMIN'];
+            foreach ($prefer as $r) {
+                if (in_array($r, $userRoleNames)) {
+                    $primaryRole = $r;
+                    break;
+                }
+            }
+            if ($primaryRole === 'VIEWER') {
+                $primaryRole = $userRoleNames[0];
+            }
+        }
+        
+        // Return user with name and roles so frontend can resolve writer/reviewer correctly
         $userArray = $user->toArray();
         $userArray['name'] = $user->first_name . ' ' . $user->last_name;
-        $userArray['role'] = $userRole ? $userRole->name : 'VIEWER';
+        $userArray['role'] = $primaryRole;
+        $userArray['roles'] = $userRoleNames;
         
         return ResponseFormatter::format([
             'user' => $userArray,

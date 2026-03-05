@@ -2,7 +2,7 @@ import React, { useState, useContext } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { RoleBadge } from './UIComponents';
 import { AppContext } from '../../App';
-import { normalizeRole } from '../../lib/rbac';
+import { getNavGroupForUser } from '../../lib/authRouting';
 
 const NAV_BY_GROUP = {
     writer: [
@@ -28,21 +28,17 @@ const NAV_BY_GROUP = {
         { to: '/writer/queue', icon: 'Q', label: 'Writer View' },
         { to: '/help/flow', icon: '?', label: 'Help' },
     ],
-};
-
-const navGroupForRole = (role) => {
-    if (role === 'content_editor' || role === 'product_specialist') return 'writer';
-    if (role === 'content_lead' || role === 'seo_governor') return 'reviewer';
-    if (role === 'admin') return 'admin';
-    return 'writer';
+    other: [
+        { to: '/help/flow', icon: '?', label: 'Help' },
+    ],
 };
 
 const Sidebar = () => {
     const [collapsed, setCollapsed] = useState(false);
     const { user, logout } = useContext(AppContext);
     const navigate = useNavigate();
-    const role = normalizeRole(user?.role);
-    const navItems = NAV_BY_GROUP[navGroupForRole(role)];
+    const navGroup = getNavGroupForUser(user);
+    const navItems = NAV_BY_GROUP[navGroup] || NAV_BY_GROUP.other;
 
     const handleLogout = () => {
         logout();

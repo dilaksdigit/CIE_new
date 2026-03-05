@@ -19,21 +19,22 @@ class RBACMiddleware
         }
 
         $user = auth()->user();
-        $user->loadMissing('role');
+        $user->loadMissing('roles');
 
-        if (!$user->role) {
+        $roleNames = $user->roles->pluck('name')->map(fn ($n) => strtoupper((string) $n))->all();
+        if (empty($roleNames)) {
             return response()->json(['error' => 'Forbidden - No role assigned'], 403);
         }
 
-        $userRole = strtoupper((string) $user->role->name);
         $allowedRoles = array_map('strtoupper', $allowedRoles);
 
         // ADMIN has full system access — no restrictions; bypass role list.
-        if ($userRole === self::ROLE_ADMIN) {
+        if (in_array(self::ROLE_ADMIN, $roleNames)) {
             return $next($request);
         }
 
-        if (!in_array($userRole, $allowedRoles)) {
+        $hasAllowed = !empty(array_intersect($roleNames, $allowedRoles));
+        if (!$hasAllowed) {
             return response()->json([
                 'error' => 'Forbidden',
                 'message' => "This action requires one of these roles: " . implode(', ', $allowedRoles)

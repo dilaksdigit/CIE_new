@@ -341,7 +341,7 @@ class DashboardController
         $users = collect();
         if (!empty($userIds)) {
             try {
-                $users = \App\Models\User::whereIn('id', $userIds)->with('role')->get()->keyBy('id');
+                $users = \App\Models\User::whereIn('id', $userIds)->with('roles')->get()->keyBy('id');
             } catch (\Throwable $e) {
                 // continue with empty users
             }
@@ -356,7 +356,7 @@ class DashboardController
             $user = $users->get($userId);
             $hours = $effortByUser->get($userId);
             $roleName = 'viewer';
-            if ($user && $user->relationLoaded('role') && $user->role !== null) {
+            if ($user && $user->relationLoaded('roles') && $user->role !== null) {
                 $roleName = $user->role->name ?? 'viewer';
             }
             $out[] = [

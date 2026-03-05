@@ -103,7 +103,7 @@ const TierMgmt = () => {
                     color: 'var(--orange)',
                     fontSize: '0.75rem'
                 }}>
-                    🔒 Read-only mode. Only Portfolio Holders and Finance Directors can approve tier changes.
+                    Read-only mode. Only Portfolio Holders and Finance Directors can approve tier changes.
                 </div>
             )}
 
