@@ -1,3 +1,5 @@
+SET NAMES utf8mb4;
+
 CREATE TABLE executive_kpis (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     week_number INT NOT NULL,
@@ -12,4 +14,4 @@ CREATE TABLE executive_kpis (
     kill_sku_effort_hours DECIMAL(10, 2) DEFAULT 0.00,
     generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY unique_week (week_number, year)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

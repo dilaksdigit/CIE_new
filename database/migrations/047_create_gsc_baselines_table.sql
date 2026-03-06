@@ -1,3 +1,5 @@
+SET NAMES utf8mb4;
+
 -- SOURCE: CIE_Master_Developer_Build_Spec.docx §9.4, §9.5, §10
 
 CREATE TABLE IF NOT EXISTS gsc_baselines (
@@ -17,15 +19,14 @@ CREATE TABLE IF NOT EXISTS gsc_baselines (
   baseline_revenue          DECIMAL(12,2) NULL,
 
   -- Status flags
-  gsc_status               VARCHAR(20)   NOT NULL DEFAULT 'pending',   -- 'captured' | 'unbaselined'
-  ga4_status               VARCHAR(20)   NOT NULL DEFAULT 'pending',
+  gsc_status               VARCHAR(20)   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',   -- 'captured' | 'unbaselined'
+  ga4_status               VARCHAR(20)   CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
 
-  change_id                VARCHAR(100)  NULL,
+  change_id                VARCHAR(100)  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
 
   PRIMARY KEY (id),
   INDEX idx_gsc_baselines_sku (sku_id),
   CONSTRAINT fk_gsc_baselines_sku
     FOREIGN KEY (sku_id) REFERENCES skus(id)
       ON DELETE CASCADE
-);
-
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

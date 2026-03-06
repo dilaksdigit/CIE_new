@@ -32,9 +32,9 @@ class AuthController {
             ->all();
         
         // If no roles in DB (e.g. seed not run), infer from known seed emails so writer/reviewer/admin can still access
-        $writerEmails = ['writer@cie.example.com'];
-        $reviewerEmails = ['kpi_reviewer@cie.internal'];
-        $adminEmails = ['admin@cie.example.com'];
+        $writerEmails = ['writer@cie.internal.com'];
+        $reviewerEmails = ['kpi_reviewer@cie.internal.com'];
+        $adminEmails = ['admin@cie.internal.com'];
         $email = strtolower(trim($user->email ?? ''));
         if (count($userRoleNames) === 0) {
             if (in_array($email, $writerEmails)) {

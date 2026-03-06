@@ -7,8 +7,15 @@ from pydantic import BaseModel, Field
 
 # Exactly 9 valid intents (locked taxonomy)
 VALID_PRIMARY_INTENTS = frozenset({
-    "Problem Solving", "Comparison", "Compatibility", "Specification",
-    "Installation", "Troubleshooting", "Inspiration", "Regulatory", "Replacement",
+    "Compatibility",
+    "Comparison",
+    "Problem-Solving",
+    "Inspiration",
+    "Specification",
+    "Installation",
+    "Safety/Compliance",
+    "Replacement",
+    "Bulk/Trade",
 })
 # Normalized (lowercase, with optional hyphen/underscore) for comparison
 VALID_PRIMARY_INTENTS_NORM = frozenset(

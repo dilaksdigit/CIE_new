@@ -3,7 +3,7 @@
 -- Safe for existing installs that already have the column: run once in migration order.
 
 ALTER TABLE validation_logs
-  ADD COLUMN user_id CHAR(36) NULL AFTER sku_id;
+  ADD COLUMN user_id CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL AFTER sku_id;
 
 ALTER TABLE validation_logs
   ADD CONSTRAINT fk_validation_logs_user

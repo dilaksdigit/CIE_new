@@ -1,13 +1,15 @@
+SET NAMES utf8mb4;
+
 CREATE TABLE skus (
  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
- sku_code VARCHAR(100) NOT NULL UNIQUE,
- title VARCHAR(255) NOT NULL,
- short_description TEXT,
- long_description TEXT,
- meta_title VARCHAR(60),
- meta_description VARCHAR(160),
- tier ENUM('HERO', 'SUPPORT', 'HARVEST', 'KILL') NOT NULL DEFAULT 'SUPPORT',
- tier_rationale TEXT,
+ sku_code VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL UNIQUE,
+ title VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+ short_description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+ long_description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+ meta_title VARCHAR(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+ meta_description VARCHAR(160) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+ tier ENUM('hero','support','harvest','kill') NOT NULL DEFAULT 'support',
+ tier_rationale TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
  primary_cluster_id CHAR(36),
  validation_status ENUM('DRAFT', 'PENDING', 'VALID', 'INVALID', 'DEGRADED') DEFAULT 'DRAFT',
  last_validated_at TIMESTAMP NULL,
@@ -20,8 +22,8 @@ CREATE TABLE skus (
  strategic_hero BOOLEAN DEFAULT false,
   erp_cppc DECIMAL(8, 4) DEFAULT 0.0000,
   erp_return_rate_pct DECIMAL(5, 2) DEFAULT 0.00,
-  best_for TEXT,
-  not_for TEXT,
+  best_for TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  not_for TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   faq_data JSON,
   content_score INT DEFAULT 0,
   schema_score INT DEFAULT 0,
@@ -46,4 +48,4 @@ CREATE TABLE skus (
  FOREIGN KEY (primary_cluster_id) REFERENCES clusters(id) ON DELETE SET NULL,
  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
  FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

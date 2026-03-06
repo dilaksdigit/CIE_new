@@ -1,3 +1,5 @@
+SET NAMES utf8mb4;
+
 CREATE TABLE sku_intents (
  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
  sku_id CHAR(36) NOT NULL,
@@ -11,4 +13,4 @@ CREATE TABLE sku_intents (
  FOREIGN KEY (cluster_id) REFERENCES clusters(id) ON DELETE CASCADE,
  INDEX idx_sku (sku_id),
  INDEX idx_intent (intent_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -1,11 +1,13 @@
+SET NAMES utf8mb4;
+
 CREATE TABLE content_briefs (
  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
  sku_id CHAR(36) NOT NULL,
  brief_type ENUM('DECAY_REFRESH', 'NEW_PRODUCT', 'MANUAL', 'SEASONAL') DEFAULT 'MANUAL',
  priority ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT') DEFAULT 'MEDIUM',
- title VARCHAR(255) NOT NULL,
- description TEXT,
- current_content TEXT,
+ title VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+ description TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+ current_content TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
  suggested_actions JSON,
  status ENUM('OPEN', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED') DEFAULT 'OPEN',
  assigned_to CHAR(36),
@@ -21,4 +23,4 @@ CREATE TABLE content_briefs (
  INDEX idx_status (status),
  INDEX idx_assigned (assigned_to),
  INDEX idx_deadline (deadline)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

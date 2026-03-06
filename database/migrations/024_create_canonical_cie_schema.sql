@@ -20,17 +20,17 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS cluster_master (
     id               CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    cluster_id       VARCHAR(50) NOT NULL UNIQUE,
+    cluster_id       VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL UNIQUE,
     category         ENUM('cables','lampshades','bulbs','pendants',
                           'floor_lamps','ceiling_lights','accessories') NOT NULL,
-    intent_statement VARCHAR(500) NOT NULL,
+    intent_statement VARCHAR(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     intent_vector    JSON NOT NULL,
     is_active        BOOLEAN NOT NULL DEFAULT TRUE,
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                      ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_cluster_category (category)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -------------------------------------------------------------------
 -- 2. intent_taxonomy (exactly 9 locked rows; see seeds)
@@ -38,22 +38,22 @@ CREATE TABLE IF NOT EXISTS cluster_master (
 CREATE TABLE IF NOT EXISTS intent_taxonomy (
     id           CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     intent_id    SMALLINT NOT NULL UNIQUE,
-    intent_key   VARCHAR(30) NOT NULL UNIQUE,
-    label        VARCHAR(50) NOT NULL,
-    definition   VARCHAR(200) NOT NULL,
+    intent_key   VARCHAR(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL UNIQUE,
+    label        VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    definition   VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     tier_access  JSON NOT NULL,
     created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                  ON UPDATE CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -------------------------------------------------------------------
 -- 3. sku_master
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sku_master (
     id                      CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    sku_id                  VARCHAR(50) NOT NULL UNIQUE,
-    cluster_id              VARCHAR(50) NOT NULL,
+    sku_id                  VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL UNIQUE,
+    cluster_id              VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     tier                    ENUM('hero','support','harvest','kill') NOT NULL,
     primary_intent_id       SMALLINT NOT NULL,
     status                  ENUM('draft','ready','published','archived')
@@ -78,14 +78,14 @@ CREATE TABLE IF NOT EXISTS sku_master (
     INDEX idx_sku_master_status (status),
     INDEX idx_sku_master_decay_status (decay_status),
     INDEX idx_sku_master_commercial_score (commercial_score)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -------------------------------------------------------------------
 -- 4. sku_secondary_intents
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sku_secondary_intents (
     id          CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    sku_id      VARCHAR(50) NOT NULL,
+    sku_id      VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     intent_id   SMALLINT NOT NULL,
     ordinal     SMALLINT NOT NULL,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -99,38 +99,38 @@ CREATE TABLE IF NOT EXISTS sku_secondary_intents (
     UNIQUE KEY uq_ssi_sku_intent (sku_id, intent_id),
     INDEX idx_ssi_sku (sku_id),
     INDEX idx_ssi_intent (intent_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -------------------------------------------------------------------
 -- 5. material_wikidata
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS material_wikidata (
     id            CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    material_id   VARCHAR(20) NOT NULL UNIQUE,
-    material_name VARCHAR(100) NOT NULL,
-    wikidata_qid  VARCHAR(20) NOT NULL,
-    wikidata_uri  VARCHAR(100) NOT NULL,
-    ai_signal     VARCHAR(300) NOT NULL,
+    material_id   VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL UNIQUE,
+    material_name VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    wikidata_qid  VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    wikidata_uri  VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    ai_signal     VARCHAR(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     is_active     BOOLEAN NOT NULL DEFAULT TRUE,
     created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                   ON UPDATE CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -------------------------------------------------------------------
 -- 6. sku_content
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sku_content (
     id                CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    sku_id            VARCHAR(50) NOT NULL UNIQUE,
-    title             VARCHAR(250) NOT NULL,
-    description       TEXT NOT NULL,
-    answer_block      VARCHAR(300) NULL,
+    sku_id            VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL UNIQUE,
+    title             VARCHAR(250) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    description       TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    answer_block      VARCHAR(300) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
     best_for          JSON NULL,
     not_for           JSON NULL,
-    expert_authority  TEXT NULL,
-    wikidata_uri      VARCHAR(100) NULL,
-    material_id       VARCHAR(20) NULL,
+    expert_authority  TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+    wikidata_uri      VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+    material_id       VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
     vector_similarity DECIMAL(6,4) NULL,
     created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -141,18 +141,18 @@ CREATE TABLE IF NOT EXISTS sku_content (
     CONSTRAINT fk_sku_content_material
         FOREIGN KEY (material_id) REFERENCES material_wikidata(material_id),
     INDEX idx_sku_content_sku (sku_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -------------------------------------------------------------------
 -- 7. sku_gate_status
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sku_gate_status (
     id            CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    sku_id        VARCHAR(50) NOT NULL,
+    sku_id        VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     gate_code     ENUM('G1','G2','G3','G4','G5','G6','G6_1','G7','VECTOR') NOT NULL,
     status        ENUM('pass','fail','pending','not_applicable') NOT NULL,
-    error_code    VARCHAR(40) NULL,
-    error_message VARCHAR(500) NULL,
+    error_code    VARCHAR(40) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+    error_message VARCHAR(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
     checked_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -163,14 +163,14 @@ CREATE TABLE IF NOT EXISTS sku_gate_status (
     UNIQUE KEY uq_gate_status_sku_code (sku_id, gate_code),
     INDEX idx_gate_status_status (status),
     INDEX idx_gate_status_checked_at (checked_at)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -------------------------------------------------------------------
 -- 8. channel_readiness
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS channel_readiness (
     id               CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    sku_id           VARCHAR(50) NOT NULL,
+    sku_id           VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     channel          ENUM('google_sge','amazon','ai_assistants','own_website') NOT NULL,
     score            SMALLINT NOT NULL,
     component_scores JSON NOT NULL,
@@ -184,19 +184,19 @@ CREATE TABLE IF NOT EXISTS channel_readiness (
     UNIQUE KEY uq_channel_readiness_sku_channel (sku_id, channel),
     INDEX idx_channel_readiness_score (score),
     INDEX idx_channel_readiness_computed_at (computed_at)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -------------------------------------------------------------------
 -- 9. sku_tier_history (immutable audit trail for canonical tiers)
 -- -------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sku_tier_history (
     id              CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    sku_id          VARCHAR(50) NOT NULL,
+    sku_id          VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     old_tier        ENUM('hero','support','harvest','kill') NOT NULL,
     new_tier        ENUM('hero','support','harvest','kill') NOT NULL,
     reason          ENUM('erp_sync','manual_override','auto_promote','quarterly_review') NOT NULL,
-    approved_by     VARCHAR(100) NULL,
-    second_approver VARCHAR(100) NULL,
+    approved_by     VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+    second_approver VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
     changed_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -206,7 +206,7 @@ CREATE TABLE IF NOT EXISTS sku_tier_history (
     CONSTRAINT chk_sku_tier_history_change CHECK (old_tier <> new_tier),
     INDEX idx_sku_tier_history_sku (sku_id),
     INDEX idx_sku_tier_history_changed_at (changed_at)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -------------------------------------------------------------------
 -- 10. tier_types (4 canonical tiers)
@@ -214,12 +214,12 @@ CREATE TABLE IF NOT EXISTS sku_tier_history (
 CREATE TABLE IF NOT EXISTS tier_types (
     id          CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     tier_key    ENUM('hero','support','harvest','kill') NOT NULL UNIQUE,
-    label       VARCHAR(50) NOT NULL,
-    description VARCHAR(255) NOT NULL,
+    label       VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    description VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 ON UPDATE CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -------------------------------------------------------------------
 -- 11. tier_intent_rules (normalized mapping tier → intent)
@@ -236,7 +236,6 @@ CREATE TABLE IF NOT EXISTS tier_intent_rules (
     UNIQUE KEY uq_tier_intent (tier, intent_id),
     INDEX idx_tier_intent_tier (tier),
     INDEX idx_tier_intent_intent (intent_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
-

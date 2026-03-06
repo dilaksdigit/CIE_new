@@ -633,12 +633,12 @@ components:
           enum: [hero, support, harvest, kill]
         primary_intent:
           type: string
-          enum: [problem_solving, comparison, compatibility, specification, installation, troubleshooting, inspiration, regulatory, replacement]
+          enum: [compatibility, comparison, problem_solving, inspiration, specification, installation, safety_compliance, replacement, bulk_trade]
         secondary_intents:
           type: array
           items:
             type: string
-            enum: [problem_solving, comparison, compatibility, specification, installation, troubleshooting, inspiration, regulatory, replacement]
+            enum: [compatibility, comparison, problem_solving, inspiration, specification, installation, safety_compliance, replacement, bulk_trade]
           maxItems: 3
         title:
           type: string

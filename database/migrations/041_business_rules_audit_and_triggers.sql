@@ -1,15 +1,17 @@
+SET NAMES utf8mb4;
+
 -- CIE v2.3.2 – business_rules_audit: append-only history. NO UPDATE/DELETE allowed.
 
 CREATE TABLE IF NOT EXISTS business_rules_audit (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    rule_key VARCHAR(100) NOT NULL,
-    old_value TEXT NULL,
-    new_value TEXT NOT NULL,
+    rule_key VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+    old_value TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+    new_value TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
     changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    changed_by VARCHAR(100) NULL,
+    changed_by VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
     INDEX idx_bra_rule_key (rule_key),
     INDEX idx_bra_changed_at (changed_at)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- MySQL: append-only. Spec: UPDATE must fail silently (no error). DELETE prevented (MySQL requires SIGNAL to block delete).
 DROP TRIGGER IF EXISTS tr_bra_no_update;

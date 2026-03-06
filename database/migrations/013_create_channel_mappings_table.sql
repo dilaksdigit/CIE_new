@@ -1,8 +1,10 @@
+SET NAMES utf8mb4;
+
 CREATE TABLE channel_mappings (
  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
- channel_name VARCHAR(100) NOT NULL,
+ channel_name VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
  sku_id CHAR(36) NOT NULL,
- external_reference VARCHAR(255),
+ external_reference VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
  FOREIGN KEY (sku_id) REFERENCES skus(id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

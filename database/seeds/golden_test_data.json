@@ -7,7 +7,7 @@
         "primary_cluster_id": "CLU-CBL-P-E27",
         "primary_intent": "Compatibility",
         "secondary_intents": [
-            "Installation/How-To",
+            "Installation",
             "Specification"
         ],
         "best_for": "Standard ceiling pendant installations, Kitchen island lighting, Bedroom pendant upgrades, Replacing old flex cable",
@@ -65,7 +65,7 @@
         "primary_intent": "Compatibility",
         "secondary_intents": [
             "Installation",
-            "Troubleshooting"
+            "Safety/Compliance"
         ],
         "best_for": "Dimmable LED bulbs, Living rooms, Dining rooms",
         "not_for": "Non-dimmable bulbs, loads exceeding 100W LED",

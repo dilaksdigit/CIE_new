@@ -87,7 +87,7 @@ def run_g2(data: SkuValidateRequest) -> FailureItem | None:
         return FailureItem(
             error_code="G2_INVALID_INTENT",
             detail=f"primary_intent '{p}' is not in the locked 9-intent taxonomy.",
-            user_message="Primary intent must be one of: Problem Solving, Comparison, Compatibility, Specification, Installation, Troubleshooting, Inspiration, Regulatory, Replacement.",
+            user_message="Primary intent must be one of: Compatibility, Comparison, Problem-Solving, Inspiration, Specification, Installation, Safety/Compliance, Replacement, Bulk/Trade.",
         )
     return None
 

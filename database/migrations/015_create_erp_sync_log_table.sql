@@ -1,7 +1,9 @@
+SET NAMES utf8mb4;
+
 CREATE TABLE erp_sync_log (
  id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
- status VARCHAR(50) NOT NULL,
+ status VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
  records_processed INT DEFAULT 0,
  errors INT DEFAULT 0,
  synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

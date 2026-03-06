@@ -264,14 +264,15 @@ class TestSampleWorkflowCommand extends Command
         $secondaryNames = $uc['secondary_intents'] ?? [];
 
         $map = [
-            'Compatibility' => 'compatibility',
-            'Problem-Solving' => 'problem_solving',
-            'Specification' => 'product_specs',
-            'Installation/How-To' => 'installation',
-            'Inspiration/Style' => 'buyer_guide',
-            'Comparison' => 'comparison',
-            'Replacement/Refill' => 'product_overview',
-            'Regulatory/Safety' => 'troubleshooting',
+            'Compatibility'     => 'compatibility',
+            'Comparison'        => 'comparison',
+            'Problem-Solving'    => 'problem_solving',
+            'Inspiration'       => 'inspiration',
+            'Specification'     => 'specification',
+            'Installation'      => 'installation',
+            'Safety/Compliance' => 'safety_compliance',
+            'Replacement'      => 'replacement',
+            'Bulk/Trade'       => 'bulk_trade',
         ];
 
         $primaryKey = $map[$primaryName] ?? 'compatibility';

@@ -1,11 +1,13 @@
 <?php
+// SOURCE: CLAUDE.md §9 — "Tier stored as ENUM('hero','support','harvest','kill') — lowercase, no variants"
+
 namespace App\Enums;
 enum TierType: string
 {
- case HERO = 'HERO';
- case SUPPORT = 'SUPPORT';
- case HARVEST = 'HARVEST';
- case KILL = 'KILL';
+ case HERO = 'hero';
+ case SUPPORT = 'support';
+ case HARVEST = 'harvest';
+ case KILL = 'kill';
  
  public function displayName(): string
  {

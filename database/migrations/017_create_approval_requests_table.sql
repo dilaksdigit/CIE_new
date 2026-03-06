@@ -1,3 +1,5 @@
+SET NAMES utf8mb4;
+
 CREATE TABLE approval_requests (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     requester_id CHAR(36) NOT NULL,
@@ -9,7 +11,7 @@ CREATE TABLE approval_requests (
     commercial_approver_id CHAR(36),
     finance_approved_at TIMESTAMP NULL,
     commercial_approved_at TIMESTAMP NULL,
-    rejection_reason TEXT,
+    rejection_reason TEXT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -17,4 +19,4 @@ CREATE TABLE approval_requests (
     FOREIGN KEY (commercial_approver_id) REFERENCES users(id) ON DELETE SET NULL,
     INDEX idx_status (status),
     INDEX idx_entity (entity_type, entity_id)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

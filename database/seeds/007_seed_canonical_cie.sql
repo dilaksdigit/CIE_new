@@ -10,35 +10,17 @@
 -- -------------------------------------------------------------------
 -- 1. Intent Taxonomy – 9 LOCKED INTENTS (NEVER user-editable)
 -- -------------------------------------------------------------------
-INSERT INTO intent_taxonomy (id, intent_id, intent_key, label, definition, tier_access)
+INSERT INTO intent_taxonomy (intent_id, intent_key, label, definition, tier_access)
 VALUES
-  (UUID(), 1, 'problem_solving', 'Problem Solving',
-   'User has a concrete problem or failure and needs a fix.',
-   JSON_ARRAY('hero','support')),
-  (UUID(), 2, 'comparison', 'Comparison',
-   'User is choosing between products or options and needs tradeoffs.',
-   JSON_ARRAY('hero','support')),
-  (UUID(), 3, 'compatibility', 'Compatibility',
-   'User needs to know what works with what (fixtures, bulbs, voltages, mounts).',
-   JSON_ARRAY('hero','support')),
-  (UUID(), 4, 'specification', 'Specification',
-   'User needs detailed technical specifications and attributes.',
-   JSON_ARRAY('hero','support')),
-  (UUID(), 5, 'installation', 'Installation',
-   'User needs step-by-step setup and installation guidance.',
-   JSON_ARRAY('hero','support')),
-  (UUID(), 6, 'troubleshooting', 'Troubleshooting',
-   'User is diagnosing issues after installation or use.',
-   JSON_ARRAY('hero','support')),
-  (UUID(), 7, 'inspiration', 'Inspiration',
-   'User is exploring styles, looks, and use-case ideas.',
-   JSON_ARRAY('hero','support')),
-  (UUID(), 8, 'regulatory', 'Regulatory',
-   'User needs compliance, safety, and standards information.',
-   JSON_ARRAY('hero','support')),
-  (UUID(), 9, 'replacement', 'Replacement',
-   'User is replacing an existing part or SKU and needs a compatible alternative.',
-   JSON_ARRAY('hero','support'));
+  (1, 'problem_solving',   'Problem-Solving',   'User has a problem, needs product to solve it',          '["hero","support","harvest"]'),
+  (2, 'comparison',        'Comparison',         'User evaluating alternatives',                           '["hero","support"]'),
+  (3, 'compatibility',     'Compatibility',      'User confirming fit with existing setup',                '["hero","support","harvest"]'),
+  (4, 'inspiration',       'Inspiration',        'User browsing for ideas and style guidance',             '["hero","support"]'),
+  (5, 'specification',     'Specification',      'User needs technical details',                           '["hero","support","harvest"]'),
+  (6, 'installation',      'Installation',       'User needs help installing or setting up',               '["hero","support"]'),
+  (7, 'safety_compliance', 'Safety/Compliance',  'User needs safety, compliance, or regulatory detail',   '["hero","support"]'),
+  (8, 'replacement',       'Replacement',        'User needs a replacement part or consumable',            '["hero","support"]'),
+  (9, 'bulk_trade',        'Bulk/Trade',         'User is a trade or bulk buyer evaluating quantities',   '["hero","support"]');
 
 -- -------------------------------------------------------------------
 -- 2. Tier Types – 4 canonical tiers
