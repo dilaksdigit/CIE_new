@@ -295,12 +295,11 @@ const SkuEdit = () => {
                             <div className="flex gap-12">
                                 <div style={{ flex: 1 }}>
                                     <label className="field-label">Cluster ID <GateChip id="G1" pass={sku.gates?.G1?.passed || false} compact /></label>
-                                    {canEditCluster() ? (
+                                    {!isKillTier && canEditCluster() ? (
                                         <select
                                             className="field-input field-select"
                                             value={sku.primary_cluster_id || sku.primaryCluster?.id || ''}
                                             onChange={(e) => setSku({ ...sku, primary_cluster_id: e.target.value || null })}
-                                            disabled={isKillTier}
                                         >
                                             <option value="">Unassigned</option>
                                             {clusters.map((cl) => (
@@ -314,9 +313,10 @@ const SkuEdit = () => {
                                         </>
                                     )}
                                 </div>
+                                {!isKillTier && (
                                 <div style={{ flex: 1 }}>
                                     <label className="field-label">Primary Intent <GateChip id="G2" pass={sku.gates?.G2?.passed || false} compact /></label>
-                                    <select className="field-input field-select" disabled={isKillTier || !canEditContent()}
+                                    <select className="field-input field-select" disabled={!canEditContent()}
                                         value={sku.primary_intent || ''} 
                                         onChange={(e) => setSku({ ...sku, primary_intent: e.target.value })}>
                                         <option value="">Select Intent</option>
@@ -327,8 +327,10 @@ const SkuEdit = () => {
                                             : <option value="" disabled>No intents available</option>}
                                     </select>
                                 </div>
+                                )}
                             </div>
 
+                            {!isKillTier && (
                             <div>
                                 <label className="field-label">
                                     Title <GateChip id="G3" pass={sku.gates?.G3?.passed || false} compact />
@@ -337,13 +339,14 @@ const SkuEdit = () => {
                                 <input
                                     className={`field-input ${sku.title && sku.title.length >= 50 ? 'valid' : 'invalid'}`}
                                     value={sku.title || ''}
-                                    disabled={isKillTier || !canEditContent()}
+                                    disabled={!canEditContent()}
                                     onChange={(e) => setSku({ ...sku, title: e.target.value })}
                                     placeholder="Product title (min 50 chars)"
                                 />
                             </div>
+                            )}
 
-                            {isFieldEnabledForTier(currentTier, 'answer_block') && (
+                            {!isKillTier && isFieldEnabledForTier(currentTier, 'answer_block') && (
                                 <div>
                                     <label className="field-label">
                                         Answer Block <GateChip id="G4" pass={sku.gates?.G4?.passed || false} compact />
@@ -353,7 +356,7 @@ const SkuEdit = () => {
                                         className={`field-textarea ${sku.short_description && sku.short_description.length >= 250 ? 'valid' : 'invalid'}`}
                                         rows={3}
                                         value={sku.short_description || ''}
-                                        disabled={isKillTier || !canEditContent()}
+                                        disabled={!canEditContent()}
                                         onChange={(e) => setSku({ ...sku, short_description: e.target.value })}
                                         placeholder="Answer block (min 250 chars, max 300)"
                                     />
@@ -362,19 +365,19 @@ const SkuEdit = () => {
 
                             <div className="vector-panel">
                                 <div>
-                                    <div className="field-label">VECTOR — Semantic Similarity <GateChip id="VEC" pass={(sku.vector_similarity || 0) >= 0.72} compact /></div>
-                                    <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Cosine similarity vs cluster intent vector</div>
+                                    <div className="field-label">VECTOR — Semantic Similarity <GateChip id="VEC" pass={sku.vector_gate_status === 'pass'} compact /></div>
+                                    <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Description alignment with cluster intent</div>
                                 </div>
                                 <div style={{ textAlign: "right" }}>
-                                    <div className="vector-score" style={{ color: (sku.vector_similarity || 0) >= 0.72 ? 'var(--green)' : 'var(--orange)' }}>
-                                        {(sku.vector_similarity || 0).toFixed(2)}
+                                    <div className="vector-score" style={{ color: sku.vector_gate_status === 'pass' ? 'var(--green)' : 'var(--orange)' }}>
+                                        {sku.vector_gate_status === 'pass' ? 'Good' : sku.vector_gate_status === 'fail' ? 'Review' : '–'}
                                     </div>
-                                    <div className="vector-threshold">threshold: ≥0.72</div>
+                                    <div className="vector-threshold">{sku.vector_gate_status === 'fail' ? 'Your content may not align with the intent. Consider revising.' : 'Description must align with product cluster intent.'}</div>
                                 </div>
                             </div>
 
                             {/* G5: Best-For / Not-For — visible per tier (hero/support; hidden harvest/kill) */}
-                            {isFieldEnabledForTier(currentTier, 'best_for') && (
+                            {!isKillTier && isFieldEnabledForTier(currentTier, 'best_for') && (
                                 <>
                                     <div>
                                         <label className="field-label">
@@ -384,7 +387,7 @@ const SkuEdit = () => {
                                             className="field-textarea"
                                             rows={2}
                                             value={sku.best_for || ''}
-                                            disabled={isKillTier || !canEditContent()}
+                                            disabled={!canEditContent()}
                                             onChange={(e) => setSku({ ...sku, best_for: e.target.value })}
                                             placeholder="Applications where this product excels (min 2 items)"
                                         />
@@ -397,7 +400,7 @@ const SkuEdit = () => {
                                             className="field-textarea"
                                             rows={2}
                                             value={sku.not_for || ''}
-                                            disabled={isKillTier || !canEditContent()}
+                                            disabled={!canEditContent()}
                                             onChange={(e) => setSku({ ...sku, not_for: e.target.value })}
                                             placeholder="Applications where this product should NOT be used (min 1 item)"
                                         />
@@ -415,7 +418,7 @@ const SkuEdit = () => {
                                         className="field-textarea"
                                         rows={4}
                                         value={sku.long_description || ''}
-                                        disabled={isKillTier || !canEditContent()}
+                                        disabled={!canEditContent()}
                                         onChange={(e) => setSku({ ...sku, long_description: e.target.value })}
                                         placeholder="Comprehensive product description for HERO tier (1000+ chars recommended)"
                                     />
@@ -423,7 +426,7 @@ const SkuEdit = () => {
                             )}
 
                             {/* G7: Expert Authority — visible per tier (hero/support; hidden harvest/kill) */}
-                            {isFieldEnabledForTier(currentTier, 'expert_authority') && (
+                            {!isKillTier && isFieldEnabledForTier(currentTier, 'expert_authority') && (
                                 <div>
                                     <label className="field-label">
                                         Expert Authority <GateChip id="G7" pass={sku.gates?.G7?.passed || false} compact />
@@ -432,7 +435,7 @@ const SkuEdit = () => {
                                         className="field-input"
                                         type="text"
                                         value={sku.expert_authority_name || ''}
-                                        disabled={isKillTier || !canEditExpert()}
+                                        disabled={!canEditExpert()}
                                         onChange={(e) => setSku({ ...sku, expert_authority_name: e.target.value })}
                                         placeholder="Expert name or organization providing authority"
                                     />

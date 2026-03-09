@@ -52,12 +52,9 @@ def validate_cluster_match(request_vector, cluster_id, threshold=None):
     if similarity < threshold:
         return {
             'valid': False,
+            'status': 'fail',
             'similarity': similarity,
-            'reason': (
-                f'Content semantic mismatch (similarity={similarity:.2f}, '
-                f'threshold={threshold}). '
-                f'Ensure request content aligns with cluster {cluster_id} intent.'
-            )
+            'reason': 'Content semantic mismatch. Consider revising your description.'
         }
     
     return {'valid': True, 'similarity': similarity, 'reason': 'Passed validation'}

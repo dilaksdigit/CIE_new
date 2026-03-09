@@ -72,4 +72,50 @@ class AuthController {
             'token' => $token
         ]);
     }
+
+    public function register(Request $request) {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|string|min:8|confirmed',
+            'role' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['error' => 'Validation failed', 'messages' => $validator->errors()], 422);
+        }
+
+        $nameParts = explode(' ', trim($request->input('name')), 2);
+        $firstName = $nameParts[0];
+        $lastName = $nameParts[1] ?? '';
+
+        $user = User::create([
+            'first_name' => $firstName,
+            'last_name' => $lastName,
+            'email' => $request->input('email'),
+            'password_hash' => Hash::make($request->input('password')),
+        ]);
+
+        $roleName = strtoupper($request->input('role', 'VIEWER'));
+        $role = Role::where('name', $roleName)->first();
+        if ($role) {
+            DB::table('user_roles')->insert([
+                'user_id' => $user->id,
+                'role_id' => $role->id,
+            ]);
+        }
+
+        $tokenPayload = json_encode(['user_id' => $user->id]);
+        $token = Crypt::encryptString($tokenPayload);
+
+        $userArray = $user->toArray();
+        $userArray['name'] = $firstName . ' ' . $lastName;
+        $userArray['role'] = $roleName;
+        $userArray['roles'] = [$roleName];
+
+        return ResponseFormatter::format([
+            'user' => $userArray,
+            'token' => $token,
+        ], 'Registered', 201);
+    }
 }

@@ -6,7 +6,6 @@ use App\Enums\GateType;
 use App\Validators\GateResult;
 use App\Validators\GateInterface;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 class G1_BasicInfoGate implements GateInterface
 {
@@ -19,21 +18,18 @@ class G1_BasicInfoGate implements GateInterface
         }
 
         if (!$sku->primary_cluster_id) {
-            $missing[] = 'Cluster_ID (Gate G1 requirement)';
+            $missing[] = 'Cluster ID';
         } else {
+            // SOURCE: CIE_v231_Developer_Build_Pack.pdf §1.2, CIE_v2_3_Enforcement_Edition.pdf §1.1
+            // Single authoritative lookup against cluster_master. No fallback permitted.
             $clusterId = $sku->primary_cluster_id;
-            if (Schema::hasTable('cluster_master')) {
-                $exists = DB::table('cluster_master')
-                    ->where('id', $clusterId)
-                    ->orWhere('cluster_id', $clusterId)
-                    ->exists();
-                if (!$exists) {
-                    $missing[] = 'Cluster_ID must match an existing record in cluster_master';
-                }
-            } else {
-                if (!$sku->primaryCluster) {
-                    $missing[] = 'Cluster_ID must match an existing cluster (exact match in cluster list)';
-                }
+            $cluster = DB::table('cluster_master')
+                ->where('cluster_id', $clusterId)
+                ->where('is_active', true)
+                ->first();
+
+            if (!$cluster) {
+                $missing[] = 'Cluster ID must match an active cluster in the master list';
             }
         }
 
@@ -51,7 +47,7 @@ class G1_BasicInfoGate implements GateInterface
                 passed: false,
                 reason: 'Missing required fields: ' . implode(', ', $missing),
                 blocking: true,
-                metadata: ['error_code' => 'CIE_G1_CLUSTER_REQUIRED', 'user_message' => 'Complete required basic info and choose a valid cluster.']
+                metadata: ['error_code' => 'CIE_G1_INVALID_CLUSTER', 'user_message' => 'Complete required basic info and choose a valid cluster.']
             );
         }
         

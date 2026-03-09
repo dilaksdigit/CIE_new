@@ -76,7 +76,7 @@ class DashboardController
             ->orderBy('week_start', 'desc')
             ->limit(12);
 
-        $columns = ['id', 'week_start', 'score', 'created_at', 'actor_id'];
+        $columns = ['id', 'week_start', 'score', 'created_at'];
         if ($hasNotes) {
             $columns[] = 'notes';
         }
@@ -90,14 +90,52 @@ class DashboardController
                     'score' => (int) $row->score,
                     'notes' => $hasNotes ? (string) ($row->notes ?? '') : '',
                     'created_at' => (string) $row->created_at,
-                    'actor_id' => $row->actor_id !== null ? (int) $row->actor_id : null,
-                    'actor_name' => null,
                 ];
             })
             ->values()
             ->all();
 
         return ResponseFormatter::format(array_reverse($rows));
+    }
+
+    /**
+     * GET /api/v1/dashboard/decay-alerts
+     * Returns Hero SKUs showing decay signals.
+     */
+    public function decayAlerts()
+    {
+        $alerts = $this->safeBuild('buildDecayMonitor', []);
+        return ResponseFormatter::format($alerts);
+    }
+
+    /**
+     * POST /api/v1/audit-results/weekly-scores
+     * Store a new weekly score entry.
+     */
+    public function storeWeeklyScore(Request $request)
+    {
+        $request->validate([
+            'week_start' => 'required|date',
+            'score' => 'required|integer|min:0|max:100',
+            'notes' => 'nullable|string|max:500',
+        ]);
+
+        if (!Schema::hasTable('weekly_scores')) {
+            return ResponseFormatter::error('weekly_scores table does not exist', 500);
+        }
+
+        $id = DB::table('weekly_scores')->insertGetId([
+            'week_start' => $request->input('week_start'),
+            'score' => $request->input('score'),
+            'notes' => $request->input('notes', ''),
+            'created_at' => now(),
+        ]);
+
+        return ResponseFormatter::format([
+            'id' => $id,
+            'week_start' => $request->input('week_start'),
+            'score' => $request->input('score'),
+        ], 'Created', 201);
     }
 
     private function buildTierSummary(): array

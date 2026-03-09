@@ -12,4 +12,20 @@ class ClusterController {
     public function index() {
         return ResponseFormatter::format(Cluster::withCount('skus')->get());
     }
+
+    public function store(Request $request) {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'category' => 'nullable|string|max:255',
+        ]);
+
+        $cluster = Cluster::create($request->only(['name', 'category']));
+        return ResponseFormatter::format($cluster, 'Created', 201);
+    }
+
+    public function update(Request $request, $id) {
+        $cluster = Cluster::findOrFail($id);
+        $cluster->update($request->only(['name', 'category']));
+        return ResponseFormatter::format($cluster);
+    }
 }

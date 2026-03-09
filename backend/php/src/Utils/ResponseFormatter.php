@@ -7,7 +7,7 @@ class ResponseFormatter {
             'status' => 'success',
             'message' => $message,
             'data' => $data,
-            'timestamp' => date('Y-m-d H:i:s')
+            'timestamp' => gmdate('Y-m-d H:i:s')
         ], $status);
     }
 
@@ -16,7 +16,7 @@ class ResponseFormatter {
             'status' => 'error',
             'message' => $message,
             'errors' => $errors,
-            'timestamp' => date('Y-m-d H:i:s')
+            'timestamp' => gmdate('Y-m-d H:i:s')
         ], $status);
     }
 }

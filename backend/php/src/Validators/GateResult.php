@@ -11,17 +11,21 @@ class GateResult
  public array $metadata = []
  ) {}
  
- public function toArray(): array
- {
-        $errorCode = $this->metadata['error_code'] ?? ('CIE_' . strtoupper(str_replace(['.', ' ', '-'], '_', $this->gate->value)));
+    private const SANITISED_REASON = 'Your content may not align with the intent. Consider revising.';
+
+    public function toArray(): array
+    {
         $userMessage = $this->metadata['user_message'] ?? $this->reason;
 
         $metadata = $this->metadata;
 
-        // Defence-in-depth: never expose raw similarity or threshold values on the vector gate.
-        // We strip numeric fields and well-known keys before serialising the response.
-        $gateKey = $this->gate->value;
-        if (strtolower($gateKey) === 'g5_vector' || strtolower($gateKey) === 'vector_similarity') {
+        // Strip internal-only keys from the writer-facing metadata.
+        unset($metadata['error_code'], $metadata['user_message']);
+
+        $gateKey = strtolower($this->gate->value);
+        $isVectorGate = in_array($gateKey, ['g4_vector', 'g5_vector', 'vector_similarity'], true);
+
+        if ($isVectorGate) {
             foreach ($metadata as $key => $value) {
                 $lowerKey = strtolower((string) $key);
                 if (in_array($lowerKey, ['similarity', 'score', 'cosine', 'threshold'], true)) {
@@ -33,7 +37,6 @@ class GateResult
                 }
             }
         } else {
-            // Threshold values are always internal-only; strip them for all gates.
             foreach ($metadata as $key => $value) {
                 if (strtolower((string) $key) === 'threshold') {
                     unset($metadata[$key]);
@@ -41,16 +44,16 @@ class GateResult
             }
         }
 
+        if (is_string($userMessage) && preg_match('/\d+\.\d+/', $userMessage)) {
+            $userMessage = self::SANITISED_REASON;
+        }
+
         return [
-            'gate'        => $gateKey,
-            'gate_name'   => $this->gate->displayName(),
-            'passed'      => $this->passed,
-            'reason'      => $this->reason,
-            'blocking'    => $this->blocking,
-            'error_code'  => $this->passed ? null : $errorCode,
-            'detail'      => $this->reason,
-            'user_message'=> $this->passed ? null : $userMessage,
-            'metadata'    => $metadata,
+            'gate_name'    => $this->gate->displayName(),
+            'passed'       => $this->passed,
+            'blocking'     => $this->blocking,
+            'user_message' => $this->passed ? null : $userMessage,
+            'metadata'     => $metadata,
         ];
- }
+    }
 }

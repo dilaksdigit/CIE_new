@@ -132,15 +132,22 @@ const SkuList = () => {
                                 <td><span className={`badge tier-${(sku.tier || '').toUpperCase()}`}>{(sku.tier || '').toUpperCase()}</span></td>
                                 <td><span className={`status-badge ${sku.validation_status}`}>{sku.validation_status}</span></td>
                                 <td>
-                                    {sku.similarity_score != null ? (
+                                    {sku.vector_gate_status === 'pass' ? (
                                         <span style={{
-                                            color: sku.similarity_score >= 0.72 ? 'var(--success)' : 'var(--danger)',
+                                            color: '#2E7D32',
                                             fontWeight: 600, fontSize: '13px'
                                         }}>
-                                            {Number(sku.similarity_score).toFixed(2)}
+                                            Good
+                                        </span>
+                                    ) : sku.vector_gate_status === 'fail' ? (
+                                        <span style={{
+                                            color: '#E65100',
+                                            fontWeight: 600, fontSize: '13px'
+                                        }}>
+                                            Review
                                         </span>
                                     ) : (
-                                        <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>—</span>
+                                        <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>–</span>
                                     )}
                                 </td>
                                 <td style={{ fontSize: '13px' }}>{sku.margin_percent != null ? `${sku.margin_percent}%` : '—'}</td>

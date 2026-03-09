@@ -257,6 +257,74 @@ class TierController {
         ], 'ERP sync processed', 200);
     }
 
+    /**
+     * POST /api/v1/tiers/recalculate — trigger tier recalculation using stored ERP data.
+     */
+    public function recalculate(Request $request)
+    {
+        $skus = Sku::whereNotNull('commercial_score')->get();
+        if ($skus->isEmpty()) {
+            return ResponseFormatter::format([
+                'skus_processed' => 0,
+                'tier_changes' => 0,
+                'message' => 'No SKUs with commercial scores found. Run ERP sync first.',
+            ]);
+        }
+
+        $scores = $skus->pluck('commercial_score')->sort()->values();
+        $n = $scores->count();
+        $p80 = $scores[(int) floor($n * 0.8)] ?? $scores->last();
+        $p30 = $scores[(int) floor($n * 0.3)] ?? $scores->first();
+        $p10 = $scores[(int) floor($n * 0.1)] ?? $scores->first();
+
+        $tierChanges = 0;
+
+        DB::beginTransaction();
+        try {
+            foreach ($skus as $sku) {
+                $score = (float) $sku->commercial_score;
+                $marginPct = (float) ($sku->margin_percent ?? 0);
+                $oldTier = TierType::tryFrom((string) $sku->tier) ?? TierType::SUPPORT;
+
+                $newTier = TierType::KILL;
+                if ($marginPct < 0) {
+                    $newTier = TierType::KILL;
+                } elseif ($score >= $p80) {
+                    $newTier = TierType::HERO;
+                } elseif ($score >= $p30) {
+                    $newTier = TierType::SUPPORT;
+                } elseif ($score >= $p10) {
+                    $newTier = TierType::HARVEST;
+                }
+
+                if ($oldTier !== $newTier) {
+                    $tierChanges++;
+                    $reason = sprintf('Manual recalculation; score=%.6f; p80=%.6f p30=%.6f p10=%.6f', $score, (float) $p80, (float) $p30, (float) $p10);
+                    $sku->update(['tier' => $newTier, 'tier_rationale' => $reason]);
+
+                    TierHistory::create([
+                        'sku_id' => $sku->id,
+                        'old_tier' => $oldTier,
+                        'new_tier' => $newTier,
+                        'reason' => $reason,
+                        'margin_percent' => $marginPct,
+                        'annual_volume' => $sku->erp_velocity_90d ?? 0,
+                        'changed_by' => auth()->id(),
+                    ]);
+                }
+            }
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return ResponseFormatter::format(['error' => $e->getMessage()], 'Recalculation failed', 500);
+        }
+
+        return ResponseFormatter::format([
+            'skus_processed' => $skus->count(),
+            'tier_changes' => $tierChanges,
+        ]);
+    }
+
     private static function tierWeight(string $key, float $default): float
     {
         try {

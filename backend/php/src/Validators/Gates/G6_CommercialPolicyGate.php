@@ -22,6 +22,54 @@ class G6_CommercialPolicyGate implements GateInterface
             );
         }
 
+        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 Gate G6.1
+        // Harvest-tier: only specification + 1 optional secondary intent (problem_solving | compatibility)
+        if ($sku->tier === TierType::HARVEST) {
+            $harvestBlockedFields = [
+                'answer_block', 'best_for', 'not_for',
+                'expert_authority', 'title', 'long_description', 'wikidata_uri',
+            ];
+
+            foreach ($harvestBlockedFields as $field) {
+                $value = $sku->getAttribute($field);
+                if ($value !== null && $value !== '' && $value !== '[]') {
+                    return new GateResult(
+                        gate: GateType::G6_COMMERCIAL_POLICY,
+                        passed: false,
+                        reason: "Gate G6.1 Failed: Harvest tier SKU attempted write to restricted field '{$field}'. Only Specification + 1 optional intent allowed.",
+                        blocking: true,
+                        metadata: ['error_code' => 'CIE_G6_1_TIER_INTENT_BLOCKED']
+                    );
+                }
+            }
+
+            $secondaryIntents = $sku->skuIntents->where('is_primary', false);
+            if ($secondaryIntents->count() > 1) {
+                return new GateResult(
+                    gate: GateType::G6_COMMERCIAL_POLICY,
+                    passed: false,
+                    reason: 'Gate G6.1 Failed: Harvest tier allows max 1 secondary intent. Found: ' . $secondaryIntents->count() . '.',
+                    blocking: true,
+                    metadata: ['error_code' => 'CIE_G6_1_TIER_INTENT_BLOCKED']
+                );
+            }
+
+            $allowedSecondary = ['problem_solving', 'compatibility'];
+            foreach ($secondaryIntents as $si) {
+                $intentName = strtolower($si->intent->name ?? '');
+                $intentKey  = str_replace(' ', '_', $intentName);
+                if (!in_array($intentKey, $allowedSecondary, true)) {
+                    return new GateResult(
+                        gate: GateType::G6_COMMERCIAL_POLICY,
+                        passed: false,
+                        reason: "Gate G6.1 Failed: Harvest tier secondary intent must be 'problem_solving' or 'compatibility'. Got: '{$intentKey}'.",
+                        blocking: true,
+                        metadata: ['error_code' => 'CIE_G6_1_TIER_INTENT_BLOCKED']
+                    );
+                }
+            }
+        }
+
         // G6.1: Tier-locked intents via canonical tier_access
         $primaryIntentNode = $sku->skuIntents->where('is_primary', true)->first();
         if ($primaryIntentNode && $primaryIntentNode->intent) {

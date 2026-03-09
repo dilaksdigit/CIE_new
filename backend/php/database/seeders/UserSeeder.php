@@ -20,11 +20,11 @@ class UserSeeder extends Seeder
     {
         $defaultPassword = 'writer123';
 
-        $writer = User::where('email', 'writer@cie.internal')->first();
+        $writer = User::where('email', 'writer@cie.internal.com')->first();
         if (!$writer) {
             $writer = new User();
             $writer->id = Str::uuid()->toString();
-            $writer->email = 'writer@cie.internal';
+            $writer->email = 'writer@cie.internal.com';
             $writer->first_name = 'Writer';
             $writer->last_name = '';
             $writer->password_hash = Hash::make($defaultPassword);
@@ -47,11 +47,11 @@ class UserSeeder extends Seeder
             }
         }
 
-        $reviewer = User::where('email', 'kpi_reviewer@cie.internal')->first();
+        $reviewer = User::where('email', 'kpi_reviewer@cie.internal.com')->first();
         if (!$reviewer) {
             $reviewer = new User();
             $reviewer->id = Str::uuid()->toString();
-            $reviewer->email = 'kpi_reviewer@cie.internal';
+            $reviewer->email = 'kpi_reviewer@cie.internal.com';
             $reviewer->first_name = 'KPI Reviewer';
             $reviewer->last_name = '';
             $reviewer->password_hash = Hash::make($defaultPassword);

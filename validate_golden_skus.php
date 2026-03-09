@@ -63,7 +63,7 @@ foreach ($skus as $data) {
 
     // ---- Golden assertions per spec ----
     $code = $data->sku_code;
-    if ($code === 'SKU-CABLE-001') {
+    if ($code === 'CBL-BLK-3C-1M') {
         $allGatesPass = true;
         foreach ($results['gates'] as $gate) {
             if (!$gate['passed']) {
@@ -72,10 +72,10 @@ foreach ($skus as $data) {
             }
         }
         if ($results['overall_status'] === 'VALID' && $allGatesPass && $results['can_publish'] === true) {
-            echo "GOLDEN TEST HERO (SKU-CABLE-001): PASS — all gates G1–G7 + VEC passed.\n";
+            echo "GOLDEN TEST HERO (CBL-BLK-3C-1M): PASS — all gates G1–G7 + VEC passed.\n";
             $heroPass = true;
         } else {
-            echo "GOLDEN TEST HERO (SKU-CABLE-001): FAIL — expected all gates to pass with VALID overall status.\n";
+            echo "GOLDEN TEST HERO (CBL-BLK-3C-1M): FAIL — expected all gates to pass with VALID overall status.\n";
         }
     }
 

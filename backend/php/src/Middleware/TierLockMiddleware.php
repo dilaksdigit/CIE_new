@@ -22,14 +22,46 @@ class TierLockMiddleware
             ], 403);
         }
 
-        // Hero and Support tiers have certain fields locked if they are already validated (G6.1)
-        if (($sku->tier === TierType::HERO || $sku->tier === TierType::SUPPORT) && $sku->validation_status === 'VALID') {
-            $lockedFields = ['title', 'primary_cluster_id', 'long_description', 'sku_intents', 'best_for', 'not_for'];
-            foreach ($lockedFields as $field) {
-                if ($request->has($field) && $request->input($field) !== $sku->$field) {
+        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 Gate G6.1
+        // Harvest-tier: only specification + 1 optional secondary intent permitted. Override: NONE.
+        if ($sku->tier === TierType::HARVEST) {
+            $harvestPermitted = ['specification', 'cluster_id', 'tier', 'lock_version', 'validation_status', 'secondary_intents'];
+            $harvestBlocked = [
+                'answer_block', 'best_for', 'not_for',
+                'expert_authority', 'title', 'long_description', 'wikidata_uri',
+            ];
+
+            foreach ($harvestBlocked as $field) {
+                if ($request->has($field)) {
                     return response()->json([
-                        'error' => "Field '$field' is locked for validated {$sku->tier->value} products."
-                    ], 403);
+                        'status'       => 'fail',
+                        'error_code'   => 'HARVEST_TIER_FIELD_BLOCKED',
+                        'detail'       => "Harvest-tier SKU. Field '{$field}' is not permitted. Harvest allows: specification + 1 optional intent only.",
+                        'user_message' => 'This SKU is Harvest tier. Only Specification and 1 optional intent are available. Answer Block, Best-For/Not-For, and Expert Authority are suspended.',
+                    ], 422);
+                }
+            }
+
+            if ($request->has('secondary_intents')) {
+                $allowedIntents = ['problem_solving', 'compatibility'];
+                $provided = (array) $request->input('secondary_intents');
+
+                if (count($provided) > 1) {
+                    return response()->json([
+                        'status'     => 'fail',
+                        'error_code' => 'HARVEST_SECONDARY_INTENT_LIMIT',
+                        'detail'     => 'Harvest-tier SKU allows max 1 secondary intent.',
+                    ], 422);
+                }
+
+                foreach ($provided as $intent) {
+                    if (!in_array($intent, $allowedIntents, true)) {
+                        return response()->json([
+                            'status'     => 'fail',
+                            'error_code' => 'HARVEST_SECONDARY_INTENT_INVALID',
+                            'detail'     => "Harvest-tier SKU secondary intent must be 'problem_solving' or 'compatibility'. Got: '{$intent}'.",
+                        ], 422);
+                    }
                 }
             }
         }

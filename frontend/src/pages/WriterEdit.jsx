@@ -23,8 +23,9 @@ const TIER_BANNER = {
         bg: THEME.harvestBg,
         color: THEME.harvest,
     },
+    // SOURCE: CIE_v232_Hardening_Addendum.pdf §6.1 — Canonical Kill banner text (exact copy)
     kill: {
-        text: 'KILL — Being removed from sale. Do nothing.',
+        text: 'KILL SKU — Editing Disabled. This product has negative margin or is flagged for delisting. All content fields are read-only. No time investment permitted. If you believe this classification is wrong, contact your Portfolio Holder to request a tier review (requires Finance co-approval).',
         bg: THEME.killBg,
         color: THEME.kill,
     },
@@ -209,6 +210,7 @@ const normalizeGates = (rawGates) => {
                 status,
                 reason: g?.reason || '',
                 metadata: g?.metadata || {},
+                user_message: g?.user_message || g?.metadata?.user_message || '',
             };
         });
         return map;
@@ -227,6 +229,7 @@ const normalizeGates = (rawGates) => {
                 status,
                 reason: v?.reason || '',
                 metadata: v?.metadata || {},
+                user_message: v?.user_message || v?.metadata?.user_message || '',
             };
         });
     }
@@ -323,13 +326,20 @@ const fieldStateAndHint = (field, gates, values) => {
 
     if (hasFail) {
         const primaryFail = related.find((r) => r.gate.status === 'fail') || null;
-        const hint = primaryFail ? gateHintText(primaryFail.key, primaryFail.gate, values) : '';
+        // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §6
+        // Prefer API user_message (plain English, no gate codes). Fall back
+        // to gateHintText() only when the API response omits user_message.
+        const hint = primaryFail
+            ? (primaryFail.gate.user_message || gateHintText(primaryFail.key, primaryFail.gate, values))
+            : '';
         return { state: 'fail', hint };
     }
 
     if (hasWarning) {
         const primaryWarning = related.find((r) => r.gate.status === 'warning') || null;
-        const hint = primaryWarning ? gateHintText(primaryWarning.key, primaryWarning.gate, values) : '';
+        const hint = primaryWarning
+            ? (primaryWarning.gate.user_message || gateHintText(primaryWarning.key, primaryWarning.gate, values))
+            : '';
         return { state: 'warning', hint };
     }
 
@@ -721,12 +731,14 @@ const WriterEdit = () => {
                     </div>
 
                     {tier === 'kill' ? (
-                        <TierLockBanner />
+                        <TierLockBanner text={TIER_BANNER.kill.text} />
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                             {requiredFields.map((field) => {
                                 const state = fieldStateAndHint(field, gates, values);
-                                const showHint = state.state === 'fail' || state.state === 'warning';
+                                // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 6 (Rule C)
+                                // FAIL: show hint text. WARNING/PENDING: amber border only, no blocking text.
+                                const showHint = state.state === 'fail';
                                 const isInput = FIELD_TYPES[field] === 'input';
                                 return (
                                     <div

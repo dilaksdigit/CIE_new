@@ -79,7 +79,7 @@ const SkuEditForm = () => {
                         { gate_name: 'G1 – Completeness', passed: true, reason: 'All required fields populated', blocking: true },
                         { gate_name: 'G2 – Uniqueness', passed: true, reason: 'No duplicate content found', blocking: true },
                         { gate_name: 'G3 – Governance Rules', passed: true, reason: 'Tier requirements met', blocking: true },
-                        { gate_name: 'G4 – Vector Similarity', passed: true, reason: 'Score 0.92 ≥ threshold 0.72', blocking: false },
+                        { gate_name: 'G4 – Vector Similarity', passed: true, reason: 'Your content may not align with the intent. Consider revising.', blocking: false },
                         { gate_name: 'G5 – AI Audit', passed: true, reason: 'Content quality verified by AI', blocking: false },
                     ]
                 }
@@ -127,69 +127,77 @@ const SkuEditForm = () => {
                             <label>SKU Code</label>
                             <input type="text" value={sku.sku_code} disabled style={{ opacity: 0.6 }} />
                         </div>
+                        {/* SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 Gate G6.1 — Kill fields REMOVED from UI, not greyed out */}
+                        {!isKillTier && (
                         <div className="form-group">
                             <label>Brand</label>
                             <input
                                 type="text"
                                 value={sku.brand || ''}
                                 onChange={e => setSku({ ...sku, brand: e.target.value })}
-                                disabled={isKillTier}
                             />
                         </div>
+                        )}
                     </div>
+                    {!isKillTier && (
                     <div className="form-group">
                         <label>Title</label>
                             <input
                                 type="text"
                                 value={sku.title}
                                 onChange={e => setSku({ ...sku, title: e.target.value })}
-                                disabled={isKillTier}
                             />
                     </div>
+                    )}
+                    {!isKillTier && (
                     <div className="form-group">
                         <label>Category</label>
                             <input
                                 type="text"
                                 value={sku.category || ''}
                                 onChange={e => setSku({ ...sku, category: e.target.value })}
-                                disabled={isKillTier}
                             />
                     </div>
+                    )}
                 </div>
 
                 <div className="card" style={{ marginBottom: '20px' }}>
                     <div className="card-title">Content</div>
+                    {!isKillTier && (
                     <div className="form-group">
                         <label>Short Description</label>
                         <input
                             type="text"
                             value={sku.short_description || ''}
                             onChange={e => setSku({ ...sku, short_description: e.target.value })}
-                            disabled={isKillTier}
                         />
                     </div>
+                    )}
+                    {!isKillTier && (
                     <div className="form-group">
                         <label>Long Description</label>
                         <textarea
                             value={sku.long_description || ''}
                             onChange={e => setSku({ ...sku, long_description: e.target.value })}
-                            disabled={isKillTier}
                         />
                     </div>
+                    )}
+                    {!isKillTier && (
                     <div className="form-group">
                         <label>SEO Keywords</label>
                         <input
                             type="text"
                             value={sku.seo_keywords || ''}
                             onChange={e => setSku({ ...sku, seo_keywords: e.target.value })}
-                            disabled={isKillTier}
                         />
                     </div>
+                    )}
                 </div>
 
                 <div className="card" style={{ marginBottom: '20px' }}>
                     <div className="card-title">Metrics</div>
                     <div className="form-row">
+                        {!isKillTier && (
                         <div className="form-group">
                             <label>Margin (%)</label>
                             <input
@@ -197,18 +205,19 @@ const SkuEditForm = () => {
                                 step="0.1"
                                 value={sku.margin || ''}
                                 onChange={e => setSku({ ...sku, margin: parseFloat(e.target.value) })}
-                                disabled={isKillTier}
                             />
                         </div>
+                        )}
+                        {!isKillTier && (
                         <div className="form-group">
                             <label>Volume</label>
                             <input
                                 type="number"
                                 value={sku.volume || ''}
                                 onChange={e => setSku({ ...sku, volume: parseInt(e.target.value) })}
-                                disabled={isKillTier}
                             />
                         </div>
+                        )}
                     </div>
                     <div className="form-row">
                         <div className="form-group">

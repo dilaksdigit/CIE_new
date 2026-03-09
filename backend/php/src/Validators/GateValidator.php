@@ -12,6 +12,7 @@ use App\Validators\Gates\G4_AnswerBlockGate;
 use App\Validators\Gates\G4_VectorGate;
 use App\Validators\Gates\G5_TechnicalGate;
 use App\Validators\Gates\G6_CommercialPolicyGate;
+use App\Validators\Gates\G6_DescriptionQualityGate;
 use App\Validators\Gates\G7_ExpertGate;
 class GateValidator
 {
@@ -23,6 +24,7 @@ class GateValidator
         G4_VectorGate::class,
         G5_TechnicalGate::class,
         G6_CommercialPolicyGate::class,
+        G6_DescriptionQualityGate::class,
         G7_ExpertGate::class,
     ];
  
@@ -35,7 +37,10 @@ class GateValidator
  
         foreach ($this->gates as $gateClass) {
             $gate = new $gateClass();
-            $result = $gate->validate($sku);
+            $rawResult = $gate->validate($sku);
+            $gateResults = is_array($rawResult) ? $rawResult : [$rawResult];
+
+            foreach ($gateResults as $result) {
             $results[] = $result;
 
             // Log the gate check (legacy validation_logs)
@@ -105,15 +110,16 @@ class GateValidator
  }
  }
  }
+ }
  
- if ($overallPassed) {
+ if ($overallPassed && !$isDegraded) {
  $status = ValidationStatus::VALID;
  $canPublish = true;
  $nextAction = 'SKU is ready for publication';
  } elseif ($isDegraded) {
  $status = ValidationStatus::DEGRADED;
  $canPublish = false;
- $nextAction = 'Save allowed but publication blocked. Validation will retry automatically.';
+ $nextAction = 'Description validation temporarily unavailable. Your changes are saved but publishing is paused until validation completes (typically within 30 minutes).';
  } else {
  $status = ValidationStatus::INVALID;
  $canPublish = false;
@@ -139,46 +145,42 @@ class GateValidator
 
         $sku->update($updateData);
 
-        // Final defence-in-depth sanitiser: ensure no cosine similarity values leak to writer.
+        $sanitisedReason = 'Your content may not align with the intent. Consider revising.';
+
         $gatePayload = array_map(fn ($r) => $r->toArray(), $results);
         foreach ($gatePayload as &$gate) {
-            $gateKey = strtolower((string)($gate['gate'] ?? ''));
-            if ($gateKey === 'g5_vector' || $gateKey === 'vector_similarity') {
-                // Ensure metadata contains no numeric values.
+            $gateKey = strtolower((string)($gate['gate_name'] ?? ''));
+            $isVectorGate = str_contains($gateKey, 'vector') || str_contains($gateKey, 'semantic');
+
+            if ($isVectorGate) {
                 if (isset($gate['metadata']) && is_array($gate['metadata'])) {
                     foreach ($gate['metadata'] as $k => $v) {
                         if (is_int($v) || is_float($v)) {
-                            $gate['metadata'][$k] = '[internal]';
-                            \Log::warning('SECURITY: similarity value reached GateValidator sanitiser — check G4_VectorGate.php', [
-                                'sku_id' => $sku->id,
-                                'gate'   => $gate['gate'] ?? null,
-                                'key'    => $k,
-                            ]);
+                            unset($gate['metadata'][$k]);
                         }
                     }
                 }
 
-                // Ensure reason/detail contain no decimal similarity patterns like 0.72.
-                foreach (['reason', 'detail'] as $field) {
-                    if (isset($gate[$field]) && is_string($gate[$field]) && preg_match('/\d+\.\d{2}/', $gate[$field])) {
-                        $gate[$field] = '[internal]';
-                        \Log::warning('SECURITY: similarity value reached GateValidator sanitiser — check G4_VectorGate.php', [
-                            'sku_id' => $sku->id,
-                            'gate'   => $gate['gate'] ?? null,
-                            'field'  => $field,
-                        ]);
+                foreach (['user_message', 'reason', 'detail'] as $field) {
+                    if (isset($gate[$field]) && is_string($gate[$field]) && preg_match('/\d+\.\d+/', $gate[$field])) {
+                        $gate[$field] = $sanitisedReason;
                     }
                 }
             }
         }
-        unset($gate); // break reference
+        unset($gate);
+
+        $saveAllowed = true;
 
         return [
-            'sku_id'        => $sku->id,
-            'overall_status'=> $status->value,
-            'can_publish'   => $canPublish,
-            'gates'         => $gatePayload,
-            'next_action'   => $nextAction,
+            'sku_id'          => $sku->id,
+            'overall_status'  => $status->value,
+            'can_publish'     => $canPublish,
+            'degraded_mode'   => $isDegraded,
+            'save_allowed'    => $saveAllowed,
+            'publish_allowed' => $canPublish,
+            'gates'           => $gatePayload,
+            'next_action'     => $nextAction,
         ];
     }
 }

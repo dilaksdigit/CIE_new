@@ -147,7 +147,7 @@ Files and folders grouped by area (excluding `vendor/` and `node_modules/`).
 - **L7 20 questions:** ai_golden_queries exists; seed/count per category not verified as exactly 20.
 - **N8N W7:** Python `weekly_decay_check.py` / decay_cron exist; no N8N workflow definition in repo.
 - **DB tables missing:** gsc_baselines, semrush_imports, sku_readiness (canonical). cluster_master, sku_master, etc. in 024; some app code uses `skus`/`clusters` (non-canonical names).
-- **weekly_scores:** Spec mentions actor_id; migrations 038/045 have week_start, score, notes only (no actor_id).
+- **weekly_scores:** Spec defines exactly 5 columns (id, week_start, score, notes, created_at). Migrations 038/045 match spec. No actor_id column.
 - **golden_test_data:** File exists; SKU codes differ from spec example “SKU-CABLE-001”; validate_golden_skus.php and seed_golden_data.php reference it but full test wiring not confirmed.
 
 ---
@@ -233,7 +233,7 @@ Weighted by complexity (as specified):
 - **L7 20 golden questions per category:** ai_golden_queries table and migrations exist; seed data for exactly 20 per category not verified.
 - **N8N W7 Decay Check:** Python decay check/decay_cron exist; no N8N workflow JSON in repo.
 - **DB all schema tables:** cluster_master, sku_master, intent_taxonomy, sku_secondary_intents, sku_content, sku_gate_status, sku_tier_history, channel_readiness, ai_audit_runs, ai_audit_results, ai_golden_queries, content_briefs, business_rules, business_rules_audit, audit_log, weekly_scores present (canonical or legacy). **Missing:** gsc_baselines, semrush_imports; sku_readiness as canonical table (readiness in channel_readiness / app columns).
-- **weekly_scores table:** Has week_start, score, notes; spec also mentions actor_id — migrations do not add actor_id.
+- **weekly_scores table:** Has week_start, score, notes, created_at; matches spec exactly (5 columns, no actor_id).
 - **UI /admin/business-rules:** Page and API exist; route missing (see L1 Admin UI).
 - **UI /writer/edit — 4 AI suggestion card types:** WriterEdit has suggestion cards (e.g. keyword, competitor gap); four distinct types (Keyword Opportunity, AI Visibility Issue, Trending Search, Competitor Gap) from semrush_imports + AI audit not all confirmed wired.
 - **golden_test_data.json wired to automated test suite:** File at `database/seeds/golden_test_data.json`; referenced by `seed_golden_data.php` and `validate_golden_skus.php`. No SKU-CABLE-001 in file; automated test suite wiring not fully verified.

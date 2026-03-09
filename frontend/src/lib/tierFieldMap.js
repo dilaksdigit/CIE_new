@@ -29,10 +29,9 @@ export const TIER_FIELD_MAP = {
         hidden: ['wikidata_uri'],
         banner: TIER_BANNER_COPY.support,
     },
+    // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §11.2 TIER_FIELD_MAP — Harvest enabled fields (canonical)
     harvest: {
-        // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2 (Harvest=1 field)
-        // Harvest writers fill title only — the one field that remains active
-        enabled: ['title'],
+        enabled: ['specification', 'problem_solving', 'compatibility'],
         hidden: ['answer_block', 'best_for', 'not_for', 'expert_authority', 'wikidata_uri', 'comparison', 'installation', 'troubleshooting', 'inspiration', 'regulatory', 'replacement'],
         max_secondary: 1,
         banner: TIER_BANNER_COPY.harvest,
@@ -57,7 +56,7 @@ export function normalizeTier(tier) {
  */
 export function getTierConfig(tier) {
     const key = normalizeTier(tier);
-    return TIER_FIELD_MAP[key] || TIER_FIELD_MAP.support;
+    return TIER_FIELD_MAP[key] || TIER_FIELD_MAP.kill;
 }
 
 /**

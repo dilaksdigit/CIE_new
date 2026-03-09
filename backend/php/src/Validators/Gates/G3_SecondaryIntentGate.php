@@ -11,13 +11,24 @@ class G3_SecondaryIntentGate implements GateInterface
 {
     public function validate(Sku $sku): GateResult
     {
+        // Harvest tier: G3 is OPTIONAL/SUSPENDED — return N/A immediately.
+        if ($sku->tier === 'HARVEST') {
+            return new GateResult(
+                gate: GateType::G3_SECONDARY_INTENT,
+                passed: true,
+                reason: 'N/A',
+                blocking: false,
+                metadata: ['status' => 'N/A']
+            );
+        }
+
         $primaryIntentNode = $sku->skuIntents->where('is_primary', true)->first();
         $primaryIntentName = $primaryIntentNode->intent->name ?? '';
         
         $secondaryIntents = $sku->skuIntents->where('is_primary', false);
         $count = $secondaryIntents->count();
 
-        // 1. Uniqueness check (Secondary cannot match Primary)
+        // Uniqueness check (Secondary cannot match Primary)
         foreach ($secondaryIntents as $si) {
             if ($si->intent->name === $primaryIntentName) {
                 return new GateResult(
@@ -29,7 +40,7 @@ class G3_SecondaryIntentGate implements GateInterface
             }
         }
 
-        // 2. Hero/Support minimum requirement
+        // Hero/Support minimum requirement
         if (in_array($sku->tier, ['HERO', 'SUPPORT']) && $count < 1) {
             return new GateResult(
                 gate: GateType::G3_SECONDARY_INTENT,
@@ -39,34 +50,12 @@ class G3_SecondaryIntentGate implements GateInterface
             );
         }
 
-        // 3. Tier-specific maximums from BusinessRules (g3.hero_secondary_max, g3.support_secondary_max, g3.harvest_secondary_max)
-        $heroMax = (int) BusinessRules::get('g3.hero_secondary_max', 3);
-        $supportMax = (int) BusinessRules::get('g3.support_secondary_max', 2);
-        $harvestMax = (int) BusinessRules::get('g3.harvest_secondary_max', 1);
-
-        if ($sku->tier === 'HERO' && $count > $heroMax) {
+        // Unified max of 3 for Hero and Support (§2.1 Gate Table — G3)
+        if (in_array($sku->tier, ['HERO', 'SUPPORT']) && $count > 3) {
             return new GateResult(
                 gate: GateType::G3_SECONDARY_INTENT,
                 passed: false,
-                reason: "Gate G3 Failed: Hero-tier SKUs allow maximum {$heroMax} secondary intents. Found: {$count}.",
-                blocking: true
-            );
-        }
-
-        if ($sku->tier === 'SUPPORT' && $count > $supportMax) {
-            return new GateResult(
-                gate: GateType::G3_SECONDARY_INTENT,
-                passed: false,
-                reason: "Gate G3 Failed: Support-tier SKUs allow maximum {$supportMax} secondary intents. Found: {$count}.",
-                blocking: true
-            );
-        }
-
-        if ($sku->tier === 'HARVEST' && $count > $harvestMax) {
-            return new GateResult(
-                gate: GateType::G3_SECONDARY_INTENT,
-                passed: false,
-                reason: "Gate G3 Failed: Harvest-tier SKUs allow maximum {$harvestMax} secondary intent(s). Found: {$count}.",
+                reason: "Maximum 3 secondary intents allowed",
                 blocking: true
             );
         }

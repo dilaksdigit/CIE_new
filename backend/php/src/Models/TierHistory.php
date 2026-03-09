@@ -12,7 +12,7 @@ class TierHistory extends Model
     protected $casts = [
         'old_tier' => \App\Enums\TierType::class,
         'new_tier' => \App\Enums\TierType::class,
-        'changed_at' => 'datetime',
+        'changed_at' => 'immutable_datetime',
     ];
 }
 

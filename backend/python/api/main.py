@@ -47,19 +47,35 @@ app = FastAPI(
 audit_queue: dict[str, Any] = {}
 brief_queue: dict[str, Any] = {}
 
-# Load master cluster list once for validate endpoint
-from api.gates_validate import get_master_cluster_ids, run_all_gates
+# SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7 — cluster_master is queried per
+# request so the validate endpoint always reflects the live DB state.
+from api.gates_validate import get_master_cluster_ids, run_all_gates, BusinessRules
 from api.schemas_validate import SkuValidateRequest, SkuValidateResponsePass, SkuValidateResponseFail
-
-MASTER_CLUSTER_IDS = get_master_cluster_ids()
 
 
 # -------- Routes (paths and response structure identical to Flask) --------
 
+
+@app.get("/")
+@app.get("/api/")
+@app.get("/api")
+def health_check():
+    """Health-check / root endpoint so GET / and GET /api/ don't 404."""
+    return {
+        "status": "ok",
+        "service": "CIE Python Worker API",
+        "version": "1.0.0",
+        "endpoints": [
+            "POST /api/v1/sku/embed",
+            "POST /api/v1/sku/similarity",
+            "POST /api/v1/sku/validate",
+        ],
+    }
+
+
 # OpenAI text-embedding-3-small dimension (v2.3.1 §8.1)
 EMBED_DIMENSIONS = 1536
 EMBED_MODEL = "text-embedding-3-small"
-SIMILARITY_THRESHOLD = 0.72
 PENDING_MESSAGE = (
     "Description validation temporarily unavailable. Your changes are saved "
     "but publishing is paused until validation completes (typically within 30 minutes)."
@@ -105,6 +121,7 @@ def sku_similarity(body: SimilarityRequest):
     if not description or not cluster_id:
         return JSONResponse(status_code=400, content={"error": "description and cluster_id required"})
     try:
+        threshold = float(BusinessRules.get('gates.vector_similarity_min'))
         sku_vector = get_embedding(description)
         result = validate_cluster_match(sku_vector, cluster_id)
         sim = result.get("similarity", 0.0)
@@ -122,7 +139,7 @@ def sku_similarity(body: SimilarityRequest):
                 "message": PENDING_MESSAGE,
             }
 
-        status = "pass" if sim >= SIMILARITY_THRESHOLD else "fail"
+        status = "pass" if sim >= threshold else "fail"
         logger.info(
             "AUDIT similarity_check cluster_id=%s status=%s",
             cluster_id,
@@ -130,7 +147,10 @@ def sku_similarity(body: SimilarityRequest):
         )
         return {
             "status": status,
-            "message": reason if status == "fail" else None,
+            "similarity": sim,
+            "message": (
+                "Content semantic mismatch. Consider revising your description."
+            ) if status == "fail" else None,
         }
     except Exception as e:
         logger.warning(
@@ -180,7 +200,7 @@ async def sku_validate(request: Request):
                 "message": "Validation error.",
             },
         )
-    failures = run_all_gates(data, MASTER_CLUSTER_IDS)
+    failures = run_all_gates(data, get_master_cluster_ids())
     if not failures:
         return JSONResponse(
             status_code=200,

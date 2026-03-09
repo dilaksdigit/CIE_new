@@ -36,6 +36,16 @@ class PythonWorkerClient
                 ]
             ]);
 
+            if ($response->getStatusCode() >= 500) {
+                Log::warning("Python validation returned {$response->getStatusCode()} (fail-soft → pending)", [
+                    'body' => $response->getBody()->getContents()
+                ]);
+                return [
+                    'status' => 'pending',
+                    'degraded' => true,
+                ];
+            }
+
             if ($response->getStatusCode() >= 400) {
                 Log::warning("Python validation returned {$response->getStatusCode()}", [
                     'body' => $response->getBody()->getContents()
@@ -53,14 +63,13 @@ class PythonWorkerClient
                 'reason' => 'Invalid response'
             ];
         } catch (RequestException $e) {
-            Log::error("Python API request failed: {$e->getMessage()}", [
+            Log::error("Python API request failed (fail-soft → pending): {$e->getMessage()}", [
                 'cluster_id' => $clusterId,
                 'sku_id' => $skuId
             ]);
             return [
-                'valid' => false,
-                'similarity' => 0.0,
-                'reason' => 'Service unavailable'
+                'status' => 'pending',
+                'degraded' => true,
             ];
         }
     }

@@ -116,6 +116,51 @@ class SkuController {
                 ], 403);
             }
 
+            // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 Gate G6.1
+            // SOURCE: CIE_Master_Developer_Build_Spec.docx Gate G6.1 — Server-side enforcement
+            if (strtoupper((string) ($sku->tier ?? '')) === 'HARVEST') {
+                $harvestBlocked = [
+                    'answer_block', 'best_for', 'not_for',
+                    'expert_authority', 'title', 'long_description', 'wikidata_uri',
+                ];
+
+                foreach ($harvestBlocked as $field) {
+                    if ($request->has($field)) {
+                        return response()->json([
+                            'status'       => 'fail',
+                            'error_code'   => 'HARVEST_TIER_FIELD_BLOCKED',
+                            'detail'       => "Harvest-tier SKU. Field '{$field}' is not permitted.",
+                            'user_message' => 'This SKU is Harvest tier. Only Specification and 1 '
+                                            . 'optional intent are available. Answer Block, '
+                                            . 'Best-For/Not-For, and Expert Authority are suspended.',
+                        ], 422);
+                    }
+                }
+
+                if ($request->has('secondary_intents')) {
+                    $allowed  = ['problem_solving', 'compatibility'];
+                    $provided = (array) $request->input('secondary_intents');
+
+                    if (count($provided) > 1) {
+                        return response()->json([
+                            'status'     => 'fail',
+                            'error_code' => 'HARVEST_SECONDARY_INTENT_LIMIT',
+                            'detail'     => 'Harvest-tier SKU allows max 1 secondary intent.',
+                        ], 422);
+                    }
+
+                    foreach ($provided as $intent) {
+                        if (!in_array($intent, $allowed, true)) {
+                            return response()->json([
+                                'status'     => 'fail',
+                                'error_code' => 'HARVEST_SECONDARY_INTENT_INVALID',
+                                'detail'     => "Harvest-tier SKU secondary intent must be 'problem_solving' or 'compatibility'. Got: '{$intent}'.",
+                            ], 422);
+                        }
+                    }
+                }
+            }
+
             // Version conflict detection
             $clientVersion = $request->input('lock_version');
             if ($clientVersion !== null && $clientVersion != $sku->lock_version) {
@@ -297,6 +342,43 @@ class SkuController {
         $sku = Sku::findOrFail($id);
         $result = $this->readinessScoreService->computeReadiness($sku);
         return ResponseFormatter::format($result);
+    }
+
+    public function stats() {
+        $total = Sku::count();
+        $byTier = Sku::selectRaw("UPPER(COALESCE(tier, 'SUPPORT')) as tier, COUNT(*) as count")
+            ->groupBy(DB::raw("UPPER(COALESCE(tier, 'SUPPORT'))"))
+            ->pluck('count', 'tier');
+
+        $validated = Sku::where('validation_status', 'VALID')->count();
+
+        return ResponseFormatter::format([
+            'total' => $total,
+            'by_tier' => $byTier,
+            'validated' => $validated,
+        ]);
+    }
+
+    public function faqSuggestions($id) {
+        $sku = Sku::findOrFail($id);
+        $suggestions = $this->faqSuggestionService->getSuggestions($sku);
+        return ResponseFormatter::format($suggestions);
+    }
+
+    public function auditResults($id) {
+        $sku = Sku::findOrFail($id);
+        $results = [];
+
+        if (Schema::hasTable('audit_results')) {
+            $results = DB::table('audit_results')
+                ->where('sku_id', $sku->id)
+                ->orderByDesc('queried_at')
+                ->limit(50)
+                ->get()
+                ->toArray();
+        }
+
+        return ResponseFormatter::format($results);
     }
 
     /**

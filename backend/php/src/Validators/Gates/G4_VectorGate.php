@@ -3,6 +3,7 @@
 namespace App\Validators\Gates;
 
 use App\Models\Sku;
+use App\Models\AuditLog;
 use App\Enums\GateType;
 use App\Support\BusinessRules;
 use App\Validators\GateResult;
@@ -54,33 +55,59 @@ class G4_VectorGate implements GateInterface
             }
 
              return new GateResult(
-             gate: GateType::G4_VECTOR,
-             passed: false,
-             reason: 'Content semantic mismatch',
-             blocking: true,
-             metadata: []
+                 gate: GateType::G4_VECTOR,
+                 passed: false,
+                 reason: 'Your content may not align with the intent. Consider revising.',
+                 blocking: false,
+                 metadata: [
+                     'error_code' => 'CIE_VEC_SIMILARITY_LOW',
+                     'user_message' => 'Your content may not align with the intent. Consider revising.',
+                     'can_save' => true,
+                     'can_publish' => false,
+                 ]
              );
         } catch (\Exception $e) {
-            // Fail-soft: queue for retry and mark as degraded
             try {
-                DB::table('validation_retry_queue')->insert([
+                DB::table('vector_retry_queue')->insert([
                     'sku_id'        => $sku->sku_code ?? (string) $sku->id,
-                    'gate_code'     => 'VECTOR',
+                    'description'   => $sku->long_description ?? '',
+                    'cluster_id'    => $sku->primary_cluster_id ?? '',
                     'retry_count'   => 0,
+                    'max_retries'   => 5,
                     'next_retry_at' => now()->addMinutes(5),
+                    'status'        => 'queued',
                     'created_at'    => now(),
                 ]);
             } catch (\Throwable $queueError) {
-                // Swallow queue errors to avoid blocking saves
+                \Illuminate\Support\Facades\Log::warning('vector_retry_queue insert failed', [
+                    'error' => $queueError->getMessage(),
+                ]);
             }
 
-             return new GateResult(
-             gate: GateType::G4_VECTOR,
-             passed: false,
-             reason: 'Vector validation temporarily unavailable. Save allowed with DEGRADED status.',
-             blocking: false,
-             metadata: ['degraded' => true, 'error' => $e->getMessage()]
-             );
+            try {
+                AuditLog::create([
+                    'entity_type' => 'sku',
+                    'entity_id'   => $sku->id,
+                    'action'      => 'embedding_api_error',
+                    'field_name'  => 'G4_VECTOR',
+                    'old_value'   => null,
+                    'new_value'   => 'pending',
+                    'actor_id'    => 'SYSTEM',
+                    'actor_role'  => 'system',
+                    'timestamp'   => now(),
+                    'created_at'  => now(),
+                ]);
+            } catch (\Throwable $auditErr) {
+                // Fail-soft: do not break validation if audit_log write fails
+            }
+
+            return new GateResult(
+                gate: GateType::G4_VECTOR,
+                passed: false,
+                reason: 'Description validation temporarily unavailable. Your changes are saved but publishing is paused until validation completes (typically within 30 minutes).',
+                blocking: false,
+                metadata: ['degraded' => true, 'status' => 'pending']
+            );
         }
  }
  

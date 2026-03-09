@@ -37,7 +37,7 @@ export function ValidationPanel({ results }) {
                             <strong>{GATE_LABEL_MAP[gate.gate_name] ?? GATE_LABEL_MAP[gate.gate_name?.toLowerCase()] ?? "Content check"}</strong>
                             {gate.blocking && !gate.passed && <span className="blocking-badge">BLOCKING</span>}
                         </div>
-                        <div className="gate-reason">{gate.reason}</div>
+                        <div className="gate-reason">{gate.user_message}</div>
                     </div>
                 ))}
             </div>

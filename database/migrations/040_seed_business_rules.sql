@@ -1,5 +1,5 @@
 -- SOURCE: CIE_Master_Developer_Build_Spec.docx Section 5.3
--- Seed exactly 52 business rules. No hard-coded values in tier/gate/readiness engines.
+-- Seed exactly 53 business rules. No hard-coded values in tier/gate/readiness engines.
 
 INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 (UUID(), 'gates.vector_similarity_min', '0.72', 'float', 'Minimum cosine similarity for vector gate (fail below, pass at or above)'),
@@ -20,8 +20,9 @@ INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 (UUID(), 'readiness.category_specific_complete', '5', 'integer', 'CIS points for category complete'),
 (UUID(), 'gates.answer_block_min_chars', '250', 'integer', 'Minimum character count for answer block'),
 (UUID(), 'gates.answer_block_max_chars', '300', 'integer', 'Maximum character count for answer block'),
-(UUID(), 'readiness.hero_primary_threshold', '85', 'integer', 'Hero: min readiness on primary channel'),
-(UUID(), 'readiness.hero_all_channels_threshold', '70', 'integer', 'Hero: min readiness on all active channels'),
+(UUID(), 'readiness.hero_primary_channel_min', '85', 'integer', 'Hero: min readiness on primary channel'),
+(UUID(), 'readiness.hero_all_channels_min', '70', 'integer', 'Hero: min readiness on all active channels'),
+(UUID(), 'readiness.support_primary_channel_min', '60', 'integer', 'Support: min readiness on primary channel'),
 (UUID(), 'audit.weekly_day', 'Monday', 'string', 'Day of week for weekly AI audit'),
 (UUID(), 'audit.weekly_time_utc', '09:00', 'string', 'Time UTC for weekly AI audit run'),
 (UUID(), 'decay.week1_status', 'yellow_flag', 'string', 'Decay status after 1 week zero'),
@@ -53,5 +54,6 @@ INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 (UUID(), 'content.title_max_length', '250', 'integer', 'Max title length'),
 (UUID(), 'content.description_min_length', '50', 'integer', 'Min short description length'),
 (UUID(), 'content.description_vector_min_length', '100', 'integer', 'Min long description length for vector validation'),
-(UUID(), 'validation.http_fail_status', '400', 'integer', 'HTTP status when validation fails with blocking errors')
+(UUID(), 'validation.http_fail_status', '400', 'integer', 'HTTP status when validation fails with blocking errors'),
+(UUID(), 'gates.description_word_count_min', '50', 'integer', 'Minimum number of words required in the product description field for G6 to pass.')
 ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP;

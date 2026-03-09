@@ -1,14 +1,15 @@
 -- 006_seed_dummy_skus.sql
 
 -- Clusters setup (INSERT IGNORE ensures we don't duplicate if they exist)
-INSERT IGNORE INTO clusters (id, name, intent_statement) VALUES 
-('CLU-CBL-P-E27', 'Pendant Cable Set E27', 'Connect and power a pendant light fitting safely and stylishly'),
-('CLU-CBL-EXT', 'Extension Flex', 'Extend or replace existing lamp cable safely'),
-('CLU-SHD-FAB', 'Fabric Drum Shade', 'Create warm, even, glare-free lighting in living spaces'),
-('CLU-SHD-GLS', 'Glass Cone Shade', 'Provide bright, focused-yet-diffused lighting with a premium material finish'),
-('CLU-BLB-LED', 'LED Bulb', 'Find the right bulb for existing lamp fittings'),
-('CLU-PND-CLU', 'Cluster Pendant Set', 'Create a statement multi-light pendant display for dining or kitchen islands'),
-('CLU-FLR-ARC', 'Arc Floor Lamp', 'Floor lamps with an arc design');
+-- SOURCE: CIE_v231_Developer_Build_Pack.pdf Section 1.2 — canonical table is cluster_master
+INSERT IGNORE INTO cluster_master (cluster_id, category, intent_statement, intent_vector) VALUES 
+('CLU-CBL-P-E27', 'cables', 'Connect and power a pendant light fitting safely and stylishly', '[]'),
+('CLU-CBL-EXT', 'cables', 'Extend or replace existing lamp cable safely', '[]'),
+('CLU-SHD-FAB', 'lampshades', 'Create warm, even, glare-free lighting in living spaces', '[]'),
+('CLU-SHD-GLS', 'lampshades', 'Provide bright, focused-yet-diffused lighting with a premium material finish', '[]'),
+('CLU-BLB-LED', 'bulbs', 'Find the right bulb for existing lamp fittings', '[]'),
+('CLU-PND-CLU', 'pendants', 'Create a statement multi-light pendant display for dining or kitchen islands', '[]'),
+('CLU-FLR-ARC', 'floor_lamps', 'Floor lamps with an arc design', '[]');
 
 -- SKUs population
 INSERT INTO skus (id, sku_code, title, tier, primary_cluster_id, meta_description, long_description, current_price, cost, margin_percent, annual_volume, erp_cppc, erp_return_rate_pct, readiness_score, validation_status) VALUES

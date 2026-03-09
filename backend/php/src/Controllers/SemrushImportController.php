@@ -4,6 +4,7 @@ namespace App\Controllers;
 use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class SemrushImportController
 {
@@ -59,6 +60,7 @@ class SemrushImportController
             'traffic volume'       => 'traffic_volume',
             'trends'               => 'trend',
             'timestamp'            => 'timestamp',
+            'competitor position'  => 'competitor_position',
         ];
 
         $keywordIndex = array_search('keyword', $normalizedHeader, true);
@@ -99,6 +101,7 @@ class SemrushImportController
         }
 
         $importBatch = now()->toDateString();
+        $importBatchId = (string) Str::uuid();
 
         $existing = DB::table('semrush_imports')->where('import_batch', $importBatch)->count();
         if ($existing > 0) {
@@ -110,17 +113,19 @@ class SemrushImportController
         $insertData = [];
         foreach ($rows as $row) {
             $insertData[] = [
-                'import_batch'   => $importBatch,
-                'keyword'        => (string) ($row['keyword'] ?? ''),
-                'position'       => isset($row['position']) && $row['position'] !== '' ? (int) $row['position'] : null,
-                'prev_position'  => isset($row['prev_position']) && $row['prev_position'] !== '' ? (int) $row['prev_position'] : null,
-                'search_volume'  => isset($row['search_volume']) && $row['search_volume'] !== '' ? (int) $row['search_volume'] : null,
-                'keyword_diff'   => isset($row['keyword_diff']) && $row['keyword_diff'] !== '' ? (int) $row['keyword_diff'] : null,
-                'url'            => isset($row['url']) && $row['url'] !== '' ? (string) $row['url'] : null,
-                'traffic_pct'    => isset($row['traffic_pct']) && $row['traffic_pct'] !== '' ? (float) $row['traffic_pct'] : null,
-                'trend'          => isset($row['trend']) && $row['trend'] !== '' ? (string) $row['trend'] : null,
-                'imported_by'    => $username,
-                'imported_at'    => now(),
+                'import_batch'        => $importBatch,
+                'import_batch_id'     => $importBatchId,
+                'keyword'             => (string) ($row['keyword'] ?? ''),
+                'position'            => isset($row['position']) && $row['position'] !== '' ? (int) $row['position'] : null,
+                'prev_position'       => isset($row['prev_position']) && $row['prev_position'] !== '' ? (int) $row['prev_position'] : null,
+                'search_volume'       => isset($row['search_volume']) && $row['search_volume'] !== '' ? (int) $row['search_volume'] : null,
+                'keyword_diff'        => isset($row['keyword_diff']) && $row['keyword_diff'] !== '' ? (int) $row['keyword_diff'] : null,
+                'url'                 => isset($row['url']) && $row['url'] !== '' ? (string) $row['url'] : null,
+                'traffic_pct'         => isset($row['traffic_pct']) && $row['traffic_pct'] !== '' ? (float) $row['traffic_pct'] : null,
+                'trend'               => isset($row['trend']) && $row['trend'] !== '' ? (string) $row['trend'] : null,
+                'competitor_position' => isset($row['competitor_position']) && $row['competitor_position'] !== '' ? (int) $row['competitor_position'] : null,
+                'imported_by'         => $username,
+                'imported_at'         => now(),
             ];
         }
 
@@ -143,9 +148,10 @@ class SemrushImportController
         }, $rows)));
 
         return response()->json([
-            'import_batch'   => $importBatch,
-            'rows_imported'  => $rowCount,
-            'keyword_count'  => $keywordCount,
+            'import_batch'    => $importBatch,
+            'import_batch_id' => $importBatchId,
+            'rows_imported'   => $rowCount,
+            'keyword_count'   => $keywordCount,
         ], 200);
     }
 

@@ -33,8 +33,8 @@ api.interceptors.response.use(
 
 // ====== Auth ======
 export const authApi = {
-    login: (email, password) => api.post('/auth/login', { email: email.trim(), password }),
-    register: (name, email, password, password_confirmation, role) => api.post('/auth/register', {
+    login: (email, password) => api.post('/v1/auth/login', { email: email.trim(), password }),
+    register: (name, email, password, password_confirmation, role) => api.post('/v1/auth/register', {
         name,
         email,
         password,
@@ -45,88 +45,83 @@ export const authApi = {
 
 // ====== Writer Queue ======
 export const queueApi = {
-    today: () => api.get('/v1/queue/today').catch((err) => {
-        if (err.response?.status === 404) {
-            return api.get('/queue/today');
-        }
-        throw err;
-    }),
+    today: () => api.get('/v1/queue/today'),
 };
 
 // ====== Writer Edit (Phase 4) ======
 export const writerEditApi = {
-    get: (skuId) => api.get(`/v1/skus/${skuId}`),
-    validate: (skuId, data) => api.post(`/v1/skus/${skuId}/validate`, data),
-    publish: (skuId, data) => api.put(`/v1/skus/${skuId}`, data),
+    get: (skuId) => api.get(`/v1/sku/${skuId}`),
+    validate: (skuId, data) => api.post(`/v1/sku/${skuId}/validate`, data),
+    publish: (skuId, data) => api.put(`/v1/sku/${skuId}/content`, data),
 };
 
 /**
- * Publish SKU: validate then persist content (openapi flow — no separate /publish endpoint).
- * Step 1: POST /v1/sku/validate with sku_id and content payload.
- * Step 2: If all gates pass (200), PUT /v1/skus/{skuId} to persist content.
+ * Publish SKU: validate then persist content (openapi flow).
+ * Step 1: POST /v1/sku/{skuId}/validate with content payload.
+ * Step 2: If all gates pass (200), PUT /v1/sku/{skuId}/content to persist content.
  */
 export async function publishSku(skuId, contentPayload) {
-    await api.post('/v1/sku/validate', {
+    await api.post(`/v1/sku/${skuId}/validate`, {
         sku_id: skuId,
         action: 'publish',
         ...contentPayload,
     });
-    await api.put(`/v1/skus/${skuId}`, contentPayload);
+    await api.put(`/v1/sku/${skuId}/content`, contentPayload);
     return { ok: true };
 }
 
 // ====== SKUs ======
 export const skuApi = {
-    list: (params) => api.get('/skus', { params }),
-    get: (id) => api.get(`/skus/${id}`),
-    create: (data) => api.post('/skus', data),
-    update: (id, data) => api.put(`/skus/${id}`, data),
-    validate: (id) => api.post(`/skus/${id}/validate`),
-    stats: () => api.get('/skus/stats'),
-  faqSuggestions: (id) => api.get(`/skus/${id}/faq-suggestions`),
+    list: (params) => api.get('/v1/sku', { params }),
+    get: (id) => api.get(`/v1/sku/${id}`),
+    create: (data) => api.post('/v1/sku', data),
+    update: (id, data) => api.put(`/v1/sku/${id}/content`, data),
+    validate: (id) => api.post(`/v1/sku/${id}/validate`),
+    stats: () => api.get('/v1/sku/stats'),
+    faqSuggestions: (id) => api.get(`/v1/sku/${id}/faq-suggestions`),
 };
 
 // ====== Clusters ======
 export const clusterApi = {
-    list: (params) => api.get('/clusters', { params }),
-    create: (data) => api.post('/clusters', data),
-    update: (id, data) => api.put(`/clusters/${id}`, data),
+    list: (params) => api.get('/v1/clusters', { params }),
+    create: (data) => api.post('/v1/clusters', data),
+    update: (id, data) => api.put(`/v1/clusters/${id}`, data),
 };
 
 // ====== Tiers ======
 export const tierApi = {
-    recalculate: () => api.post('/tiers/recalculate'),
+    recalculate: () => api.post('/v1/tiers/recalculate'),
 };
 
 // ====== Audit ======
 export const auditApi = {
-    run: (skuId) => api.post(`/audit/${skuId}`),
+    run: (category) => api.post('/v1/audit/run', { category }),
 };
 
 // ====== Briefs ======
 export const briefApi = {
-    list: (params) => api.get('/briefs', { params }),
-    create: (data) => api.post('/briefs', data),
+    list: (params) => api.get('/v1/briefs', { params }),
+    create: (data) => api.post('/v1/brief/generate', data),
 };
 
 // ====== Taxonomy (Unified API 7.1) ======
-/** GET /api/taxonomy/intents?tier=X — returns allowed intent enums for that tier */
+/** GET /api/v1/taxonomy/intents?tier=X — returns allowed intent enums for that tier */
 export const taxonomyApi = {
-    getIntents: (tier) => api.get('/taxonomy/intents', { params: tier ? { tier: tier.toLowerCase() } : {} }),
+    getIntents: (tier) => api.get('/v1/taxonomy/intents', { params: tier ? { tier: tier.toLowerCase() } : {} }),
 };
 
 // ====== Config ======
 export const configApi = {
-    get: () => api.get('/config'),
-    update: (data) => api.put('/config', data),
+    get: () => api.get('/v1/config'),
+    update: (data) => api.put('/v1/config', data),
 };
 
 // ====== Admin Business Rules (Phase 0 Check 0.1) ======
 export const businessRulesApi = {
-    list: (params) => api.get('/admin/business-rules', { params }),
-    update: (key, value) => api.put(`/admin/business-rules/${encodeURIComponent(key)}`, { value }),
-    approve: (key) => api.post(`/admin/business-rules/${encodeURIComponent(key)}/approve`),
-    getAudit: () => api.get('/admin/business-rules/audit'),
+    list: (params) => api.get('/v1/admin/business-rules', { params }),
+    update: (key, value) => api.put(`/v1/admin/business-rules/${encodeURIComponent(key)}`, { value }),
+    approve: (key) => api.post(`/v1/admin/business-rules/${encodeURIComponent(key)}/approve`),
+    getAudit: () => api.get('/v1/admin/business-rules/audit'),
 };
 
 // ====== Semrush Import (Admin) ======
@@ -134,14 +129,14 @@ export const semrushImportApi = {
     importFile: (file) => {
         const formData = new FormData();
         formData.append('file', file);
-        return api.post('/admin/semrush-import', formData, {
+        return api.post('/v1/admin/semrush-import', formData, {
             headers: {
                 'Content-Type': 'multipart/form-data',
             },
         });
     },
-    latest: () => api.get('/admin/semrush-import/latest'),
-    deleteBatch: (batchDate) => api.delete(`/admin/semrush-import/${encodeURIComponent(batchDate)}`),
+    latest: () => api.get('/v1/admin/semrush-import/latest'),
+    deleteBatch: (batchDate) => api.delete(`/v1/admin/semrush-import/${encodeURIComponent(batchDate)}`),
 };
 
 // ====== Dashboard (S4 Maturity, Decay, Effort, Staff KPIs) ======
@@ -153,15 +148,15 @@ export const dashboardApi = {
 // ====== Audit Results ======
 // SOURCE: openapi.yaml /audit-results/weekly-scores GET (weeks param default 12)
 export const auditResultApi = {
-    getBySkuId: (skuId) => api.get(`/skus/${skuId}/audit-results`),
+    getBySkuId: (skuId) => api.get(`/v1/sku/${skuId}/audit-results`),
     getDecayAlerts: () => api.get('/v1/dashboard/decay-alerts'),
-    getWeeklyScores: () => api.get('/v1/audit-results/weekly-scores?weeks=12'),
+    getWeeklyScores: () => api.get('/v1/audit-results/weekly-scores', { params: { weeks: 12 } }),
     saveWeeklyScore: (payload) => api.post('/v1/audit-results/weekly-scores', payload),
 };
 
 // ====== Audit Log (immutable trail) ======
 export const auditLogApi = {
-    getLogs: (params) => api.get('/audit-logs', { params }),
+    getLogs: (params) => api.get('/v1/audit-logs', { params }),
 };
 
 export default api;

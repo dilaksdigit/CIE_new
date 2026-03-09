@@ -9,6 +9,19 @@ use Illuminate\Http\Request;
 class BriefController {
 
     /**
+     * GET /api/v1/briefs — list content briefs.
+     */
+    public function index(Request $request) {
+        $query = ContentBrief::with('sku')->orderByDesc('created_at');
+
+        if ($request->has('status')) {
+            $query->where('status', strtoupper($request->query('status')));
+        }
+
+        return ResponseFormatter::format($query->get());
+    }
+
+    /**
      * POST /api/v1/brief/generate — auto-generate content brief (Week 3 decay). Unified API 7.1.
      */
     public function generate(Request $request) {

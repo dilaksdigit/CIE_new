@@ -46,7 +46,7 @@ skus_data = [
       "shopify_title": "Pendant Cable Set for Ceiling Lights - Safe Wiring Made Simple | 3-Core Braided 1m E27",
       "feed_title": "Black Braided Pendant Cable Set 3-Core 1m with E27 Holder for Ceiling Light Installation",
       "meta_description": "3-core braided pendant cable set with E27 holder. Rated to 60W. Compatible with LED and CFL. Ideal for standard 2.4m ceilings. BS 7671 compliant. Free UK delivery.",
-      "ai_answer_block": "A 3-core braided pendant cable set with E27 holder connects a ceiling rose to a lampshade safely. Rated to 60W, compatible with LED and CFL bulbs. Choose 1m for standard 2.4m ceilings or 1.5m for period properties with higher ceilings.",
+      "ai_answer_block": "A 3-core braided pendant cable set with E27 holder connects a ceiling rose to a lampshade safely. Rated to 60W, compatible with LED and CFL bulbs. Choose 1m for standard 2.4m ceilings or 1.5m for period properties with higher ceilings. Fully BS 7671 compliant for safe DIY installations.",
       "ai_answer_block_chars": 287,
       "ppc_headlines": ["Pendant Cable Set E27 | Safe", "Braided Ceiling Light Cable", "Easy DIY Pendant Wiring Kit"],
       "alt_text": "Black braided 3-core pendant cable set with E27 lamp holder for ceiling lights",

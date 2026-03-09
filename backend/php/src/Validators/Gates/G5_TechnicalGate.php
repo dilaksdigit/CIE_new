@@ -9,72 +9,116 @@ use App\Validators\GateInterface;
 
 class G5_TechnicalGate implements GateInterface
 {
- public function validate(Sku $sku): GateResult
+ public function validate(Sku $sku): GateResult|array
  {
- $cluster = $sku->primaryCluster;
- if (!$cluster) {
- return new GateResult(
- gate: GateType::G5_TECHNICAL,
- passed: false,
- reason: 'No cluster assigned. Cannot validate technical specs.',
- blocking: true
- );
- }
- 
- $requiredSpecs = $cluster->required_specifications ?? [];
- $skuSpecs = $sku->specifications ?? [];
- 
- $missing = [];
- foreach ($requiredSpecs as $specName) {
- if (!isset($skuSpecs[$specName]) || empty($skuSpecs[$specName])) {
- $missing[] = $specName;
- }
- }
- 
- if (count($missing) > 0) {
- return new GateResult(
- gate: GateType::G5_TECHNICAL,
- passed: false,
- reason: 'Missing required specifications: ' . implode(', ', $missing),
- blocking: true
- );
+ $tier = strtoupper((string) ($sku->tier->value ?? $sku->tier ?? ''));
+
+ if ($tier === 'KILL') {
+     return new GateResult(
+         gate: GateType::G5_BEST_NOT_FOR,
+         passed: true,
+         reason: 'G5 N/A for Kill tier.',
+         blocking: false
+     );
  }
 
- // Patch 5: Best-For/Not-For from BusinessRules (g5.best_for_min, g5.not_for_min) for Hero/Support only
- $tier = strtoupper((string) ($sku->tier->value ?? $sku->tier ?? ''));
- if (in_array($tier, ['HERO', 'SUPPORT'], true)) {
-     $bestForMin = (int) BusinessRules::get('g5.best_for_min', 2);
-     $notForMin = (int) BusinessRules::get('g5.not_for_min', 1);
-     $bestFor = self::parseListAttribute($sku->best_for);
-     $notFor = self::parseListAttribute($sku->not_for);
-     if (count($bestFor) < $bestForMin || count($notFor) < $notForMin) {
-         return new GateResult(
+ if ($tier === 'HARVEST') {
+     return new GateResult(
+         gate: GateType::G5_BEST_NOT_FOR,
+         passed: true,
+         reason: 'G5 Suspended for Harvest tier.',
+         blocking: false
+     );
+ }
+
+ $failures = [];
+
+ // --- Technical-spec block (cluster, required specs, unit format) ---
+ $cluster = $sku->primaryCluster;
+ $requiredSpecs = [];
+ if (!$cluster) {
+     $failures[] = new GateResult(
+         gate: GateType::G5_TECHNICAL,
+         passed: false,
+         reason: 'No cluster assigned. Cannot validate technical specs.',
+         blocking: true
+     );
+ } else {
+     $requiredSpecs = $cluster->required_specifications ?? [];
+     $skuSpecs = $sku->specifications ?? [];
+
+     $missing = [];
+     foreach ($requiredSpecs as $specName) {
+         if (!isset($skuSpecs[$specName]) || empty($skuSpecs[$specName])) {
+             $missing[] = $specName;
+         }
+     }
+
+     if (count($missing) > 0) {
+         $failures[] = new GateResult(
              gate: GateType::G5_TECHNICAL,
              passed: false,
-             reason: sprintf('Min %d Best-For (found %d) and %d Not-For (found %d) required.', $bestForMin, count($bestFor), $notForMin, count($notFor)),
+             reason: 'Missing required specifications: ' . implode(', ', $missing),
+             blocking: true
+         );
+     }
+
+     // Patch 4 §4.3: FAQ completeness is a readiness component only in v2.3.2, not a publish gate until v2.4.
+
+     $unitIssues = $this->validateUnits($skuSpecs);
+     if (count($unitIssues) > 0) {
+         $failures[] = new GateResult(
+             gate: GateType::G5_TECHNICAL,
+             passed: false,
+             reason: 'Unit format issues: ' . implode(', ', $unitIssues),
              blocking: true
          );
      }
  }
 
- // Patch 4 §4.3: FAQ completeness is a readiness component only in v2.3.2, not a publish gate until v2.4.
+ // --- Best-For / Not-For block (independent, always evaluated for Hero/Support) ---
+ if (in_array($tier, ['HERO', 'SUPPORT'], true)) {
+     $bestForMin = (int) BusinessRules::get('g5.best_for_min', 2);
+     $notForMin = (int) BusinessRules::get('g5.not_for_min', 1);
+     $bestFor = self::parseListAttribute($sku->best_for);
+     $notFor = self::parseListAttribute($sku->not_for);
 
- $unitIssues = $this->validateUnits($skuSpecs);
- if (count($unitIssues) > 0) {
- return new GateResult(
- gate: GateType::G5_TECHNICAL,
- passed: false,
- reason: 'Unit format issues: ' . implode(', ', $unitIssues),
- blocking: true
- );
+     if (count($bestFor) < $bestForMin) {
+         $failures[] = new GateResult(
+             gate: GateType::G5_BEST_NOT_FOR,
+             passed: false,
+             reason: sprintf('best_for has %d entries; minimum is %d.', count($bestFor), $bestForMin),
+             blocking: true,
+             metadata: [
+                 'error_code' => 'CIE_G5_BESTFOR_COUNT',
+                 'user_message' => sprintf('At least %d Best-For applications are required.', $bestForMin),
+             ]
+         );
+     }
+
+     if (count($notFor) < $notForMin) {
+         $failures[] = new GateResult(
+             gate: GateType::G5_BEST_NOT_FOR,
+             passed: false,
+             reason: sprintf('not_for has %d entries; minimum is %d.', count($notFor), $notForMin),
+             blocking: true,
+             metadata: [
+                 'error_code' => 'CIE_G5_BESTFOR_COUNT',
+                 'user_message' => sprintf('At least %d Not-For application(s) are required.', $notForMin),
+             ]
+         );
+     }
  }
- 
+
+ if (!empty($failures)) {
+     return $failures;
+ }
+
  return new GateResult(
- gate: GateType::G5_TECHNICAL,
- passed: true,
- reason: sprintf('All %d required specifications completed with valid units',
- count($requiredSpecs)),
- blocking: false
+     gate: GateType::G5_TECHNICAL,
+     passed: true,
+     reason: sprintf('All %d required specifications completed with valid units', count($requiredSpecs)),
+     blocking: false
  );
  }
  

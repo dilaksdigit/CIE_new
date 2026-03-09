@@ -180,5 +180,5 @@ export const GATES = [
     { id: 'G6', label: 'Description', desc: 'Full product description' },
     { id: 'tier_fields', label: 'Tier Fields', desc: 'Tier-gated content' },
     { id: 'G7', label: 'Authority', desc: 'Expert authority block' },
-    { id: 'VEC', label: 'Vector', desc: '≥0.72 similarity' },
+    { id: 'VEC', label: 'Vector', desc: 'Description must align with product cluster intent.' },
 ];

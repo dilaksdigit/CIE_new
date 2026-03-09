@@ -37,7 +37,7 @@ class ClusterChangeRequest extends Model
     protected $casts = [
         'query_evidence' => 'array',
         'sku_assignment' => 'array',
-        'reviewed_at'    => 'datetime',
+        'reviewed_at'    => 'immutable_datetime',
     ];
 
     public function cluster()

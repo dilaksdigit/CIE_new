@@ -27,7 +27,7 @@ class SkuValidateRequest(BaseModel):
     sku_id: str | None = None
     cluster_id: str | None = None
     tier: str | None = None
-    primary_intent: str | None = None
+    primary_intent: str | list[str] | None = None
     secondary_intents: list[str] = Field(default_factory=list)
     title: str | None = None
     description: str | None = None
