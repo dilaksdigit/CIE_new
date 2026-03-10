@@ -1,3 +1,4 @@
+// SOURCE: CIE_v232_Hardening_Addendum.pdf §6.2 / §6.3
 /**
  * CIE v2.3.1 + v2.3.2 Patch 6 — CMS form field visibility and tier banner copy per tier.
  * Input: tier string (hero/support/harvest/kill)
@@ -17,22 +18,22 @@ export const TIER_FIELD_MAP = {
     hero: {
         // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2 (Hero=6 fields)
         // SOURCE: CIE_v232_Writer_View.jsx fields object
-        enabled: ['title', 'answerBlock', 'bestFor', 'notFor', 'authority', 'intent'],
+        enabled: ['title', 'answerBlock', 'answer_block', 'bestFor', 'best_for', 'notFor', 'not_for', 'authority', 'expert_authority', 'intent'],
         max_secondary: 3,
         banner: TIER_BANNER_COPY.hero,
     },
     support: {
         // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2 (Support=5 fields)
         // Support has same fields as Hero minus 'authority' (expert_authority not required)
-        enabled: ['title', 'answerBlock', 'bestFor', 'notFor', 'intent'],
+        enabled: ['title', 'answerBlock', 'answer_block', 'bestFor', 'best_for', 'notFor', 'not_for', 'intent'],
         max_secondary: 2,
-        hidden: ['wikidata_uri'],
+        hidden: ['wikidata_uri', 'faq_tab'],
         banner: TIER_BANNER_COPY.support,
     },
     // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §11.2 TIER_FIELD_MAP — Harvest enabled fields (canonical)
     harvest: {
         enabled: ['specification', 'problem_solving', 'compatibility'],
-        hidden: ['answer_block', 'best_for', 'not_for', 'expert_authority', 'wikidata_uri', 'comparison', 'installation', 'troubleshooting', 'inspiration', 'regulatory', 'replacement'],
+        hidden: ['answer_block', 'best_for', 'not_for', 'expert_authority', 'wikidata_uri', 'secondary_intents_3_9', 'faq_tab', 'comparison', 'installation', 'troubleshooting', 'inspiration', 'regulatory', 'replacement'],
         max_secondary: 1,
         banner: TIER_BANNER_COPY.harvest,
     },
@@ -118,8 +119,46 @@ export function applyTierRestrictions(tier, options = {}) {
     return config;
 }
 
+/** v2.3.2 §6.2: Field-level tooltip copy per hidden field per tier. */
+export const TIER_TOOLTIPS = {
+    secondary_intents_3_9: {
+        harvest: "This field is hidden because your SKU tier only allows Specification + 1 optional intent.",
+        kill: "This field is hidden because your SKU tier only allows Specification + 1 optional intent."
+    },
+    answer_block: {
+        harvest: "Answer Blocks are suspended for Harvest/Kill tier SKUs. These are reserved for Hero and Support products.",
+        kill: "Answer Blocks are suspended for Harvest/Kill tier SKUs. These are reserved for Hero and Support products."
+    },
+    best_for: {
+        harvest: "Comparison data is suspended for this tier. Focus on Specification data only.",
+        kill: "Comparison data is suspended for this tier. Focus on Specification data only."
+    },
+    not_for: {
+        harvest: "Comparison data is suspended for this tier. Focus on Specification data only.",
+        kill: "Comparison data is suspended for this tier. Focus on Specification data only."
+    },
+    expert_authority: {
+        harvest: "Expert authority signals are reserved for Hero and Support SKUs.",
+        kill: "Expert authority signals are reserved for Hero and Support SKUs."
+    },
+    wikidata_uri: {
+        support: "Wikidata linking is a Hero-tier feature for maximum AI entity recognition.",
+        harvest: "Wikidata linking is a Hero-tier feature for maximum AI entity recognition.",
+        kill: "Wikidata linking is a Hero-tier feature for maximum AI entity recognition."
+    },
+    faq_tab: {
+        harvest: "FAQ content is not required for Harvest/Kill tier SKUs.",
+        kill: "FAQ content is not required for Harvest/Kill tier SKUs."
+    }
+};
+
+// Kill all-fields tooltip (§6.2 — distinct from §6.1 banner copy):
+export const KILL_FIELD_TOOLTIP = "This SKU is in Kill tier. All editing is disabled. Contact your Portfolio Holder if you need a tier review.";
+
 export default {
     TIER_FIELD_MAP,
+    TIER_TOOLTIPS,
+    KILL_FIELD_TOOLTIP,
     normalizeTier,
     getTierConfig,
     isTierReadonly,

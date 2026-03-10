@@ -205,7 +205,7 @@ def process_vector_retry_queue():
                         conn.commit()
                         alert_admin(sku_id, new_count)
                     else:
-                        backoff_minutes = min(5 * (2 ** new_count), 60)
+                        backoff_minutes = min(5 * (2 ** new_count), 20)  # Cap at 20 min — KPI #5 (Hardening Addendum §1.3): >95% pending resolved ≤30 min
                         next_retry = datetime.utcnow() + timedelta(minutes=backoff_minutes)
                         cursor.execute(
                             "UPDATE vector_retry_queue "

@@ -33,6 +33,7 @@ class GateValidator
  $results = [];
  $overallPassed = true;
  $isDegraded = false;
+ $hasVectorWarn = false;
  $blockingFailure = null;
  
         foreach ($this->gates as $gateClass) {
@@ -58,7 +59,13 @@ class GateValidator
             try {
                 $status = 'pass';
                 if (! $result->passed) {
-                    $status = ($result->metadata['degraded'] ?? false) ? 'pending' : 'fail';
+                    if ($result->metadata['degraded'] ?? false) {
+                        $status = 'pending';
+                    } elseif (($result->metadata['status'] ?? '') === 'warn') {
+                        $status = 'warn';
+                    } else {
+                        $status = 'fail';
+                    }
                 }
 
                 SkuGateStatus::updateOrCreate(
@@ -108,11 +115,16 @@ class GateValidator
  if ($result->metadata['degraded'] ?? false) {
  $isDegraded = true;
  }
+ // SOURCE: CLAUDE.md §11 — Below 0.72 = WARNING, not block. Save allowed, publish blocked.
+ // SOURCE: CIE_v232_Hardening_Addendum.pdf §1.1 — Gate enforced.
+ if (($result->metadata['status'] ?? '') === 'warn') {
+ $hasVectorWarn = true;
+ }
  }
  }
  }
  
- if ($overallPassed && !$isDegraded) {
+ if ($overallPassed && !$isDegraded && !$hasVectorWarn) {
  $status = ValidationStatus::VALID;
  $canPublish = true;
  $nextAction = 'SKU is ready for publication';
@@ -120,6 +132,12 @@ class GateValidator
  $status = ValidationStatus::DEGRADED;
  $canPublish = false;
  $nextAction = 'Description validation temporarily unavailable. Your changes are saved but publishing is paused until validation completes (typically within 30 minutes).';
+ } elseif ($hasVectorWarn && !$blockingFailure) {
+ // SOURCE: CIE_v232_Hardening_Addendum.pdf §1.1 — Embedding API OK, below threshold.
+ // SOURCE: CLAUDE.md §11 — Below 0.72 = WARNING, not block. Content saves with warning.
+ $status = ValidationStatus::DEGRADED;
+ $canPublish = false;
+ $nextAction = 'Your content may not align with the intent. Consider revising.';
  } else {
  $status = ValidationStatus::INVALID;
  $canPublish = false;

@@ -1,34 +1,21 @@
+// SOURCE: CIE_v232_Hardening_Addendum.pdf §6.2 / §6.3
 // SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §§4.1, 4.2, 5; Trap 2 | CIE_v232_UI_Restructure_Instructions.docx §2.1 | CIE_v232_Semrush_CSV_Import_Spec.docx §§1, 3.2, 3.3 | CIE_v232_Writer_View.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api, { writerEditApi } from '../services/api';
 import THEME from '../theme';
 import TierLockBanner from '../components/sku/TierLockBanner';
+import { HiddenFieldSlot } from '../components/sku/HiddenFieldSlot';
+import { TIER_FIELD_MAP, TIER_BANNER_COPY, TIER_TOOLTIPS, KILL_FIELD_TOOLTIP } from '../lib/tierFieldMap';
 
 const C = THEME;
 
-const TIER_BANNER = {
-    hero: {
-        text: 'HERO — Top earner. Give it your best work. Guide: ~90 min',
-        bg: THEME.heroBg,
-        color: THEME.hero,
-    },
-    support: {
-        text: 'SUPPORT SKU — Focused Coverage. This product supports revenue but does not lead. Primary intent + max 2 secondary intents enabled. Answer Block and Best-For/Not-For required. Max 2 hours per quarter. Guide: ~45 min',
-        bg: THEME.supportBg,
-        color: THEME.support,
-    },
-    harvest: {
-        text: 'HARVEST — Basic info only. One field to fill. Guide: ~10 min',
-        bg: THEME.harvestBg,
-        color: THEME.harvest,
-    },
-    // SOURCE: CIE_v232_Hardening_Addendum.pdf §6.1 — Canonical Kill banner text (exact copy)
-    kill: {
-        text: 'KILL SKU — Editing Disabled. This product has negative margin or is flagged for delisting. All content fields are read-only. No time investment permitted. If you believe this classification is wrong, contact your Portfolio Holder to request a tier review (requires Finance co-approval).',
-        bg: THEME.killBg,
-        color: THEME.kill,
-    },
+// SOURCE: CIE_v232_Hardening_Addendum.pdf §6.1, §6.3 — banner background hex values (not theme tokens)
+const TIER_BANNER_BG = {
+    hero:    '#E8F5E9',
+    support: '#FFF8E1',
+    harvest: '#FFF3E0',
+    kill:    '#FFEBEE',
 };
 
 const FIELD_LABELS = {
@@ -39,6 +26,9 @@ const FIELD_LABELS = {
     best_for: 'Best For',
     not_for: 'Not For',
     expert_authority: 'Expert Authority',
+    secondary_intents_3_9: 'Secondary Intents (3–9)',
+    faq_tab: 'FAQ',
+    wikidata_uri: 'Wikidata URI',
 };
 
 const FIELD_TYPES = {
@@ -59,13 +49,6 @@ const FIELD_RANGES = {
     best_for: { min: 1, max: null },
     not_for: { min: 1, max: null },
     expert_authority: { min: 1, max: null },
-};
-
-const FIELDS_BY_TIER = {
-    hero: ['title', 'description', 'answer_block', 'best_for', 'not_for', 'expert_authority'],
-    support: ['title', 'description', 'answer_block', 'best_for', 'not_for'],
-    harvest: ['specification'],
-    kill: [],
 };
 
 const normalizeTier = (tier) => String(tier || '').trim().toLowerCase();
@@ -401,7 +384,11 @@ const WriterEdit = () => {
     const [hoveredId, setHoveredId] = useState(null);
     const [hasSemrushData, setHasSemrushData] = useState(false);
 
-    const requiredFields = useMemo(() => FIELDS_BY_TIER[tier] || [], [tier]);
+    const isReadonly = TIER_FIELD_MAP[tier]?.readonly === true;
+    const requiredFields = useMemo(
+        () => (TIER_FIELD_MAP[tier]?.enabled || []).filter((f) => FIELD_LABELS[f]),
+        [tier]
+    );
     const gatedRequiredFields = useMemo(
         () => requiredFields.filter((f) => gateKeysForField(f).length > 0),
         [requiredFields]
@@ -551,13 +538,29 @@ const WriterEdit = () => {
         };
         load();
 
+        const interval = setInterval(async () => {
+            try {
+                const fresh = await writerEditApi.get(skuId);
+                if (cancelled) return;
+                const payload = fresh?.data?.data ?? fresh?.data ?? {};
+                const item = payload?.sku ?? payload;
+                const freshTier = normalizeTier(item?.tier);
+                if (freshTier && freshTier !== tier) {
+                    setTier(freshTier);
+                }
+            } catch {
+                // Fail-soft: background poll errors must not break the UI
+            }
+        }, 30000);
+
         return () => {
             cancelled = true;
+            clearInterval(interval);
         };
     }, [skuId]);
 
     useEffect(() => {
-        if (!sku || tier === 'kill') return undefined;
+        if (!sku || isReadonly) return undefined;
         let cancelled = false;
         const timer = setTimeout(async () => {
             try {
@@ -677,7 +680,8 @@ const WriterEdit = () => {
         return <div style={{ padding: 30, textAlign: 'center', color: THEME.red }}>{loadError || 'SKU not found.'}</div>;
     }
 
-    const banner = TIER_BANNER[tier] || TIER_BANNER.support;
+    const bannerText = TIER_BANNER_COPY[tier] || TIER_BANNER_COPY.support;
+    const bannerBg = TIER_BANNER_BG[tier] || TIER_BANNER_BG.support;
 
     return (
         <div>
@@ -703,20 +707,22 @@ const WriterEdit = () => {
 
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                        style={{
-                            marginBottom: 12,
-                            background: banner.bg,
-                            border: `1px solid ${tier === 'kill' ? C.killBorder : C.border}`,
-                            borderRadius: 6,
-                            padding: '10px 12px',
-                            color: banner.color,
-                            fontSize: '0.78rem',
-                            fontWeight: 700,
-                        }}
-                    >
-                        {banner.text}
-                    </div>
+                    {tier !== 'kill' && (
+                        <div
+                            style={{
+                                marginBottom: 12,
+                                background: bannerBg,
+                                border: `1px solid ${C.border}`,
+                                borderRadius: 6,
+                                padding: '10px 12px',
+                                color: THEME[tier] || THEME.support,
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                            }}
+                        >
+                            {bannerText}
+                        </div>
+                    )}
 
                     <div className="card" style={{ marginBottom: 12 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -730,8 +736,17 @@ const WriterEdit = () => {
                         </div>
                     </div>
 
-                    {tier === 'kill' ? (
-                        <TierLockBanner text={TIER_BANNER.kill.text} />
+                    {isReadonly ? (
+                        <>
+                            <TierLockBanner text={TIER_BANNER_COPY.kill} />
+                            {/* §6.3 render_hidden_field — Kill tier: every field gets KILL_FIELD_TOOLTIP */}
+                            {Object.keys(FIELD_LABELS).map((field) => {
+                                const killTooltips = { [field]: { kill: KILL_FIELD_TOOLTIP } };
+                                return (
+                                    <HiddenFieldSlot key={field} fieldName={field} tier="kill" tooltips={killTooltips} />
+                                );
+                            })}
+                        </>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                             {requiredFields.map((field) => {
@@ -781,10 +796,15 @@ const WriterEdit = () => {
                                     </div>
                                 );
                             })}
+
+                            {/* §6.3 render_hidden_field — placeholder divs for hidden fields */}
+                            {(TIER_FIELD_MAP[tier]?.hidden || []).map((field) => (
+                                <HiddenFieldSlot key={`hidden-${field}`} fieldName={field} tier={tier} tooltips={TIER_TOOLTIPS} />
+                            ))}
                         </div>
                     )}
 
-                    {tier !== 'kill' && allRequiredPass && (
+                    {!isReadonly && allRequiredPass && (
                         <div style={{ marginTop: 12 }}>
                             <button
                                 type="button"

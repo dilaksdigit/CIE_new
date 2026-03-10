@@ -8,6 +8,7 @@ use App\Models\TierHistory;
 use App\Models\AuditLog;
 use App\Enums\TierType;
 use App\Services\ValidationService;
+use App\Services\ChannelGovernorService;
 use App\Support\BusinessRules;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -168,7 +169,11 @@ class TierController {
                 }
 
                 if ($oldTier !== $newTier) {
-                    // Manual override expiry: if current tier was set by manual_override within expiry days, preserve it.
+                    // SOURCE: CIE_Master_Developer_Build_Spec.docx §8 (tier.manual_override_expiry_days)
+                    // SOURCE: CIE_v231_Developer_Build_Pack.pdf (sku_tier_history dual sign-off requirement)
+                    // Override only valid when approved_by AND second_approver are both non-null.
+                    // Override = NONE for gate G6.1 per CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 —
+                    // this means no UNILATERAL override. Dual-approved admin overrides are permitted.
                     $expiryDays = (int) BusinessRules::get('tier.manual_override_expiry_days', 90);
                     if ($expiryDays > 0) {
                         $lastOverride = TierHistory::where('sku_id', $sku->id)
@@ -178,8 +183,46 @@ class TierController {
                             })
                             ->orderByDesc('changed_at')
                             ->first();
+
                         if ($lastOverride && $lastOverride->changed_at && $lastOverride->changed_at->gte(now()->subDays($expiryDays))) {
-                            continue; // preserve override, skip this SKU
+                            $hasDualApproval = !empty($lastOverride->approved_by) && !empty($lastOverride->second_approver);
+
+                            if ($hasDualApproval) {
+                                try {
+                                    AuditLog::create([
+                                        'entity_type' => 'sku',
+                                        'entity_id'   => $sku->id,
+                                        'action'      => 'erp_sync_skipped_manual_override',
+                                        'field_name'  => 'tier',
+                                        'old_value'   => $oldTier->value ?? (string) $oldTier,
+                                        'new_value'   => $newTier->value ?? (string) $newTier,
+                                        'actor_id'    => 'SYSTEM',
+                                        'actor_role'  => 'system',
+                                        'timestamp'   => now(),
+                                        'created_at'  => now(),
+                                    ]);
+                                } catch (\Throwable $auditErr) {
+                                    // Fail-soft: do not break ERP sync if audit_log write fails
+                                }
+                                continue;
+                            }
+
+                            try {
+                                AuditLog::create([
+                                    'entity_type' => 'sku',
+                                    'entity_id'   => $sku->id,
+                                    'action'      => 'erp_sync_override_rejected_missing_approver',
+                                    'field_name'  => 'tier',
+                                    'old_value'   => $lastOverride->approved_by,
+                                    'new_value'   => $lastOverride->second_approver,
+                                    'actor_id'    => 'SYSTEM',
+                                    'actor_role'  => 'system',
+                                    'timestamp'   => now(),
+                                    'created_at'  => now(),
+                                ]);
+                            } catch (\Throwable $auditErr) {
+                                // Fail-soft: do not break ERP sync if audit_log write fails
+                            }
                         }
                     }
                     $tierChanges++;
@@ -187,6 +230,8 @@ class TierController {
                         'tier' => $newTier,
                         'tier_rationale' => $reason,
                     ]);
+
+                    app(ChannelGovernorService::class)->recalculateAndPersist($sku);
 
                     TierHistory::create([
                         'sku_id' => $sku->id,
@@ -301,6 +346,8 @@ class TierController {
                     $tierChanges++;
                     $reason = sprintf('Manual recalculation; score=%.6f; p80=%.6f p30=%.6f p10=%.6f', $score, (float) $p80, (float) $p30, (float) $p10);
                     $sku->update(['tier' => $newTier, 'tier_rationale' => $reason]);
+
+                    app(ChannelGovernorService::class)->recalculateAndPersist($sku);
 
                     TierHistory::create([
                         'sku_id' => $sku->id,

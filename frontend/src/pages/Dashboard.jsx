@@ -31,6 +31,13 @@ const heatmapColor = (score) => {
     return THEME.red;
 };
 
+const ALL_CATEGORIES = ['cables', 'lampshades', 'bulbs', 'pendants', 'floor_lamps', 'ceiling_lights', 'accessories'];
+
+const formatCategory = (cat) => {
+    if (!cat) return '—';
+    return cat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+};
+
 const Dashboard = () => {
     const [skus, setSkus] = React.useState([]);
     const [summary, setSummary] = React.useState(null);
@@ -90,10 +97,10 @@ const Dashboard = () => {
     if (loading && skus.length === 0 && !summary) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-dim)', height: '100%' }}>Loading portfolio health...</div>;
     if (error) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--red)', height: '100%' }}>{error}</div>;
 
-    const heroCount = skus.filter(s => s.tier === "HERO").length;
-    const supportCount = skus.filter(s => s.tier === "SUPPORT").length;
-    const harvestCount = skus.filter(s => s.tier === "HARVEST").length;
-    const killCount = skus.filter(s => s.tier === "KILL").length;
+    const heroCount = skus.filter(s => (s.tier || '').toUpperCase() === "HERO").length;
+    const supportCount = skus.filter(s => (s.tier || '').toUpperCase() === "SUPPORT").length;
+    const harvestCount = skus.filter(s => (s.tier || '').toUpperCase() === "HARVEST").length;
+    const killCount = skus.filter(s => (s.tier || '').toUpperCase() === "KILL").length;
     const avgReadiness = skus.length > 0 ? Math.round(skus.reduce((a, s) => a + (s.readiness_score || 0), 0) / skus.length) : 0;
     const tierSummary = summary?.tier_summary ?? [];
     const categoryHeatmap = summary?.category_heatmap ?? [];
@@ -277,8 +284,9 @@ const Dashboard = () => {
                             onChange={(e) => setCategoryFilter(e.target.value)}
                         >
                             <option>All Categories</option>
-                            <option>Cables</option>
-                            <option>Lampshades</option>
+                            {ALL_CATEGORIES.map(cat => (
+                                <option key={cat} value={cat}>{formatCategory(cat)}</option>
+                            ))}
                         </select>
                         <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.7rem' }}>Export benefits.csv</button>
                     </div>
@@ -304,7 +312,7 @@ const Dashboard = () => {
                                     <td className="mono">{sku.sku_code}</td>
                                     <td>{sku.title}</td>
                                     <td><TierBadge tier={sku.tier || 'SUPPORT'} size="xs" /></td>
-                                    <td>{sku.primaryCluster?.name || sku.primaryCluster?.category || '—'}</td>
+                                    <td>{formatCategory(sku.primaryCluster?.category)}</td>
                                     <td>
                                         <div className="flex gap-4 flex-wrap">
                                             {GATES.map(g => (
@@ -328,7 +336,7 @@ const Dashboard = () => {
                                             {sku.decay_status && sku.decay_status !== 'none' ? sku.decay_status : '—'}
                                         </span>
                                     </td>
-                                    <td className="mono">{sku.score_citation != null ? `${sku.score_citation}%` : (sku.ai_citation_rate != null ? `${sku.ai_citation_rate}%` : '—')}</td>
+                                    <td className="mono">{sku.last_validated_at ? new Date(sku.last_validated_at).toLocaleDateString() : (sku.updated_at ? new Date(sku.updated_at).toLocaleDateString() : '—')}</td>
                                 </tr>
                             ))}
                         </tbody>

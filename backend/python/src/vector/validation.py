@@ -48,13 +48,14 @@ def validate_cluster_match(request_vector, cluster_id, threshold=None):
     # Audit log (required by CIE v2.3.2)
     logger.info(f"AUDIT: cluster_id={cluster_id} similarity={similarity:.4f}")
     
-    # Check threshold
+    # SOURCE: CLAUDE.md §11, DECISION-005
+    # API available + similarity below threshold = WARNING, not block
     if similarity < threshold:
         return {
             'valid': False,
-            'status': 'fail',
+            'status': 'warn',
             'similarity': similarity,
-            'reason': 'Content semantic mismatch. Consider revising your description.'
+            'reason': 'cosine_similarity_below_threshold'
         }
     
     return {'valid': True, 'similarity': similarity, 'reason': 'Passed validation'}

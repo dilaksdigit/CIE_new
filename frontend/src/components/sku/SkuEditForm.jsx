@@ -1,8 +1,11 @@
+// SOURCE: CIE_v232_Hardening_Addendum.pdf §6.2 / §6.3
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { skuApi } from '../../services/api';
 import ValidationPanel from './ValidationPanel';
 import TierLockBanner from './TierLockBanner';
+import { HiddenFieldSlot } from './HiddenFieldSlot';
+import { TIER_FIELD_MAP, TIER_TOOLTIPS, KILL_FIELD_TOOLTIP } from '../../lib/tierFieldMap';
 
 const DEMO_SKU = {
     id: 1,
@@ -109,6 +112,21 @@ const SkuEditForm = () => {
             {isKillTier && (
                 <div style={{ marginBottom: '16px' }}>
                     <TierLockBanner />
+                    {/* §6.3 render_hidden_field — Kill tier: every field in TIER_FIELD_MAP gets KILL_FIELD_TOOLTIP */}
+                    {(() => {
+                        const allFieldKeys = [...new Set(
+                            Object.values(TIER_FIELD_MAP).flatMap(cfg =>
+                                [...(cfg.enabled || []), ...(cfg.hidden || [])]
+                            )
+                        )];
+                        const killTooltipMap = allFieldKeys.reduce((acc, f) => {
+                            acc[f] = { kill: KILL_FIELD_TOOLTIP };
+                            return acc;
+                        }, {});
+                        return allFieldKeys.map((field) => (
+                            <HiddenFieldSlot key={field} fieldName={field} tier="kill" tooltips={killTooltipMap} />
+                        ));
+                    })()}
                 </div>
             )}
 
@@ -230,6 +248,11 @@ const SkuEditForm = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* §6.3 render_hidden_field — non-kill tiers: placeholder divs for hidden fields */}
+                {!isKillTier && (TIER_FIELD_MAP[String(sku.tier || '').trim().toLowerCase()]?.hidden || []).map((field) => (
+                    <HiddenFieldSlot key={`hidden-${field}`} fieldName={field} tier={String(sku.tier || '').trim().toLowerCase()} tooltips={TIER_TOOLTIPS} />
+                ))}
 
                 <div className="actions">
                     {!isKillTier && (

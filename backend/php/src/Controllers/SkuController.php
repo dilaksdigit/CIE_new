@@ -41,12 +41,11 @@ class SkuController {
             $query->where('primary_cluster_id', $request->query('cluster_id'));
         }
 
-        // Keep "category" filter for backward compatibility (maps to clusters matching name)
         if ($request->has('category')) {
              $category = $request->query('category');
              if ($category !== 'All Categories') {
                  $query->whereHas('primaryCluster', function($q) use ($category) {
-                     $q->where('name', 'like', "%$category%");
+                     $q->where('category', $category);
                  });
              }
         }
@@ -63,13 +62,21 @@ class SkuController {
             });
         }
 
-        return ResponseFormatter::format($query->get());
+        $skus = $query->get()->map(function ($sku) {
+            $arr = $sku->toArray();
+            $arr['gates'] = $this->buildGateStatuses($sku);
+            $arr['vector_gate_status'] = $this->deriveVectorGateStatus($sku);
+            $arr['ai_citation_rate'] = $sku->score_citation ?? 0;
+            $arr = $this->addCamelCaseAliases($arr);
+            return $arr;
+        });
+
+        return ResponseFormatter::format($skus);
     }
 
     public function show($id) {
         $sku = Sku::with(['primaryCluster', 'skuIntents.intent'])->findOrFail($id);
 
-        // Patch 6: Tier-mode UX Copy & Banners
         $validation = $sku->validation_status;
         $tierString = is_string($sku->tier) ? strtoupper(trim($sku->tier)) : (string) $sku->tier;
         $isValid = $validation instanceof ValidationStatus
@@ -85,7 +92,15 @@ class SkuController {
             ]
         ];
 
-        return ResponseFormatter::format(['sku' => $sku, 'instructions' => $meta]);
+        $skuData = $sku->toArray();
+        $skuData['gates'] = $this->buildGateStatuses($sku);
+        $skuData['vector_gate_status'] = $this->deriveVectorGateStatus($sku);
+        $skuData['ai_citation_rate'] = $sku->score_citation ?? 0;
+        $skuData['faqs'] = $this->decodeFaqs($sku);
+        $skuData['history'] = $this->loadHistory($sku);
+        $skuData = $this->addCamelCaseAliases($skuData);
+
+        return ResponseFormatter::format(['sku' => $skuData, 'instructions' => $meta]);
     }
 
     /** v2.3.2 Patch 6: Exact tier banner copy per CIE Hardening Addendum §6.1. */
@@ -387,7 +402,8 @@ class SkuController {
      */
     public function queueToday(Request $request) {
         $items = Sku::query()
-            ->select(['id', 'sku_code', 'title', 'tier', 'validation_status', 'updated_at'])
+            ->select(['id', 'sku_code', 'title', 'tier', 'validation_status', 'updated_at',
+                       'short_description', 'long_description', 'best_for', 'not_for'])
             ->orderByRaw("CASE
                 WHEN UPPER(COALESCE(tier, '')) = 'HERO' THEN 0
                 WHEN UPPER(COALESCE(tier, '')) = 'SUPPORT' THEN 1
@@ -408,6 +424,7 @@ class SkuController {
                 }
 
                 $tier = strtoupper((string) ($sku->tier ?? ''));
+                [$fieldsDone, $fieldsTotal] = $this->computeFieldProgress($sku, $tier);
 
                 return [
                     'id' => (string) $sku->id,
@@ -416,11 +433,9 @@ class SkuController {
                     'tier' => $tier,
                     'done' => $isValid,
                     'status' => $status,
-                    // Field-level completion currently not persisted per SKU in API v2.3.2.
-                    // Keep stable keys so frontend can render progress safely.
-                    'fields_done' => 0,
-                    'fields_total' => 0,
-                    'missing_fields_count' => 0,
+                    'fields_done' => $fieldsDone,
+                    'fields_total' => $fieldsTotal,
+                    'missing_fields_count' => max(0, $fieldsTotal - $fieldsDone),
                     'ai_suggestion_count' => 0,
                     'urgency' => $tier === 'HERO' ? 'high' : ($tier === 'SUPPORT' ? 'medium' : 'low'),
                     'reason' => 'Prioritized by AI queue engine',
@@ -428,5 +443,158 @@ class SkuController {
             });
 
         return ResponseFormatter::format($items);
+    }
+
+    private function addCamelCaseAliases(array $arr): array
+    {
+        if (array_key_exists('primary_cluster', $arr)) {
+            $arr['primaryCluster'] = $arr['primary_cluster'];
+        }
+        if (array_key_exists('sku_intents', $arr)) {
+            $arr['skuIntents'] = $arr['sku_intents'];
+        }
+        return $arr;
+    }
+
+    private function buildGateStatuses(Sku $sku): array
+    {
+        $tier = strtoupper($sku->tier ?? '');
+        $hasCluster = !empty($sku->primary_cluster_id);
+        $hasTitle = !empty($sku->title) && strlen($sku->title) >= 10;
+        $hasIntents = $hasTitle;
+        $desc = $sku->short_description ?? $sku->ai_answer_block ?? '';
+        $hasAnswerBlock = strlen($desc) >= 250 && strlen($desc) <= 300;
+        $hasBestNotFor = !empty($sku->best_for) && !empty($sku->not_for);
+        $longDesc = $sku->long_description ?? '';
+        $hasDescription = !empty($longDesc) && str_word_count($longDesc) >= 50;
+        $hasAuthority = !empty($sku->expert_authority) || !in_array($tier, ['HERO', 'SUPPORT']);
+        $isValid = ($sku->validation_status instanceof ValidationStatus)
+            ? $sku->validation_status === ValidationStatus::VALID
+            : strtoupper((string) ($sku->validation_status ?? '')) === 'VALID';
+
+        return [
+            'G1'          => ['passed' => $hasCluster],
+            'G2'          => ['passed' => $hasTitle],
+            'G3'          => ['passed' => $hasIntents],
+            'G4'          => ['passed' => $hasAnswerBlock],
+            'G5'          => ['passed' => $hasBestNotFor],
+            'G6'          => ['passed' => $hasDescription],
+            'tier_fields' => ['passed' => $this->tierFieldsComplete($sku, $tier)],
+            'G7'          => ['passed' => $hasAuthority],
+            'VEC'         => ['passed' => $isValid],
+        ];
+    }
+
+    private function tierFieldsComplete(Sku $sku, string $tier): bool
+    {
+        switch ($tier) {
+            case 'HERO':
+                return !empty($sku->title)
+                    && !empty($sku->short_description ?? $sku->ai_answer_block)
+                    && !empty($sku->best_for)
+                    && !empty($sku->not_for)
+                    && !empty($sku->expert_authority);
+            case 'SUPPORT':
+                return !empty($sku->title)
+                    && !empty($sku->short_description ?? $sku->ai_answer_block)
+                    && !empty($sku->best_for)
+                    && !empty($sku->not_for);
+            case 'HARVEST':
+                return !empty($sku->long_description);
+            default:
+                return true;
+        }
+    }
+
+    private function deriveVectorGateStatus(Sku $sku): ?string
+    {
+        $isValid = ($sku->validation_status instanceof ValidationStatus)
+            ? $sku->validation_status === ValidationStatus::VALID
+            : strtoupper((string) ($sku->validation_status ?? '')) === 'VALID';
+
+        if ($isValid) return 'pass';
+
+        $isDegraded = ($sku->validation_status instanceof ValidationStatus)
+            ? $sku->validation_status === ValidationStatus::DEGRADED
+            : strtoupper((string) ($sku->validation_status ?? '')) === 'DEGRADED';
+
+        if ($isDegraded) return 'pending';
+
+        $hasContent = !empty($sku->long_description) && str_word_count($sku->long_description ?? '') >= 50;
+        return $hasContent ? null : 'fail';
+    }
+
+    private function decodeFaqs(Sku $sku): array
+    {
+        $raw = $sku->faq_data;
+        if (empty($raw)) return [];
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+        return is_array($raw) ? $raw : [];
+    }
+
+    private function loadHistory(Sku $sku): array
+    {
+        try {
+            if (!Schema::hasTable('audit_log')) return [];
+
+            return DB::table('audit_log')
+                ->where('entity_type', 'sku')
+                ->where('entity_id', (string) $sku->id)
+                ->orderByDesc('timestamp')
+                ->limit(50)
+                ->get()
+                ->map(function ($entry) {
+                    $userName = 'System';
+                    if (!empty($entry->user_id)) {
+                        $user = DB::table('users')->where('id', $entry->user_id)->first();
+                        if ($user) {
+                            $userName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) ?: ($user->email ?? 'System');
+                        }
+                    }
+                    return [
+                        'user_name'  => $userName,
+                        'created_at' => $entry->timestamp ?? $entry->created_at ?? null,
+                        'action'     => $entry->action ?? 'update',
+                        'field_name' => $entry->field_name ?? null,
+                        'old_value'  => $entry->old_value ?? null,
+                        'new_value'  => $entry->new_value ?? null,
+                    ];
+                })
+                ->toArray();
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    private function computeFieldProgress(Sku $sku, string $tier): array
+    {
+        switch ($tier) {
+            case 'HERO':
+                $required = ['title', 'short_description', 'long_description', 'best_for', 'not_for', 'expert_authority'];
+                break;
+            case 'SUPPORT':
+                $required = ['title', 'short_description', 'long_description', 'best_for', 'not_for'];
+                break;
+            case 'HARVEST':
+                $required = ['title', 'long_description'];
+                break;
+            default:
+                return [0, 0];
+        }
+
+        $total = count($required);
+        $done = 0;
+        foreach ($required as $field) {
+            $val = $sku->getAttribute($field);
+            if ($field === 'short_description') {
+                $val = $val ?? $sku->getAttribute('ai_answer_block');
+            }
+            if (!empty($val)) $done++;
+        }
+
+        return [$done, $total];
     }
 }

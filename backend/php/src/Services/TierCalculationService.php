@@ -1,6 +1,10 @@
 <?php
 namespace App\Services;
 
+// SOURCE: CIE_Master_Developer_Build_Spec.docx §8.1 / §5.3; CLAUDE.md §7
+// SOURCE: CIE_Integration_Specification.pdf §1.2, §1.3; CIE_v231_Developer_Build_Pack.pdf (sku_master schema)
+// SOURCE: CIE_v231_Developer_Build_Pack.pdf §7.1; CIE_Master_Developer_Build_Spec.docx §5; CIE_Integration_Specification.pdf §1.3
+// SOURCE: CIE_Master_Developer_Build_Spec.docx §5; CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.2; CIE_Integration_Specification.pdf §1.3
 use App\Models\Sku;
 use App\Enums\TierType;
 use App\Support\BusinessRules;
@@ -17,7 +21,7 @@ class TierCalculationService
     public function recalculateAllTiers(): array
     {
         // Load all active SKUs with the commercial fields needed
-        $allSkus = Sku::whereNotNull('margin_percent')
+        $allSkus = Sku::whereNotNull('erp_margin_pct')
             ->whereNotNull('erp_cppc')
             ->whereNotNull('erp_return_rate_pct')
             ->get();
@@ -63,10 +67,7 @@ class TierCalculationService
             $oldTier = $sku->tier;
             $score   = $scores[$sku->id];
 
-            // Strategic hero override and kill conditions still apply
-            if ($sku->strategic_hero) {
-                $newTier = TierType::HERO;
-            } elseif ($this->shouldBeKilled($sku)) {
+            if ($this->shouldBeKilled($sku)) {
                 $newTier = TierType::KILL;
             } else {
                 if ($score >= $heroCut) {
@@ -86,7 +87,11 @@ class TierCalculationService
                 $currentVelocity  = (int) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0);
                 if ($previousVelocity > 0) {
                     $growth = ($currentVelocity - $previousVelocity) / $previousVelocity;
-                    if ($growth > 0.3) {
+                    $autoPromotionThreshold = BusinessRules::get(
+                        'tier.auto_promotion_velocity_growth_pct',
+                        0.30
+                    );
+                    if ($growth > $autoPromotionThreshold) {
                         $newTier = TierType::SUPPORT;
                     }
                 }
@@ -99,7 +104,7 @@ class TierCalculationService
                     'sku_code'=> $sku->sku_code,
                     'old_tier'=> $oldTier->value,
                     'new_tier'=> $newTier->value,
-                    'margin'  => $sku->margin_percent,
+                    'margin'  => $sku->erp_margin_pct,
                     'volume'  => $sku->erp_velocity_90d ?? $sku->annual_volume,
                     'score'   => $score,
                 ];
@@ -112,7 +117,7 @@ class TierCalculationService
     public function calculateCommercialScore(Sku $sku, float $maxVelocity): float
     {
         // Spec formula: weights from BusinessRules (margin_weight, cppc_weight, velocity_weight, returns_weight).
-        $marginPct   = (float) ($sku->margin_percent ?? 0);
+        $marginPct   = (float) ($sku->erp_margin_pct ?? 0);
         $cppc        = (float) ($sku->erp_cppc ?? 0);
         $velocity90d = (float) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0);
         $returnPct   = (float) ($sku->erp_return_rate_pct ?? 0);
@@ -142,13 +147,16 @@ class TierCalculationService
     {
         $profitabilityThreshold = $this->rule('tier.profitability_min_margin_pct', 5.0);
 
-        if ((float) ($sku->margin_percent ?? 0) < $profitabilityThreshold) {
+        if ((float) ($sku->erp_margin_pct ?? 0) < $profitabilityThreshold) {
             return true;
         }
-        if ($sku->last_sale_date && strtotime($sku->last_sale_date) < strtotime('-90 days')) {
+        $noSaleDays = (int) BusinessRules::get('tier.kill_no_sale_days', 90);
+        $cutoff = new \DateTime('-' . $noSaleDays . ' days');
+        if ($sku->last_sale_date && strtotime($sku->last_sale_date) < $cutoff->getTimestamp()) {
             return true;
         }
-        if ((int) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0) === 0) {
+        $zeroVelThreshold = (int) BusinessRules::get('tier.kill_zero_velocity_threshold', 0);
+        if ((int) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0) <= $zeroVelThreshold) {
             return true;
         }
         return false;
@@ -159,18 +167,32 @@ class TierCalculationService
         $velocity = $sku->erp_velocity_90d ?? $sku->annual_volume;
         $rationale = sprintf(
             'Margin: %.1f%%, Velocity_90d: %d units',
-            $sku->margin_percent,
+            $sku->erp_margin_pct,
             $velocity
         );
         $sku->update(['tier' => $newTier, 'tier_rationale' => $rationale]);
+
+        $channelGovernor = app(ChannelGovernorService::class);
+        $channelGovernor->recalculateAndPersist($sku);
+
         \App\Models\TierHistory::create([
             'sku_id'        => $sku->id,
             'old_tier'      => $oldTier,
             'new_tier'      => $newTier,
             'reason'        => $rationale,
-            'margin_percent'=> $sku->margin_percent,
+            'margin_percent'=> $sku->erp_margin_pct,
             'annual_volume' => $velocity,
             'changed_by'    => auth()->id(),
+        ]);
+        \App\Models\AuditLog::create([
+            'entity_type' => 'tier',
+            'entity_id'   => $sku->id,
+            'action'      => 'tier_change',
+            'actor_id'    => 'SYSTEM',
+            'old_value'   => $oldTier,
+            'new_value'   => $newTier,
+            'reason'      => $rationale,
+            'created_at'  => now(),
         ]);
     }
 

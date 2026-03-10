@@ -1,5 +1,5 @@
 -- SOURCE: CIE_Master_Developer_Build_Spec.docx Section 5.3
--- Seed exactly 53 business rules. No hard-coded values in tier/gate/readiness engines.
+-- Seed exactly 56 business rules. No hard-coded values in tier/gate/readiness engines.
 
 INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 (UUID(), 'gates.vector_similarity_min', '0.72', 'float', 'Minimum cosine similarity for vector gate (fail below, pass at or above)'),
@@ -55,5 +55,10 @@ INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 (UUID(), 'content.description_min_length', '50', 'integer', 'Min short description length'),
 (UUID(), 'content.description_vector_min_length', '100', 'integer', 'Min long description length for vector validation'),
 (UUID(), 'validation.http_fail_status', '400', 'integer', 'HTTP status when validation fails with blocking errors'),
-(UUID(), 'gates.description_word_count_min', '50', 'integer', 'Minimum number of words required in the product description field for G6 to pass.')
+(UUID(), 'gates.description_word_count_min', '50', 'integer', 'Minimum number of words required in the product description field for G6 to pass.'),
+-- SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3; CLAUDE.md §7 — kill-condition thresholds
+(UUID(), 'tier.kill_no_sale_days', '90', 'integer', 'Days since last sale before SKU is flagged Kill'),
+(UUID(), 'tier.kill_zero_velocity_threshold', '0', 'integer', 'Velocity at or below which SKU is flagged Kill'),
+-- SOURCE: CIE_Master_Developer_Build_Spec.docx §5; CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.2
+(UUID(), 'tier.auto_promotion_velocity_growth_pct', '0.30', 'float', 'Minimum QoQ velocity growth rate for a Harvest SKU to auto-promote to Support tier.')
 ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP;

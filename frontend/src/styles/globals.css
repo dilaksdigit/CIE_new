@@ -22,7 +22,7 @@
   --harvest-bg: #FFF8E7;
   --harvest-border: #E8D49A;
   --kill: #A63D2F;
-  --kill-bg: #FDEEEB;
+  --kill-bg: #FFEBEE;
   --kill-border: #E5B5AD;
   --green: #2E7D32;
   --green-bg: #E8F5E9;
@@ -369,6 +369,12 @@ body {
   background: var(--kill-bg);
   border: 1px solid var(--kill-border);
   color: var(--kill);
+}
+
+.tier-lock-banner {
+  background: #FDEEEB;
+  border: 1px solid #E5B5AD;
+  color: #A63D2F;
 }
 
 /* ====== GATE CHIP ====== */

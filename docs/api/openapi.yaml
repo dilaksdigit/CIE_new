@@ -671,8 +671,8 @@ components:
 
     ValidationResponse:
       # SOURCE: cie_v231_openapi.yaml components/schemas/ValidationResponse
-      # PATCH 1: CIE_v232_Hardening_Addendum.pdf — added 'pending' to status enum;
-      #          VECTOR_PENDING is a valid non-blocking status
+      # PATCH 1: CIE_v232_Hardening_Addendum.pdf §1.4 — added pending to gate status
+      # enum; added degraded_mode, save_allowed, publish_allowed to ValidationResponse
       type: object
       properties:
         status:
@@ -686,7 +686,7 @@ components:
             properties:
               status:
                 type: string
-                enum: [pass, fail, not_applicable]
+                enum: [pass, fail, not_applicable, pending]
               error_code:
                 type: string
                 nullable: true
@@ -696,19 +696,27 @@ components:
                 type: string
                 nullable: true
         vector_check:
+          # INTERNAL ONLY — cosine_similarity and threshold are never returned to writer clients
+          # SOURCE: CLAUDE.md §11 — "Writer sees message, NOT the number 0.72"
           type: object
           properties:
-            cosine_similarity:
-              type: number
-              example: 0.87
-            threshold:
-              type: number
-              example: 0.72
             status:
               type: string
-              enum: [pass, fail]
+              enum: [pass, fail, warn, pending]
+            user_message:
+              type: string
+              nullable: true
+              description: Safe writer-facing message. Never contains numeric similarity score.
+              example: "Your content may not align with the intent. Consider revising."
+        degraded_mode:
+          type: boolean
+          description: True if any gate returned 'pending' due to service failure
+        save_allowed:
+          type: boolean
+          description: True even in degraded mode (save ≠ publish)
         publish_allowed:
           type: boolean
+          description: False if any gate is 'pending' or 'fail'
 
     SimilarityResponse:
       # SOURCE: CLAUDE.md §11 — cosine_similarity and threshold are INTERNAL ONLY.

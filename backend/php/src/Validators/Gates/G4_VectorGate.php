@@ -54,18 +54,44 @@ class G4_VectorGate implements GateInterface
                  );
             }
 
-             return new GateResult(
-                 gate: GateType::G4_VECTOR,
-                 passed: false,
-                 reason: 'Your content may not align with the intent. Consider revising.',
-                 blocking: false,
-                 metadata: [
-                     'error_code' => 'CIE_VEC_SIMILARITY_LOW',
-                     'user_message' => 'Your content may not align with the intent. Consider revising.',
-                     'can_save' => true,
-                     'can_publish' => false,
-                 ]
-             );
+            // SOURCE: CLAUDE.md §11 — "Audit log records the fail-soft event"
+            // SOURCE: DECISION-005 — "The audit log records the fail-soft event for governance tracking"
+            try {
+                AuditLog::create([
+                    'entity_type' => 'sku',
+                    'entity_id'   => $sku->id,
+                    'action'      => 'vector_similarity_warn',
+                    'field_name'  => 'G4_VECTOR',
+                    'old_value'   => null,
+                    'new_value'   => json_encode([
+                        'event'  => 'fail_soft',
+                        'gate'   => 'VECTOR',
+                        'reason' => 'cosine_similarity_below_threshold',
+                    ]),
+                    'actor_id'    => 'SYSTEM',
+                    'actor_role'  => 'system',
+                    'timestamp'   => now(),
+                    'created_at'  => now(),
+                ]);
+            } catch (\Throwable $auditErr) {
+                // Fail-soft: do not break validation if audit_log write fails
+            }
+
+            // SOURCE: CLAUDE.md §11 — Below 0.72 = WARNING, not block. Content saves with warning.
+            // SOURCE: CIE_v232_Hardening_Addendum.pdf §1.1 — Gate enforced, save allowed, publish blocked.
+            return new GateResult(
+                gate: GateType::G4_VECTOR,
+                passed: false,
+                reason: 'Your content may not align with the intent. Consider revising.',
+                blocking: false,
+                metadata: [
+                    'error_code'   => 'CIE_VEC_SIMILARITY_LOW',
+                    'user_message' => 'Your content may not align with the intent. Consider revising.',
+                    'status'       => 'warn',
+                    'can_save'     => true,
+                    'can_publish'  => false,
+                ]
+            );
         } catch (\Exception $e) {
             try {
                 DB::table('vector_retry_queue')->insert([
