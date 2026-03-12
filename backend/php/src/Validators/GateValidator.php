@@ -116,8 +116,8 @@ class GateValidator
  $isDegraded = true;
  }
  // SOURCE: CLAUDE.md §11 — Below 0.72 = WARNING, not block. Save allowed, publish blocked.
- // SOURCE: CIE_v232_Hardening_Addendum.pdf §1.1 — Gate enforced.
- if (($result->metadata['status'] ?? '') === 'warn') {
+ // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 1 — Gate returns passed=true, warn_only=true.
+ if (($result->metadata['status'] ?? '') === 'warn' || ($result->metadata['warn_only'] ?? false)) {
  $hasVectorWarn = true;
  }
  }

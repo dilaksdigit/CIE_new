@@ -1,4 +1,6 @@
 <?php
+// SOURCE: CLAUDE.md Section 6 (G5 rule — Hero/Support only); CIE_v231_Developer_Build_Pack G5 spec; Hardening_Addendum Patch 6
+
 namespace App\Validators\Gates;
 
 use App\Models\Sku;
@@ -17,7 +19,7 @@ class G5_TechnicalGate implements GateInterface
      return new GateResult(
          gate: GateType::G5_BEST_NOT_FOR,
          passed: true,
-         reason: 'G5 N/A for Kill tier.',
+         reason: 'This product tier does not require Best-For/Not-For.',
          blocking: false
      );
  }
@@ -26,7 +28,7 @@ class G5_TechnicalGate implements GateInterface
      return new GateResult(
          gate: GateType::G5_BEST_NOT_FOR,
          passed: true,
-         reason: 'G5 Suspended for Harvest tier.',
+         reason: 'Best-For/Not-For check is not required for this product tier.',
          blocking: false
      );
  }
@@ -63,8 +65,6 @@ class G5_TechnicalGate implements GateInterface
          );
      }
 
-     // Patch 4 §4.3: FAQ completeness is a readiness component only in v2.3.2, not a publish gate until v2.4.
-
      $unitIssues = $this->validateUnits($skuSpecs);
      if (count($unitIssues) > 0) {
          $failures[] = new GateResult(
@@ -76,10 +76,10 @@ class G5_TechnicalGate implements GateInterface
      }
  }
 
- // --- Best-For / Not-For block (independent, always evaluated for Hero/Support) ---
+ // --- Best-For / Not-For: min 2 best_for + min 1 not_for for Hero/Support (CLAUDE.md Section 6 G5) ---
  if (in_array($tier, ['HERO', 'SUPPORT'], true)) {
-     $bestForMin = (int) BusinessRules::get('g5.best_for_min', 2);
-     $notForMin = (int) BusinessRules::get('g5.not_for_min', 1);
+     $bestForMin = (int) BusinessRules::get('gates.best_for_min_entries');
+     $notForMin = (int) BusinessRules::get('gates.not_for_min_entries');
      $bestFor = self::parseListAttribute($sku->best_for);
      $notFor = self::parseListAttribute($sku->not_for);
 
@@ -87,12 +87,9 @@ class G5_TechnicalGate implements GateInterface
          $failures[] = new GateResult(
              gate: GateType::G5_BEST_NOT_FOR,
              passed: false,
-             reason: sprintf('best_for has %d entries; minimum is %d.', count($bestFor), $bestForMin),
+             reason: 'Add at least 2 best-for use cases. These help customers understand when this product is the right choice.',
              blocking: true,
-             metadata: [
-                 'error_code' => 'CIE_G5_BESTFOR_COUNT',
-                 'user_message' => sprintf('At least %d Best-For applications are required.', $bestForMin),
-             ]
+             metadata: ['user_message' => 'Add at least 2 best-for use cases. These help customers understand when this product is the right choice.']
          );
      }
 
@@ -100,12 +97,9 @@ class G5_TechnicalGate implements GateInterface
          $failures[] = new GateResult(
              gate: GateType::G5_BEST_NOT_FOR,
              passed: false,
-             reason: sprintf('not_for has %d entries; minimum is %d.', count($notFor), $notForMin),
+             reason: 'Add at least 1 not-for exclusion. This tells customers when they should choose a different product.',
              blocking: true,
-             metadata: [
-                 'error_code' => 'CIE_G5_BESTFOR_COUNT',
-                 'user_message' => sprintf('At least %d Not-For application(s) are required.', $notForMin),
-             ]
+             metadata: ['user_message' => 'Add at least 1 not-for exclusion. This tells customers when they should choose a different product.']
          );
      }
  }

@@ -107,9 +107,7 @@ const App = () => {
           <Route path="/review/channels" element={<AuthGuard><AppLayout><Channels /></AppLayout></AuthGuard>} />
           <Route path="/review/kpis" element={<AuthGuard><AppLayout><StaffKpis /></AppLayout></AuthGuard>} />
 
-          <Route path="/help/flow" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
-          <Route path="/help/gates" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
-          <Route path="/help/roles" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
+          <Route path="/help" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
 
           <Route path="/admin/clusters" element={<AuthGuard><AppLayout><Clusters /></AppLayout></AuthGuard>} />
           <Route path="/admin/config" element={<AuthGuard><AppLayout><Config /></AppLayout></AuthGuard>} />

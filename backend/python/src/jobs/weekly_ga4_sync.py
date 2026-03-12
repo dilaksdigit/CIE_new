@@ -8,11 +8,15 @@ SOURCE: CIE_Master_Developer_Build_Spec.docx
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional
+from urllib.parse import urlparse
+
+import pymysql
 
 from utils.config import Config
 
@@ -24,20 +28,42 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 class Ga4Row:
     landing_page: str
     sessions: int
-    conversions: float
+    conversions: float  # count from API; job converts to rate for output
     revenue: float
+
+
+def _get_db():
+    url = os.environ.get("DATABASE_URL", "")
+    if url:
+        parsed = urlparse(url)
+        return pymysql.connect(
+            host=parsed.hostname or os.environ.get("DB_HOST", "localhost"),
+            port=parsed.port or 3306,
+            user=parsed.username or os.environ.get("DB_USER", "root"),
+            password=parsed.password or os.environ.get("DB_PASSWORD", ""),
+            database=(parsed.path or "").lstrip("/") or os.environ.get("DB_DATABASE", "cie"),
+            cursorclass=pymysql.cursors.DictCursor,
+        )
+    return pymysql.connect(
+        host=os.environ.get("DB_HOST", "localhost"),
+        user=os.environ.get("DB_USER", "root"),
+        password=os.environ.get("DB_PASSWORD", ""),
+        database=os.environ.get("DB_DATABASE", "cie"),
+        cursorclass=pymysql.cursors.DictCursor,
+    )
 
 
 def pull_weekly_ga4(start_date: datetime, end_date: datetime) -> List[Ga4Row]:
     """
     Spec §10.2: GA4 weekly pull for Organic Search channel only, using landingPage dimension.
-
-    This function is a stub hook for the real GA4 API client; the job's scheduling,
-    error handling and persistence are implemented around this.
+    Uses integrations.ga4_client with Config.GA4_PROPERTY_ID.
     """
-    # TODO: Implement GA4 API call using landingPage dimension, Organic Search only.
-    logger.info("pull_weekly_ga4(%s → %s) stub called; no-op in this environment", start_date.date(), end_date.date())
-    return []
+    property_id = Config.GA4_PROPERTY_ID or os.environ.get("GA4_PROPERTY_ID", "")
+    if not property_id:
+        logger.warning("GA4_PROPERTY_ID not set; skipping weekly GA4 pull")
+        return []
+    from integrations.ga4_client import pull_weekly_ga4_rows
+    return pull_weekly_ga4_rows(property_id, start_date, end_date)
 
 
 def handle_rate_limit_retry(retry_after_seconds: Optional[int] = None) -> None:
@@ -52,11 +78,27 @@ def handle_rate_limit_retry(retry_after_seconds: Optional[int] = None) -> None:
 def save_ga4_landing_performance(rows: Iterable[Ga4Row], window_end: datetime) -> None:
     """
     Persist GA4 landing performance into ga4_landing_performance table.
-
-    DB integration is environment‑specific; this is a stub for the project's DB layer.
     """
-    count = sum(1 for _ in rows)
-    logger.info("ga4_landing_performance write stub — %s rows for window ending %s", count, window_end.date())
+    rows_list = list(rows)
+    if not rows_list:
+        return
+    db = _get_db()
+    try:
+        cur = db.cursor()
+        window_date = window_end.date()
+        for row in rows_list:
+            cur.execute(
+                """
+                INSERT INTO ga4_landing_performance (landing_page, window_end, sessions, conversion_rate, revenue)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (row.landing_page, window_date, row.sessions, row.conversions, row.revenue),
+            )
+        db.commit()
+        cur.close()
+        logger.info("ga4_landing_performance: inserted %s rows for window_end=%s", len(rows_list), window_date)
+    finally:
+        db.close()
 
 
 def run() -> None:

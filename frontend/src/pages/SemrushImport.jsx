@@ -25,6 +25,9 @@ const SemrushImport = () => {
     const [confirmBatch, setConfirmBatch] = useState(null);
     const [confirmCount, setConfirmCount] = useState(0);
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+    const [showQuickWins, setShowQuickWins] = useState(false);
+    const [quickWinsRows, setQuickWinsRows] = useState([]);
+    const [loadingQuickWins, setLoadingQuickWins] = useState(false);
 
     const [showHowTo, setShowHowTo] = useState(false);
 
@@ -62,6 +65,27 @@ const SemrushImport = () => {
             setLoadingHistory(false);
         }
     }, [isAdmin]);
+
+    useEffect(() => {
+        if (!isAdmin || !showQuickWins) {
+            setQuickWinsRows([]);
+            return;
+        }
+        const loadQuickWins = async () => {
+            setLoadingQuickWins(true);
+            try {
+                const res = await semrushImportApi.latest({ filter: 'quick_wins' });
+                const payload = res.data?.data ?? res.data ?? {};
+                const rows = Array.isArray(payload.rows) ? payload.rows : [];
+                setQuickWinsRows(rows);
+            } catch {
+                setQuickWinsRows([]);
+            } finally {
+                setLoadingQuickWins(false);
+            }
+        };
+        loadQuickWins();
+    }, [isAdmin, showQuickWins]);
 
     const validateFile = (f) => {
         if (!f) return 'Please select a CSV file to upload.';
@@ -221,7 +245,7 @@ const SemrushImport = () => {
                         fontSize: '0.8rem',
                     }}
                 >
-                    🔒 You do not have permission to access this screen. Only admins can import Semrush data.
+                    You do not have permission to access this screen. Only admins can import Semrush data.
                 </div>
             </div>
         );
@@ -257,7 +281,7 @@ const SemrushImport = () => {
                     }}
                 >
                     <div style={{ fontSize: '0.8rem', color: THEME.text }}>
-                        Drop a .csv file here, or <span style={{ color: THEME.accent, textDecoration: 'underline' }}>click to browse</span>.
+                        Drop your Semrush CSV here or <span style={{ color: THEME.accent, textDecoration: 'underline' }}>click to browse</span>.
                     </div>
                     <div style={{ marginTop: 4, fontSize: '0.7rem', color: THEME.textMid }}>Maximum size: 10MB. Semrush Organic Research → Positions export only.</div>
                     {file && (
@@ -313,6 +337,21 @@ const SemrushImport = () => {
                         }}
                     >
                         {status.message}
+                        {status.type === 'success' && (
+                            <div style={{ marginTop: 8 }}>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    onClick={() => {
+                                        setStatus(null);
+                                        setFile(null);
+                                        if (inputRef.current) inputRef.current.value = '';
+                                    }}
+                                >
+                                    Clear
+                                </button>
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <div style={{ fontSize: '0.76rem', color: THEME.textMid }}>
@@ -323,13 +362,61 @@ const SemrushImport = () => {
 
             {/* Zone C — Import History + Zone D Empty State */}
             <div className="card" style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
                     <div style={{ fontSize: '0.78rem', fontWeight: 700, color: THEME.text }}>
                         Import History
                     </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: THEME.text, cursor: 'pointer' }}>
+                        <input
+                            type="checkbox"
+                            checked={showQuickWins}
+                            onChange={(e) => setShowQuickWins(e.target.checked)}
+                        />
+                        Quick Wins only (position 11–30, KD &lt; 40, volume &gt; 500, Hero/Support)
+                    </label>
                 </div>
 
-                {loadingHistory ? (
+                {showQuickWins ? (
+                    <>
+                        {loadingQuickWins ? (
+                            <div style={{ padding: 8, fontSize: '0.76rem', color: THEME.textMid }}>
+                                Loading Quick Wins…
+                            </div>
+                        ) : quickWinsRows.length > 0 ? (
+                            <div style={{ overflowX: 'auto' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem' }}>
+                                    <thead>
+                                        <tr style={{ textAlign: 'left', borderBottom: `1px solid ${THEME.border}` }}>
+                                            <th style={{ padding: '6px 4px' }}>Keyword</th>
+                                            <th style={{ padding: '6px 4px' }}>Position</th>
+                                            <th style={{ padding: '6px 4px' }}>Search volume</th>
+                                            <th style={{ padding: '6px 4px' }}>Keyword difficulty</th>
+                                            <th style={{ padding: '6px 4px' }}>SKU</th>
+                                            <th style={{ padding: '6px 4px' }}>Tier</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {quickWinsRows.map((row, idx) => (
+                                            <tr key={idx}>
+                                                <td style={{ padding: '6px 4px' }}>{row.keyword ?? '—'}</td>
+                                                <td style={{ padding: '6px 4px' }}>{row.position ?? '—'}</td>
+                                                <td style={{ padding: '6px 4px' }}>{row.search_volume ?? '—'}</td>
+                                                <td style={{ padding: '6px 4px' }}>{row.keyword_difficulty ?? '—'}</td>
+                                                <td style={{ padding: '6px 4px' }}>{row.sku_code ?? '—'}</td>
+                                                <td style={{ padding: '6px 4px' }}>{row.tier ?? '—'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div style={{ padding: 12, fontSize: '0.76rem', color: THEME.textMid }}>
+                                No Quick Wins rows found. Criteria: position 11–30, keyword difficulty &lt; 40, search volume &gt; 500, tier Hero or Support.
+                            </div>
+                        )}
+                    </>
+                ) : (
+                loadingHistory ? (
                     <div style={{ padding: 8, fontSize: '0.76rem', color: THEME.textMid }}>
                         Loading import history…
                     </div>
@@ -388,7 +475,7 @@ const SemrushImport = () => {
                     >
                         No keyword data yet. Upload a Semrush CSV export above.
                     </div>
-                )}
+                ))}
             </div>
 
             {/* Zone C — How to export from Semrush (collapsible instructions) */}

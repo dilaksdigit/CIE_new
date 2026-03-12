@@ -36,6 +36,11 @@ class SimilarityRequest(BaseModel):
     cluster_id: str = ""
 
 
+class BaselineUrlRequest(BaseModel):
+    """Request body for baseline GSC/GA4 metrics — single URL (landing page)."""
+    url: str = ""
+
+
 # -------- App and in-memory queues (unchanged behavior) --------
 
 app = FastAPI(
@@ -213,6 +218,72 @@ async def sku_validate(request: Request):
             message="One or more gates failed.",
         ).model_dump(),
     )
+
+
+# -------- Baseline capture (Section 17 Check 9.3) — GSC/GA4 metrics for a URL --------
+
+
+@app.post("/api/v1/baseline/gsc-metrics")
+def baseline_gsc_metrics(body: BaselineUrlRequest):
+    """
+    POST /api/v1/baseline/gsc-metrics — return GSC metrics for a landing URL (14-day window).
+    Used by PHP to populate gsc_baselines before deploy. Returns empty/null on no data (no 500).
+    """
+    url = (body.url or "").strip()
+    if not url:
+        return JSONResponse(status_code=400, content={"error": "url required"})
+    try:
+        from datetime import date, timedelta
+        from src.utils.config import Config
+        from src.integrations.gsc_client import pull_gsc_for_page
+        site_url = Config.GSC_SITE_URL or os.environ.get("GSC_SITE_URL", "")
+        if not site_url:
+            return {"impressions": None, "clicks": None, "ctr": None, "avg_position": None}
+        end = date.today()
+        start = end - timedelta(days=14)
+        snapshot = pull_gsc_for_page(site_url, url, start, end)
+        if snapshot is None:
+            return {"impressions": None, "clicks": None, "ctr": None, "avg_position": None}
+        return {
+            "impressions": snapshot.impressions,
+            "clicks": snapshot.clicks,
+            "ctr": snapshot.ctr,
+            "avg_position": snapshot.position,
+        }
+    except Exception as e:
+        logger.warning("baseline GSC metrics failed for url=%s: %s", url, e, exc_info=True)
+        return {"impressions": None, "clicks": None, "ctr": None, "avg_position": None}
+
+
+@app.post("/api/v1/baseline/ga4-metrics")
+def baseline_ga4_metrics(body: BaselineUrlRequest):
+    """
+    POST /api/v1/baseline/ga4-metrics — return GA4 metrics for a landing URL (14-day, Organic Search).
+    Used by PHP to populate gsc_baselines before deploy. Returns empty/null on no data (no 500).
+    """
+    url = (body.url or "").strip()
+    if not url:
+        return JSONResponse(status_code=400, content={"error": "url required"})
+    try:
+        from datetime import date, timedelta
+        from src.utils.config import Config
+        from src.integrations.ga4_client import pull_ga4_for_landing_page
+        property_id = Config.GA4_PROPERTY_ID or os.environ.get("GA4_PROPERTY_ID", "")
+        if not property_id:
+            return {"sessions": None, "conversion_rate": None, "revenue": None}
+        end = date.today()
+        start = end - timedelta(days=14)
+        snapshot = pull_ga4_for_landing_page(property_id, url, start, end)
+        if snapshot is None:
+            return {"sessions": None, "conversion_rate": None, "revenue": None}
+        return {
+            "sessions": snapshot.sessions,
+            "conversion_rate": snapshot.conversion_rate,
+            "revenue": snapshot.revenue,
+        }
+    except Exception as e:
+        logger.warning("baseline GA4 metrics failed for url=%s: %s", url, e, exc_info=True)
+        return {"sessions": None, "conversion_rate": None, "revenue": None}
 
 
 if __name__ == "__main__":

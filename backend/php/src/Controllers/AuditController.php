@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use App\Models\AuditLog;
+use App\Support\BusinessRules;
 
 class AuditController {
     private $pythonClient;
@@ -102,7 +103,9 @@ class AuditController {
             Log::warning("AuditController::resultsByCategory failed for {$category}: " . $e->getMessage());
         }
 
-        $passFail = $citationRate !== null ? ($citationRate >= 0.6 ? 'pass' : 'fail') : null;
+        $passFail = $citationRate !== null
+            ? ($citationRate >= (float) BusinessRules::get('decay.hero_citation_target') ? 'pass' : 'fail')
+            : null;
 
         return response()->json([
             'data' => [

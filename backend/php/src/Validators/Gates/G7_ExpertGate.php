@@ -1,8 +1,5 @@
 <?php
-// SOURCE: CIE_Master_Developer_Build_Spec.docx §7 (G7 Gate Definition)
-// SOURCE: CIE_v2.3_Enforcement_Edition.pdf §7.1 (Readiness Scoring + Thresholds)
-// SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3 (BusinessRules seed keys)
-// SOURCE: CLAUDE.md §6 Gate Table + §4 DECISION-001 (Channel scope: Shopify + GMC only)
+// SOURCE: CIE_Master_Developer_Build_Spec Section 5 (Business Rules Config Layer); CIE_v231_Developer_Build_Pack G7 spec; CLAUDE.md — zero hard-coded thresholds
 
 namespace App\Validators\Gates;
 
@@ -18,6 +15,14 @@ class G7_ExpertGate implements GateInterface
 {
     private const ALLOWED_CHANNELS = ['google_sge', 'own_website'];
 
+    private const CHANNEL_TO_STORED = [
+        'own_website' => 'shopify',
+        'shopify'    => 'shopify',
+        'google_sge' => 'gmc',
+        'gmc'        => 'gmc',
+        'google'     => 'gmc',
+    ];
+
     private const CHANNEL_MAP = [
         'shopify'     => 'own_website',
         'own_website' => 'own_website',
@@ -27,6 +32,14 @@ class G7_ExpertGate implements GateInterface
         'google'      => 'google_sge',
     ];
 
+    /** Threshold from business_rules (GATE-09) — keys channel.shopify_readiness_threshold, channel.gmc_readiness_threshold. */
+    private static function thresholdForChannel(string $storedChannel): int
+    {
+        $key = 'channel.' . $storedChannel . '_readiness_threshold';
+        $v = BusinessRules::get($key);
+        return $v !== null && $v !== '' ? (int) $v : 85;
+    }
+
     public function validate(Sku $sku): GateResult|array
     {
         $tier = $sku->tier;
@@ -35,7 +48,7 @@ class G7_ExpertGate implements GateInterface
             return new GateResult(
                 gate: GateType::G7_EXPERT,
                 passed: true,
-                reason: "G7 suspended for {$tier->displayName()} tier.",
+                reason: "Readiness check is not required for {$tier->displayName()} products.",
                 blocking: false,
                 metadata: ['status' => 'suspended']
             );
@@ -51,18 +64,17 @@ class G7_ExpertGate implements GateInterface
                 reason: "Unknown or unsupported target channel: '{$rawChannel}'.",
                 blocking: true,
                 metadata: [
-                    'error_code'   => 'CHANNEL_READINESS_BELOW_THRESHOLD',
-                    'user_message' => "Target channel '{$rawChannel}' is not recognised. "
-                        . 'Supported channels: Shopify (own_website), GMC (google_sge).',
+                    'user_message' => "Target channel '{$rawChannel}' is not recognised. Supported channels: Shopify (own_website), GMC (google_sge).",
                 ]
             );
         }
 
         $skuCode = $sku->sku_code;
+        $storedChannel = self::CHANNEL_TO_STORED[$channel] ?? $channel;
 
         $readinessRow = DB::table('channel_readiness')
             ->where('sku_id', $skuCode)
-            ->where('channel', $channel)
+            ->where('channel', $storedChannel)
             ->first();
 
         $score = $readinessRow ? (int) $readinessRow->score : 0;
@@ -70,26 +82,26 @@ class G7_ExpertGate implements GateInterface
         $failures = [];
 
         if ($tier === TierType::HERO) {
-            $primaryThreshold = (int) BusinessRules::get('readiness.hero_primary_channel_min');
+            $primaryThreshold = self::thresholdForChannel($storedChannel);
             if ($score < $primaryThreshold) {
                 $failures[] = $this->buildFailure($score, $primaryThreshold, $channel);
             }
 
-            $allThreshold = (int) BusinessRules::get('readiness.hero_all_channels_min');
             $otherRows = DB::table('channel_readiness')
                 ->where('sku_id', $skuCode)
-                ->whereIn('channel', self::ALLOWED_CHANNELS)
-                ->where('channel', '!=', $channel)
+                ->whereIn('channel', array_values(self::CHANNEL_TO_STORED))
+                ->where('channel', '!=', $storedChannel)
                 ->get();
 
             foreach ($otherRows as $row) {
                 $rowScore = (int) $row->score;
-                if ($rowScore < $allThreshold) {
-                    $failures[] = $this->buildFailure($rowScore, $allThreshold, $row->channel);
+                $otherThreshold = self::thresholdForChannel($row->channel);
+                if ($rowScore < $otherThreshold) {
+                    $failures[] = $this->buildFailure($rowScore, $otherThreshold, $row->channel);
                 }
             }
         } elseif ($tier === TierType::SUPPORT) {
-            $supportThreshold = (int) BusinessRules::get('readiness.support_primary_channel_min');
+            $supportThreshold = self::thresholdForChannel($storedChannel);
             if ($score < $supportThreshold) {
                 $failures[] = $this->buildFailure($score, $supportThreshold, $channel);
             }

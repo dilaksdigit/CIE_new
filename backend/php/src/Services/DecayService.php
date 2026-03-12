@@ -1,4 +1,5 @@
 <?php
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 12
 namespace App\Services;
 
 use App\Models\Sku;
@@ -33,12 +34,17 @@ class DecayService
         // Advance decay (consecutive zero weeks)
         $newZeros = (int) ($sku->decay_consecutive_zeros ?? 0) + 1;
 
+        $yellowFlagWeeks = (int) BusinessRules::get('decay.yellow_flag_weeks');
+        $alertWeeks = (int) BusinessRules::get('decay.alert_weeks');
+        $autoBriefWeeks = (int) BusinessRules::get('decay.auto_brief_weeks');
+        $escalateWeeks = (int) BusinessRules::get('decay.escalate_weeks');
+
         $status = match (true) {
-            $newZeros === 1 => (string) BusinessRules::get('decay.week1_status', 'yellow_flag'),
-            $newZeros === 2 => (string) BusinessRules::get('decay.week2_status', 'alert'),
-            $newZeros === 3 => (string) BusinessRules::get('decay.week3_status', 'auto_brief'),
-            $newZeros >= 4  => (string) BusinessRules::get('decay.week4_status', 'escalated'),
-            default         => 'none',
+            $newZeros >= $escalateWeeks => 'escalated',
+            $newZeros >= $autoBriefWeeks => 'auto_brief',
+            $newZeros >= $alertWeeks    => 'alert',
+            $newZeros >= $yellowFlagWeeks => 'yellow_flag',
+            default                     => 'none',
         };
 
         $sku->update([
@@ -54,10 +60,10 @@ class DecayService
 
     private function handleDecayEscalation(Sku $sku, int $weeks, string $status): void
     {
-        $week1 = (string) BusinessRules::get('decay.week1_status', 'yellow_flag');
-        $week2 = (string) BusinessRules::get('decay.week2_status', 'alert');
-        $week3 = (string) BusinessRules::get('decay.week3_status', 'auto_brief');
-        $week4 = (string) BusinessRules::get('decay.week4_status', 'escalated');
+        $week1 = 'yellow_flag';
+        $week2 = 'alert';
+        $week3 = 'auto_brief';
+        $week4 = 'escalated';
         switch ($status) {
             case $week1:
                 $this->notify($sku, 'yellow_flag', "Citation zero in week 1. Monitoring.");
@@ -83,12 +89,14 @@ class DecayService
 
     private function generateAutoBrief(Sku $sku): void
     {
+        $deadlineDays = (int) BusinessRules::get('decay.auto_brief_deadline_days');
         $brief = \App\Models\ContentBrief::create([
             'sku_id' => $sku->id,
             'brief_type' => 'DECAY_REFRESH',
             'title' => 'Auto-brief: 3-week citation decay – ' . ($sku->title ?? $sku->sku_code ?? $sku->id),
             'description' => '3-Week Citation Decay (Auto-generated). Refresh answer block and authority content.',
             'status' => 'OPEN',
+            'deadline' => now()->addDays($deadlineDays)->toDateString(),
         ]);
 
         // Queue brief generation in Python worker so actual brief content is produced

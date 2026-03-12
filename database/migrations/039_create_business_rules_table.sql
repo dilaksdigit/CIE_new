@@ -1,7 +1,9 @@
 SET NAMES utf8mb4;
 
 -- CIE v2.3.2 – business_rules table for configurable thresholds (no hard-coded values in engine).
--- All 53 rules seeded in 040_seed_business_rules.sql.
+-- All business rules seeded in 040_seed_business_rules.sql.
+-- Original spec: 52 rules (CIE_Master_Developer_Build_Spec.docx §5.3).
+-- Additional rules added for keys referenced by application code.
 
 CREATE TABLE IF NOT EXISTS business_rules (
     id CHAR(36) PRIMARY KEY DEFAULT (UUID()),

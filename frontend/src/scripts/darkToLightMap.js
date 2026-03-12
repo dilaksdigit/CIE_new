@@ -14,13 +14,13 @@
 const darkToLightMap = {
 
   // ── Common dark backgrounds ──────────────────────────────────────────
-  "#0f0f0f": { replacement: "#FAFAF8", token: "bg" },
-  "#111111": { replacement: "#FAFAF8", token: "bg" },
-  "#121212": { replacement: "#FAFAF8", token: "bg" },
-  "#141414": { replacement: "#FAFAF8", token: "bg" },
-  "#1a1a1a": { replacement: "#FAFAF8", token: "bg" },
-  "#1c1c1c": { replacement: "#FAFAF8", token: "bg" },
-  "#1e1e1e": { replacement: "#FAFAF8", token: "bg" },
+  "#0f0f0f": { replacement: "#FAFAFA", token: "bg" },
+  "#111111": { replacement: "#FAFAFA", token: "bg" },
+  "#121212": { replacement: "#FAFAFA", token: "bg" },
+  "#141414": { replacement: "#FAFAFA", token: "bg" },
+  "#1a1a1a": { replacement: "#FAFAFA", token: "bg" },
+  "#1c1c1c": { replacement: "#FAFAFA", token: "bg" },
+  "#1e1e1e": { replacement: "#FAFAFA", token: "bg" },
   "#212121": { replacement: "#FAFAF8", token: "bg" },
   "#222222": { replacement: "#FAFAF8", token: "bg" },
   "#242424": { replacement: "#FAFAF8", token: "bg" },
@@ -111,13 +111,13 @@ const darkToLightMap = {
  * The script must also scan for these string patterns.
  */
 const cssVarMap = {
-  "--bg-dark":        { replacement: "var(--bg)",        token: "bg",        hex: "#FAFAF8" },
+  "--bg-dark":        { replacement: "var(--bg)",        token: "bg",        hex: "#FAFAFA" },
   "--surface-dark":   { replacement: "var(--surface)",   token: "surface",   hex: "#FFFFFF" },
   "--card-dark":      { replacement: "var(--surface)",   token: "surface",   hex: "#FFFFFF" },
-  "--panel-dark":     { replacement: "var(--muted)",     token: "muted",     hex: "#F5F4F1" },
-  "--border-dark":    { replacement: "var(--border)",    token: "border",    hex: "#E5E3DE" },
-  "--text-light":     { replacement: "var(--text)",      token: "text",      hex: "#2D2B28" },
-  "--text-dim":       { replacement: "var(--textMid)",   token: "textMid",   hex: "#6B6860" },
+  "--panel-dark":     { replacement: "var(--muted)",     token: "muted",     hex: "#F5F5F4" },
+  "--border-dark":    { replacement: "var(--border)",    token: "border",    hex: "#E5E5E5" },
+  "--text-light":     { replacement: "var(--text)",      token: "text",      hex: "#2D2D2D" },
+  "--text-dim":       { replacement: "var(--textMid)",   token: "textMid",   hex: "#6B6B6B" },
   "--text-muted":     { replacement: "var(--textLight)", token: "textLight", hex: "#9B978F" },
 };
 

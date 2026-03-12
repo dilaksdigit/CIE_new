@@ -1,5 +1,4 @@
 {
-  // SOURCE: CLAUDE.md §4 DECISION-001; CIE_v232_FINAL_Developer_Instruction.docx §1.5
   "name": "W6 Channel Deploy",
   "id": "W6_channel_deploy",
   "nodes": [
@@ -61,10 +60,6 @@
           {
             "operation": "equal",
             "value2": "gmc"
-          },
-          {
-            "operation": "equal",
-            "value2": "amazon"
           }
         ]
       }
@@ -126,7 +121,10 @@
               "value1": "={{$json[\"statusCode\"] || 200}}",
               "operation": "smallerOrEqual",
               "value2": 299
-            // Amazon branch removed per DECISION-001
+            }
+          ]
+        }
+      }
     },
     {
       "id": "HTTP_Channel_Deployed",
@@ -210,8 +208,7 @@
             "type": "main",
             "index": 0
           }
-        ],
-        // Amazon connection removed per DECISION-001
+        ]
       ]
     },
     "Shopify metafield push": {
@@ -236,7 +233,6 @@
         ]
       ]
     },
-    // Amazon node connections removed per DECISION-001
     "Deploy OK?": {
       "main": [
         [

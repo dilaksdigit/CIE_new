@@ -4,14 +4,18 @@ import {
     ReadinessBar,
     SectionTitle
 } from '../components/common/UIComponents';
-import { dashboardApi } from '../services/api';
+import { dashboardApi, configApi } from '../services/api';
 
-const HEATMAP_CHANNELS = ['own_website', 'google_sge', 'amazon', 'ai_assistants'];
+// SOURCE: CLAUDE.md Section 4 — DECISION-001
+const HEATMAP_CHANNELS = ['shopify', 'gmc'];
 
 const Maturity = () => {
     const [summary, setSummary] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    // §5.3 readiness.hero_primary_channel_min / readiness.support_primary_channel_min — no literals; null until API loads
+    const [greenMin, setGreenMin] = useState(null);
+    const [amberMin, setAmberMin] = useState(null);
 
     const fetchSummary = useCallback(async () => {
         try {
@@ -29,13 +33,38 @@ const Maturity = () => {
         fetchSummary();
     }, [fetchSummary]);
 
+    useEffect(() => {
+        let cancelled = false;
+        configApi
+            .get()
+            .then((res) => {
+                if (cancelled) return;
+                const raw = res.data?.data ?? res.data ?? {};
+                const readiness = raw.readiness || {};
+                const greenVal = readiness.hero_primary_channel_min;
+                const amberVal = readiness.support_primary_channel_min;
+                if (greenVal != null && greenVal !== '') {
+                    const n = parseInt(String(greenVal), 10);
+                    if (!Number.isNaN(n)) setGreenMin(n);
+                }
+                if (amberVal != null && amberVal !== '') {
+                    const n = parseInt(String(amberVal), 10);
+                    if (!Number.isNaN(n)) setAmberMin(n);
+                }
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const tierSummary = summary?.tier_summary ?? [];
     const categoryHeatmap = summary?.category_heatmap ?? [];
 
     const TIERS = {
         HERO: { bg: "#FDF6E3", border: "#E8D5A0", color: "#8B6914" },
         SUPPORT: { bg: "#EBF3F9", border: "#B5D0E3", color: "#3D6B8E" },
-        HARVEST: { bg: "#FFF8E7", border: "#E8D49A", color: "#9E7C1A" },
+        HARVEST: { bg: "#FFF8E7", border: "#E8D49A", color: "#B8860B" },
         KILL: { bg: "#FDEEEB", border: "#E5B5AD", color: "#A63D2F" },
     };
 
@@ -55,7 +84,9 @@ const Maturity = () => {
                     {categoryHeatmap.map((row) => {
                         const channelScores = HEATMAP_CHANNELS.map(ch => row[ch] ?? 0).filter(Boolean);
                         const avgPct = channelScores.length ? Math.round(channelScores.reduce((a, b) => a + b, 0) / channelScores.length) : 0;
-                        const color = avgPct > 85 ? "var(--green)" : avgPct >= 60 ? "var(--amber)" : "var(--red)";
+                        const color = greenMin !== null && amberMin !== null
+                            ? (avgPct >= greenMin ? "var(--green)" : avgPct >= amberMin ? "var(--amber)" : "var(--red)")
+                            : "var(--text-muted)";
                         return (
                             <div key={row.category} className="card" style={{ flex: 1, minWidth: 220 }}>
                                 <div className="flex justify-between items-center mb-14">

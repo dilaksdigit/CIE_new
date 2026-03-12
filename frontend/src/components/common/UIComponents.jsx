@@ -1,3 +1,4 @@
+// SOURCE: CLAUDE.md Section 8 (no emojis in production UI); CIE_v232_Developer_Amendment_Pack Section 8 check #7
 // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 6
 import React from 'react';
 
@@ -15,7 +16,7 @@ export const TierBadge = ({ tier, size = 'sm' }) => (
 // ─── GATE CHIP ──────────────────────────────────────
 export const GateChip = ({ id, pass, compact }) => (
     <span className={`gate-chip ${pass ? 'pass' : 'fail'} ${compact ? 'compact' : ''}`}>
-        <span className="check">{pass ? '✓' : '✗'}</span>
+        <span className="check">{pass ? 'Pass' : 'Fail'}</span>
     </span>
 );
 
@@ -46,18 +47,24 @@ export const RoleBadge = ({ role }) => {
 };
 
 // ─── READINESS BAR ──────────────────────────────────
-export const ReadinessBar = ({ value, width = 80 }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ width, height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{
-                width: `${value}%`, height: '100%', borderRadius: 3,
-                background: value >= 80 ? 'var(--green)' : value >= 60 ? 'var(--amber)' : 'var(--red)',
-                transition: 'width 0.6s ease',
-            }} />
+export const ReadinessBar = ({ value, width = 80, greenThreshold, amberThreshold }) => {
+    const hasThresholds = greenThreshold != null && amberThreshold != null;
+    const barColor = hasThresholds
+        ? (value >= greenThreshold ? 'var(--green)' : value >= amberThreshold ? 'var(--amber)' : 'var(--red)')
+        : 'var(--text-muted)';
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width, height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{
+                    width: `${value}%`, height: '100%', borderRadius: 3,
+                    background: barColor,
+                    transition: 'width 0.6s ease',
+                }} />
+            </div>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--mono)', minWidth: 28 }}>{value}%</span>
         </div>
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'var(--mono)', minWidth: 28 }}>{value}%</span>
-    </div>
-);
+    );
+};
 
 // ─── STAT CARD ──────────────────────────────────────
 export const StatCard = ({ label, value, sub, color, icon }) => (
@@ -159,8 +166,9 @@ export const MiniBarChart = ({ data, width = 240, height = 80 }) => {
 };
 
 // ─── CHANNEL BADGE ──────────────────────────────────
+// SOURCE: CLAUDE.md Section 4 (DECISION-001) — Amazon deferred. Channels: shopify, gmc only.
 export const ChannelBadge = ({ channel }) => {
-    const map = { Amazon: THEME.hero, eBay: THEME.accent, Shopify: THEME.support, Website: THEME.textMid };
+    const map = { eBay: THEME.accent, Shopify: THEME.support, Website: THEME.textMid };
     const bg = map[channel] || 'var(--text-muted)';
     return (
         <span style={{

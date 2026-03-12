@@ -76,11 +76,14 @@ class TierController {
             $wVelocity = self::tierWeight('tier.velocity_weight', 0.20);
             $wReturns = self::tierWeight('tier.returns_weight', 0.15);
 
+            $safeCppc = max($cppc, 0.001);
+            $safeVelocity = max($velocity, 0.001);
+
             $score =
-                (($marginPct / 100.0) * $wMargin) +
-                ((1.0 / max($cppc, 0.01)) * $wCppc) +
-                (($velocity / $maxVelocity) * $wVelocity) +
-                ((1.0 - ($returnPct / 100.0)) * $wReturns);
+                ($marginPct / 100.0) * $wMargin
+                + ((1.0 / $safeCppc) * 10.0 * $wCppc)
+                + (log10($safeVelocity) * 25.0 * $wVelocity)
+                + ((1.0 - ($returnPct / 100.0)) * $wReturns);
 
             $scoresBySkuCode[$skuCode] = round((float) $score, 6);
         }
@@ -174,7 +177,7 @@ class TierController {
                     // Override only valid when approved_by AND second_approver are both non-null.
                     // Override = NONE for gate G6.1 per CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 —
                     // this means no UNILATERAL override. Dual-approved admin overrides are permitted.
-                    $expiryDays = (int) BusinessRules::get('tier.manual_override_expiry_days', 90);
+                    $expiryDays = (int) BusinessRules::get('tier.manual_override_expiry_days');
                     if ($expiryDays > 0) {
                         $lastOverride = TierHistory::where('sku_id', $sku->id)
                             ->where(function ($q) {

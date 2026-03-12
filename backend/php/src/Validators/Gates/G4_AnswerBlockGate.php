@@ -14,15 +14,15 @@ class G4_AnswerBlockGate implements GateInterface
         $answer = trim((string) ($sku->ai_answer_block ?? ''));
         $len = strlen($answer);
 
-        $minLen = (int) BusinessRules::get('g4.answer_block_min', 250);
-        $maxLen = (int) BusinessRules::get('g4.answer_block_max', 300);
+        $minLen = (int) BusinessRules::get('gates.answer_block_min_chars');
+        $maxLen = (int) BusinessRules::get('gates.answer_block_max_chars');
         
         // Harvest SKUs have G4 suspended (spec: Harvest maintenance mode)
         if ($sku->tier === 'HARVEST') {
             return new GateResult(
                 gate: GateType::G4_ANSWER_BLOCK,
                 passed: true,
-                reason: 'G4 Suspended for Harvest tier.',
+                reason: 'Answer block check is not required for this product tier.',
                 blocking: false
             );
         }
@@ -31,7 +31,7 @@ class G4_AnswerBlockGate implements GateInterface
             return new GateResult(
                 gate: GateType::G4_ANSWER_BLOCK,
                 passed: false,
-                reason: "Gate G4 Failed: Answer Block too short ({$len}/{$minLen} min).",
+                reason: 'Your answer block is too short. It must be at least 250 characters.',
                 blocking: true
             );
         }
@@ -40,7 +40,7 @@ class G4_AnswerBlockGate implements GateInterface
             return new GateResult(
                 gate: GateType::G4_ANSWER_BLOCK,
                 passed: false,
-                reason: "Gate G4 Failed: Answer Block too long ({$len}/{$maxLen} max).",
+                reason: 'Your answer block is too long. It must be no more than 300 characters.',
                 blocking: true
             );
         }
@@ -56,18 +56,20 @@ class G4_AnswerBlockGate implements GateInterface
                 return new GateResult(
                     gate: GateType::G4_ANSWER_BLOCK,
                     passed: false,
-                    reason: "Gate G4 Failed: Answer Block must not start with the brand name ('{$brand}').",
+                    reason: 'Your answer block cannot start with the brand name.',
                     blocking: true
                 );
             }
 
-            // Simple marketing-fluff heuristic: too many brand mentions relative to length
+            // Simple marketing-fluff heuristic: too many brand mentions relative to length (§5.3: not in 52 rules; hard-coded)
             $brandCount = substr_count($normalizedAnswer, $normalizedBrand);
-            if ($brandCount >= 3 && $len < 400) {
+            $brandCountThreshold = 3;
+            $lenGuard            = 400;
+            if ($brandCount >= $brandCountThreshold && $len < $lenGuard) {
                 return new GateResult(
                     gate: GateType::G4_ANSWER_BLOCK,
                     passed: false,
-                    reason: "Gate G4 Failed: Answer Block appears to be marketing copy (brand mentioned {$brandCount} times).",
+                    reason: 'Your answer block appears to be marketing copy. Reduce brand mentions and focus on the customer question.',
                     blocking: true
                 );
             }
@@ -83,7 +85,7 @@ class G4_AnswerBlockGate implements GateInterface
                 return new GateResult(
                     gate: GateType::G4_ANSWER_BLOCK,
                     passed: false,
-                    reason: "Gate G4 Failed: Answer Block must contain the Primary Intent keyword ('{$keyword}').",
+                    reason: 'Your answer block must include the primary intent keyword.',
                     blocking: true
                 );
             }

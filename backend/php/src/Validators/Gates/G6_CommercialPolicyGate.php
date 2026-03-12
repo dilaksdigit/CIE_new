@@ -1,4 +1,6 @@
 <?php
+// SOURCE: CLAUDE.md Section 6 (G6.1); CLAUDE.md Section 7 (Kill = total lockout); Hardening_Addendum Patch 6; CIE_v231_Developer_Build_Pack G6.1 spec
+
 namespace App\Validators\Gates;
 
 use App\Models\Sku;
@@ -10,20 +12,35 @@ use App\Validators\GateInterface;
 
 class G6_CommercialPolicyGate implements GateInterface
 {
+    /** Kill tier block — all fields read-only (CLAUDE.md Section 7). */
+    private const KILL_MESSAGE = 'This product is in Kill tier. All content fields are read-only. No editing is permitted. If you believe this classification is wrong, contact your Portfolio Holder to request a tier review.';
+
+    /** Harvest suspended field (Hardening_Addendum Patch 6). */
+    private const HARVEST_FIELD_MESSAGE = 'This field is not available for Harvest tier products. Focus on Specification data only.';
+
     public function validate(Sku $sku): GateResult
     {
-        // G6: Kill-tier absolute lock
+        $tierRaw = $sku->tier;
+        if ($tierRaw === null || (is_string($tierRaw) && trim($tierRaw) === '')) {
+            return new GateResult(
+                gate: GateType::G6_COMMERCIAL_POLICY,
+                passed: false,
+                reason: 'SKU has no tier assigned.',
+                blocking: true,
+                metadata: ['user_message' => 'This SKU has no tier assigned. Contact your administrator.']
+            );
+        }
+
         if ($sku->tier === TierType::KILL) {
             return new GateResult(
                 gate: GateType::G6_COMMERCIAL_POLICY,
                 passed: false,
-                reason: 'Gate G6 Failed: KILL-tier SKUs must have zero effort. Any edit is a policy violation.',
-                blocking: true
+                reason: self::KILL_MESSAGE,
+                blocking: true,
+                metadata: ['user_message' => self::KILL_MESSAGE]
             );
         }
 
-        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 Gate G6.1
-        // Harvest-tier: only specification + 1 optional secondary intent (problem_solving | compatibility)
         if ($sku->tier === TierType::HARVEST) {
             $harvestBlockedFields = [
                 'answer_block', 'best_for', 'not_for',
@@ -36,9 +53,9 @@ class G6_CommercialPolicyGate implements GateInterface
                     return new GateResult(
                         gate: GateType::G6_COMMERCIAL_POLICY,
                         passed: false,
-                        reason: "Gate G6.1 Failed: Harvest tier SKU attempted write to restricted field '{$field}'. Only Specification + 1 optional intent allowed.",
+                        reason: self::HARVEST_FIELD_MESSAGE,
                         blocking: true,
-                        metadata: ['error_code' => 'CIE_G6_1_TIER_INTENT_BLOCKED']
+                        metadata: ['user_message' => self::HARVEST_FIELD_MESSAGE]
                     );
                 }
             }
@@ -48,9 +65,9 @@ class G6_CommercialPolicyGate implements GateInterface
                 return new GateResult(
                     gate: GateType::G6_COMMERCIAL_POLICY,
                     passed: false,
-                    reason: 'Gate G6.1 Failed: Harvest tier allows max 1 secondary intent. Found: ' . $secondaryIntents->count() . '.',
+                    reason: self::HARVEST_FIELD_MESSAGE,
                     blocking: true,
-                    metadata: ['error_code' => 'CIE_G6_1_TIER_INTENT_BLOCKED']
+                    metadata: ['user_message' => self::HARVEST_FIELD_MESSAGE]
                 );
             }
 
@@ -62,9 +79,9 @@ class G6_CommercialPolicyGate implements GateInterface
                     return new GateResult(
                         gate: GateType::G6_COMMERCIAL_POLICY,
                         passed: false,
-                        reason: "Gate G6.1 Failed: Harvest tier secondary intent must be 'problem_solving' or 'compatibility'. Got: '{$intentKey}'.",
+                        reason: self::HARVEST_FIELD_MESSAGE,
                         blocking: true,
-                        metadata: ['error_code' => 'CIE_G6_1_TIER_INTENT_BLOCKED']
+                        metadata: ['user_message' => self::HARVEST_FIELD_MESSAGE]
                     );
                 }
             }
@@ -88,7 +105,7 @@ class G6_CommercialPolicyGate implements GateInterface
                     return new GateResult(
                         gate: GateType::G6_COMMERCIAL_POLICY,
                         passed: false,
-                        reason: "Gate G6.1 Failed: Intent '{$intentName}' not permitted for tier '{$tierKey}'.",
+                        reason: "The selected intent is not permitted for this product's tier.",
                         blocking: true
                     );
                 }

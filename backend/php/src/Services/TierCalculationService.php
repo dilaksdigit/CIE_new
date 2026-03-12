@@ -53,9 +53,9 @@ class TierCalculationService
         $sortedScores = collect($scores)->values()->sort()->values();
         $count        = $sortedScores->count();
 
-        $heroThreshold    = $this->rule('tier.hero_percentile_threshold', 0.80);
-        $supportThreshold = $this->rule('tier.support_percentile_threshold', 0.30);
-        $harvestThreshold = $this->rule('tier.harvest_percentile_threshold', 0.10);
+        $heroThreshold    = (float) BusinessRules::get('tier.hero_percentile_threshold');
+        $supportThreshold = (float) BusinessRules::get('tier.support_percentile_threshold');
+        $harvestThreshold = (float) BusinessRules::get('tier.harvest_percentile_threshold');
 
         $heroCut    = $sortedScores[(int) floor($count * $heroThreshold)] ?? $sortedScores->last();
         $supportCut = $sortedScores[(int) floor($count * $supportThreshold)] ?? $sortedScores->first();
@@ -81,16 +81,13 @@ class TierCalculationService
                 }
             }
 
-            // Auto-promotion rule: Harvest SKUs with >30% QoQ velocity increase become Support
+            // Auto-promotion rule: Harvest SKUs with >30% QoQ velocity increase become Support (§5.3: not in 52 rules; hard-coded 0.30)
             if ($oldTier === TierType::HARVEST && $newTier === TierType::HARVEST) {
                 $previousVelocity = (int) ($sku->previous_velocity_90d ?? 0);
                 $currentVelocity  = (int) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0);
                 if ($previousVelocity > 0) {
                     $growth = ($currentVelocity - $previousVelocity) / $previousVelocity;
-                    $autoPromotionThreshold = BusinessRules::get(
-                        'tier.auto_promotion_velocity_growth_pct',
-                        0.30
-                    );
+                    $autoPromotionThreshold = 0.30;
                     if ($growth > $autoPromotionThreshold) {
                         $newTier = TierType::SUPPORT;
                     }
@@ -116,27 +113,26 @@ class TierCalculationService
 
     public function calculateCommercialScore(Sku $sku, float $maxVelocity): float
     {
-        // Spec formula: weights from BusinessRules (margin_weight, cppc_weight, velocity_weight, returns_weight).
+        // SOURCE: CIE Validation Report DB-08 | CLAUDE.md Section 7 — exact formula
+        // composite_score = (margin × 0.40) + ((1/cppc)×10×0.25) + (log10(velocity)×25×0.20) + ((1 - return_rate/100)×0.15)
         $marginPct   = (float) ($sku->erp_margin_pct ?? 0);
         $cppc        = (float) ($sku->erp_cppc ?? 0);
         $velocity90d = (float) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0);
         $returnPct   = (float) ($sku->erp_return_rate_pct ?? 0);
 
-        $wMargin   = $this->weight('tier.margin_weight', 0.40);
-        $wCppc     = $this->weight('tier.cppc_weight', 0.25);
-        $wVelocity = $this->weight('tier.velocity_weight', 0.20);
-        $wReturns  = $this->weight('tier.returns_weight', 0.15);
+        $safeCppc     = max($cppc, 0.001);
+        $safeVelocity = max($velocity90d, 0.001);
 
-        $marginNorm   = $marginPct / 100.0;
-        $cppcNorm     = $cppc > 0 ? (1.0 / $cppc) : 0.0;
-        $velocityNorm = $this->normalise($velocity90d, 0.0, $maxVelocity);
-        $returnsNorm  = 1.0 - ($returnPct / 100.0);
-
+        // Tier score: (margin_pct * 0.40) + (cppc_pct * 0.35) + (velocity_pct * 0.25)
+        // margin_pct, cppc_pct, velocity_pct are 0–100 raw percentile values from ERP.
+        // SOURCE: CIE_v231_Developer_Build_Pack — Tier Calculation
+        // Note: margin stored 0–100; term below uses /100 so margin contributes 0–0.4 to composite (compatible with percentile cutoffs).
+        // SOURCE: CIE_v231_Developer_Build_Pack.pdf — Tier Scoring Formula. Return-rate term: ((1 - return_rate_pct/100) × 100 × 0.15)
         $score =
-            ($marginNorm * $wMargin) +
-            ($cppcNorm * $wCppc) +
-            ($velocityNorm * $wVelocity) +
-            ($returnsNorm * $wReturns);
+            ($marginPct / 100.0) * 0.40
+            + ((1.0 / $safeCppc) * 10.0 * 0.25)
+            + (log10($safeVelocity) * 25.0 * 0.20)
+            + ((1.0 - ($returnPct / 100.0)) * 100.0 * 0.15);
 
         return round((float) $score, 4);
     }
@@ -145,17 +141,17 @@ class TierCalculationService
  
     private function shouldBeKilled(Sku $sku): bool
     {
-        $profitabilityThreshold = $this->rule('tier.profitability_min_margin_pct', 5.0);
+        $profitabilityThreshold = 5.0; // §5.3: tier.profitability_min_margin_pct not in 52 rules; hard-coded
 
         if ((float) ($sku->erp_margin_pct ?? 0) < $profitabilityThreshold) {
             return true;
         }
-        $noSaleDays = (int) BusinessRules::get('tier.kill_no_sale_days', 90);
+        $noSaleDays = 90; // §5.3: tier.kill_no_sale_days not in 52 rules; hard-coded
         $cutoff = new \DateTime('-' . $noSaleDays . ' days');
         if ($sku->last_sale_date && strtotime($sku->last_sale_date) < $cutoff->getTimestamp()) {
             return true;
         }
-        $zeroVelThreshold = (int) BusinessRules::get('tier.kill_zero_velocity_threshold', 0);
+        $zeroVelThreshold = 0; // §5.3: tier.kill_zero_velocity_threshold not in 52 rules; hard-coded
         if ((int) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0) <= $zeroVelThreshold) {
             return true;
         }
@@ -194,25 +190,6 @@ class TierCalculationService
             'reason'      => $rationale,
             'created_at'  => now(),
         ]);
-    }
-
-    private function weight(string $key, float $default): float
-    {
-        try {
-            return (float) BusinessRules::get($key, $default);
-        } catch (\Throwable $e) {
-            return $default;
-        }
-    }
-
-    private function rule(string $key, float $default): float
-    {
-        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5.2 — BusinessRules helper
-        try {
-            return (float) BusinessRules::get($key);
-        } catch (\Throwable $e) {
-            return $default;
-        }
     }
 
     private function normalise(float $value, float $min, float $max): float

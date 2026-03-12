@@ -39,7 +39,7 @@ class BusinessRulesService
      */
     public function all(): array
     {
-        $ttl = (int) $this->getRaw('business_rules.cache_ttl_seconds', 300);
+        $ttl = 300; // §5.3: business_rules.cache_ttl_seconds not in 52 rules; hard-coded
         return Cache::remember(self::CACHE_KEY, $ttl, function () {
             return $this->loadFromDb();
         });

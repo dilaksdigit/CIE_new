@@ -1,3 +1,4 @@
+// SOURCE: CLAUDE.md Section 8 (no emojis in production UI); CIE_v232_Developer_Amendment_Pack Section 8 check #7
 import React, { useState, useEffect, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -9,7 +10,7 @@ import {
     TrafficLight,
     GATES
 } from '../components/common/UIComponents';
-import { skuApi, clusterApi, taxonomyApi } from '../services/api';
+import { skuApi, clusterApi, taxonomyApi, configApi } from '../services/api';
 import { AppContext } from '../App';
 import {
     canEditSkuAny,
@@ -23,7 +24,7 @@ import { getTierBanner, isFieldEnabledForTier, getMaxSecondaryIntents, normalize
 const TIERS = {
     HERO: { label: "HERO", color: "#8B6914", bg: "#FDF6E3", border: "#E8D5A0" },
     SUPPORT: { label: "SUPPORT", color: "#3D6B8E", bg: "#EBF3F9", border: "#B5D0E3" },
-    HARVEST: { label: "HARVEST", color: "#9E7C1A", bg: "#FFF8E7", border: "#E8D49A" },
+    HARVEST: { label: "HARVEST", color: "#B8860B", bg: "#FFF8E7", border: "#E8D49A" },
     KILL: { label: "KILL", color: "#A63D2F", bg: "#FDEEEB", border: "#E5B5AD" },
 };
 
@@ -39,6 +40,42 @@ const SkuEdit = () => {
     const [unauthorizedReason, setUnauthorizedReason] = useState(null);
     const [clusters, setClusters] = useState([]);
     const [intentsForTier, setIntentsForTier] = useState([]);
+
+    // §5.3 gates.answer_block_min_chars / gates.answer_block_max_chars, content.title_max_length — no literals; null until API loads
+    const [answerBlockMin, setAnswerBlockMin] = useState(null);
+    const [answerBlockMax, setAnswerBlockMax] = useState(null);
+    const [titleMaxLength, setTitleMaxLength] = useState(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        configApi
+            .get()
+            .then((res) => {
+                if (cancelled) return;
+                const raw = res.data?.data ?? res.data ?? {};
+                const gates = raw.gates || {};
+                const content = raw.content || {};
+                const minVal = gates.answer_block_min_chars;
+                const maxVal = gates.answer_block_max_chars;
+                const titleMaxVal = content.title_max_length;
+                if (minVal != null && minVal !== '') {
+                    const n = parseInt(String(minVal), 10);
+                    if (!Number.isNaN(n)) setAnswerBlockMin(n);
+                }
+                if (maxVal != null && maxVal !== '') {
+                    const n = parseInt(String(maxVal), 10);
+                    if (!Number.isNaN(n)) setAnswerBlockMax(n);
+                }
+                if (titleMaxVal != null && titleMaxVal !== '') {
+                    const n = parseInt(String(titleMaxVal), 10);
+                    if (!Number.isNaN(n)) setTitleMaxLength(n);
+                }
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     // RBAC: field-level permissions (see frontend/src/lib/rbac.js)
     const canEditContent = () => sku && canEditContentFieldsForTier(user, sku);
@@ -126,8 +163,9 @@ const SkuEdit = () => {
         // Content editors CANNOT override validation gate failures (RBAC critical rule)
         if (isSubmit) {
             const blockedGates = [];
+            // F3 STOP: gates.title_min_chars not in §5.3 seed — de-hardcode after architect adds key (default 50)
             if (!sku.title || sku.title.length < 50) blockedGates.push('G2');
-            if (!sku.short_description || sku.short_description.length < 250) blockedGates.push('G4');
+            if (answerBlockMin !== null && (!sku.short_description || sku.short_description.length < answerBlockMin)) blockedGates.push('G4');
             if (blockedGates.length > 0) {
                 addNotification({
                     type: 'error',
@@ -168,6 +206,28 @@ const SkuEdit = () => {
         }
     };
 
+    const handleRollback = async () => {
+        if (!id || !sku) return;
+        try {
+            const res = await skuApi.getRollbackContent(id);
+            const content = res.data?.data?.content ?? res.data?.content ?? {};
+            setSku(prev => ({
+                ...prev,
+                title: content.title ?? prev.title,
+                short_description: content.short_description ?? prev.short_description,
+                long_description: content.long_description ?? prev.long_description,
+                ai_answer_block: content.ai_answer_block ?? prev.ai_answer_block,
+                best_for: content.best_for ?? prev.best_for,
+                not_for: content.not_for ?? prev.not_for,
+                expert_authority: content.expert_authority ?? prev.expert_authority,
+            }));
+            addNotification({ type: 'success', message: 'Original content loaded into form. Save to persist or edit further.' });
+        } catch (err) {
+            console.error('Rollback failed:', err);
+            addNotification({ type: 'error', message: err.response?.data?.error || 'No rollback content available' });
+        }
+    };
+
     if (loading) return <div style={{ padding: 40, textAlign: 'center' }}>Loading SKU details...</div>;
 
     if (!id) {
@@ -183,7 +243,7 @@ const SkuEdit = () => {
     if (!sku) {
         return (
             <div style={{ padding: 60, textAlign: 'center' }}>
-                <div style={{ fontSize: '3rem', color: 'var(--red)', marginBottom: 20 }}>⚠</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--red)', marginBottom: 20 }}>Warning</div>
                 <h2 style={{ color: 'var(--text)' }}>SKU Not Found</h2>
                 <p style={{ color: 'var(--text-dim)', marginBottom: 24 }}>The SKU ID "{id}" does not exist in the database or you lack permission to view it.</p>
                 <button className="btn btn-secondary" onClick={() => navigate('/')}>Return to Dashboard</button>
@@ -195,7 +255,6 @@ const SkuEdit = () => {
     if (unauthorizedReason) {
         return (
             <div style={{ padding: 60, textAlign: 'center' }}>
-                <div style={{ fontSize: '3rem', color: 'var(--orange)', marginBottom: 20 }}>🔒</div>
                 <h2 style={{ color: 'var(--text)' }}>Access Denied</h2>
                 <p style={{ color: 'var(--text-dim)', marginBottom: 24 }}>{unauthorizedReason}</p>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: 24 }}>
@@ -240,6 +299,11 @@ const SkuEdit = () => {
                 <div className="flex gap-8" style={{ flexShrink: 0, minWidth: 'fit-content' }}>
                     {!isKillTier && canEditAny() && (
                         <>
+                            {(sku.rollback_candidate || sku.rollbackCandidate) && (
+                                <button type="button" className="btn btn-secondary" onClick={handleRollback} style={{ cursor: 'pointer' }} title="Load original content from last publish">
+                                    Rollback to original
+                                </button>
+                            )}
                             <button className="btn btn-secondary" onClick={() => handleSave(false)} disabled={saving} style={{ cursor: 'pointer', pointerEvents: 'auto' }}>
                                 {saving ? 'Saving...' : 'Save Draft'}
                             </button>
@@ -334,7 +398,7 @@ const SkuEdit = () => {
                             <div>
                                 <label className="field-label">
                                     Title <GateChip id="G3" pass={sku.gates?.G3?.passed || false} compact />
-                                    <span className="char-count">{sku.title?.length || 0}/250 chars</span>
+                                    <span className="char-count">{sku.title?.length || 0}/{titleMaxLength != null ? titleMaxLength : '—'} chars</span>
                                 </label>
                                 <input
                                     className={`field-input ${sku.title && sku.title.length >= 50 ? 'valid' : 'invalid'}`}
@@ -350,15 +414,15 @@ const SkuEdit = () => {
                                 <div>
                                     <label className="field-label">
                                         Answer Block <GateChip id="G4" pass={sku.gates?.G4?.passed || false} compact />
-                                        <span className="char-count">{sku.short_description?.length || 0}/300 chars</span>
+                                        <span className="char-count">{sku.short_description?.length || 0}/{answerBlockMin != null && answerBlockMax != null ? `${answerBlockMin}-${answerBlockMax}` : '—'} chars</span>
                                     </label>
                                     <textarea
-                                        className={`field-textarea ${sku.short_description && sku.short_description.length >= 250 ? 'valid' : 'invalid'}`}
+                                        className={`field-textarea ${answerBlockMin !== null && sku.short_description && sku.short_description.length >= answerBlockMin ? 'valid' : 'invalid'}`}
                                         rows={3}
                                         value={sku.short_description || ''}
                                         disabled={!canEditContent()}
                                         onChange={(e) => setSku({ ...sku, short_description: e.target.value })}
-                                        placeholder="Answer block (min 250 chars, max 300)"
+                                        placeholder={answerBlockMin != null && answerBlockMax != null ? `Answer block (min ${answerBlockMin} chars, max ${answerBlockMax})` : 'Answer block (loading…)'}
                                     />
                                 </div>
                             )}

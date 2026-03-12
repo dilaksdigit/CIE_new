@@ -1,22 +1,16 @@
+// SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 6
 // SOURCE: CIE_v232_Hardening_Addendum.pdf §6.2 / §6.3
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 5
 // SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §§4.1, 4.2, 5; Trap 2 | CIE_v232_UI_Restructure_Instructions.docx §2.1 | CIE_v232_Semrush_CSV_Import_Spec.docx §§1, 3.2, 3.3 | CIE_v232_Writer_View.jsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import api, { writerEditApi } from '../services/api';
+import api, { writerEditApi, configApi } from '../services/api';
 import THEME from '../theme';
-import TierLockBanner from '../components/sku/TierLockBanner';
-import { HiddenFieldSlot } from '../components/sku/HiddenFieldSlot';
-import { TIER_FIELD_MAP, TIER_BANNER_COPY, TIER_TOOLTIPS, KILL_FIELD_TOOLTIP } from '../lib/tierFieldMap';
+import TierBanner from '../components/TierBanner/TierBanner';
+import TierFieldTooltip from '../components/TierBanner/TierFieldTooltip';
+import { TIER_FIELD_MAP } from '../lib/tierFieldMap';
 
 const C = THEME;
-
-// SOURCE: CIE_v232_Hardening_Addendum.pdf §6.1, §6.3 — banner background hex values (not theme tokens)
-const TIER_BANNER_BG = {
-    hero:    '#E8F5E9',
-    support: '#FFF8E1',
-    harvest: '#FFF3E0',
-    kill:    '#FFEBEE',
-};
 
 const FIELD_LABELS = {
     title: 'Title',
@@ -41,23 +35,22 @@ const FIELD_TYPES = {
     expert_authority: 'textarea',
 };
 
-const FIELD_RANGES = {
-    title: { min: 1, max: 250 },
-    description: { min: 50, max: null },
+// Field min/max from BusinessRules (content.title_max_length, gates.description_word_count_min, etc.) — loaded on mount
+const getDefaultFieldRanges = () => ({
+    title: { min: 1, max: null },
+    description: { min: null, max: null },
     specification: { min: 50, max: null },
-    answer_block: { min: 250, max: 300 },
     best_for: { min: 1, max: null },
     not_for: { min: 1, max: null },
     expert_authority: { min: 1, max: null },
-};
+});
 
 const normalizeTier = (tier) => String(tier || '').trim().toLowerCase();
 const SUGGESTION_CARD_TYPE_META = {
-    // SOURCE: CIE_v232_Writer_View.jsx — SuggestionCard icon/label map
-    keyword:    { icon: '🔍', label: 'Keyword Opportunity', iconColor: '#5B7A3A' },   // olive green
-    citation:   { icon: '🤖', label: 'AI Visibility Issue', iconColor: '#C62828' },   // red
-    trend:      { icon: '📈', label: 'Trending Search', iconColor: '#1565C0' },       // blue
-    competitor: { icon: '⚔️', label: 'Competitor Gap', iconColor: '#E65100' },       // amber
+    keyword:    { label: 'Keyword Opportunity', iconColor: '#5B7A3A' },
+    citation:   { label: 'AI Visibility Issue', iconColor: '#C62828' },
+    trend:      { label: 'Trending Search', iconColor: '#1565C0' },
+    competitor: { label: 'Competitor Gap', iconColor: '#E65100' },
 };
 
 const PRIORITY_META = {
@@ -252,7 +245,8 @@ const normalizeSuggestions = (raw) => {
         .slice(0, 8);
 };
 
-const gateHintText = (gateKey, gate, values) => {
+/** abMin/abMax = gates.answer_block_min_chars / gates.answer_block_max_chars (§5.3); required for g4 fallback when API omits min/max */
+const gateHintText = (gateKey, gate, values, abMin, abMax) => {
     const meta = gate?.metadata || {};
     const missingTerms = gate?.missing_terms ?? meta.missing_terms ?? meta.terms ?? meta.key_terms;
     const termsStr = Array.isArray(missingTerms) ? missingTerms.join(', ') : (typeof missingTerms === 'string' ? missingTerms : '');
@@ -260,8 +254,8 @@ const gateHintText = (gateKey, gate, values) => {
     const elementsArr = Array.isArray(missingElements) ? missingElements : (typeof missingElements === 'string' ? [missingElements] : []);
     const categoryTerms = gate?.category_terms ?? meta.category_terms ?? meta.terms;
     const categoryStr = Array.isArray(categoryTerms) ? categoryTerms.join(', ') : (typeof categoryTerms === 'string' ? categoryTerms : '');
-    const minChars = gate?.min_chars ?? meta.min_chars ?? meta.min ?? FIELD_RANGES.answer_block?.min;
-    const maxChars = gate?.max_chars ?? meta.max_chars ?? meta.max ?? FIELD_RANGES.answer_block?.max;
+    const minChars = gate?.min_chars ?? meta.min_chars ?? meta.min ?? abMin;
+    const maxChars = gate?.max_chars ?? meta.max_chars ?? meta.max ?? abMax;
     const currentChars = gate?.current_chars ?? meta.current_chars ?? meta.current_length ?? (values?.answer_block != null ? String(values.answer_block).length : null);
 
     if (gateKey === 'g1') {
@@ -299,7 +293,7 @@ const gateHintText = (gateKey, gate, values) => {
     return '';
 };
 
-const fieldStateAndHint = (field, gates, values) => {
+const fieldStateAndHint = (field, gates, values, abMin, abMax) => {
     const keys = gateKeysForField(field);
     const related = keys.map((k) => ({ key: k, gate: gates[k] })).filter((x) => x.gate);
     if (related.length === 0) return { state: 'neutral', hint: '' };
@@ -313,7 +307,7 @@ const fieldStateAndHint = (field, gates, values) => {
         // Prefer API user_message (plain English, no gate codes). Fall back
         // to gateHintText() only when the API response omits user_message.
         const hint = primaryFail
-            ? (primaryFail.gate.user_message || gateHintText(primaryFail.key, primaryFail.gate, values))
+            ? (primaryFail.gate.user_message || gateHintText(primaryFail.key, primaryFail.gate, values, abMin, abMax))
             : '';
         return { state: 'fail', hint };
     }
@@ -321,7 +315,7 @@ const fieldStateAndHint = (field, gates, values) => {
     if (hasWarning) {
         const primaryWarning = related.find((r) => r.gate.status === 'warning') || null;
         const hint = primaryWarning
-            ? (primaryWarning.gate.user_message || gateHintText(primaryWarning.key, primaryWarning.gate, values))
+            ? (primaryWarning.gate.user_message || gateHintText(primaryWarning.key, primaryWarning.gate, values, abMin, abMax))
             : '';
         return { state: 'warning', hint };
     }
@@ -329,10 +323,16 @@ const fieldStateAndHint = (field, gates, values) => {
     return { state: 'pass', hint: '' };
 };
 
-/** Client-side completion: field has enough content to count as "complete" for progress. */
-const isFieldComplete = (field, values) => {
+/** Client-side completion: field has enough content to count as "complete" for progress. When answerBlockMin/Max are null, skip answer_block validation (no fail). */
+const isFieldComplete = (field, values, answerBlockMin, answerBlockMax, fieldRanges) => {
     const v = String((values && values[field]) || '').trim();
-    const range = FIELD_RANGES[field];
+    if (field === 'answer_block') {
+        if (answerBlockMin == null || answerBlockMax == null) return false; // skip until API loads
+        const len = v.length;
+        if (len < answerBlockMin || len > answerBlockMax) return false;
+        return true;
+    }
+    const range = (fieldRanges || getDefaultFieldRanges())[field];
     if (!range) return false;
     const len = v.length;
     if (range.min != null && len < range.min) return false;
@@ -349,11 +349,15 @@ const borderColorForState = (state) => {
 
 const hintColorForState = (state) => (state === 'warning' ? THEME.amber : THEME.red);
 
-const counterText = (field, value) => {
+const counterText = (field, value, answerBlockMin, answerBlockMax, fieldRanges) => {
     const len = String(value || '').length;
-    const range = FIELD_RANGES[field] || { min: null, max: null };
-    if (range.min && range.max) return `${len} / ${range.min}-${range.max}`;
-    if (range.max) return `${len} / max ${range.max}`;
+    if (field === 'answer_block') {
+        if (answerBlockMin == null || answerBlockMax == null) return `${len} / —`;
+        return `${len} / ${answerBlockMin}-${answerBlockMax}`;
+    }
+    const range = (fieldRanges || getDefaultFieldRanges())[field] || { min: null, max: null };
+    if (range.min != null && range.max != null) return `${len} / ${range.min}-${range.max}`;
+    if (range.max != null) return `${len} / max ${range.max}`;
     return `${len} / —`;
 };
 
@@ -379,10 +383,61 @@ const WriterEdit = () => {
     const [publishBusy, setPublishBusy] = useState(false);
     const [publishError, setPublishError] = useState('');
 
+    // §5.3 gates.answer_block_min_chars / gates.answer_block_max_chars, content.title_max_length, gates.description_word_count_min — no literals
+    const [answerBlockMin, setAnswerBlockMin] = useState(null);
+    const [answerBlockMax, setAnswerBlockMax] = useState(null);
+    const [fieldRanges, setFieldRanges] = useState(() => getDefaultFieldRanges());
+
+    useEffect(() => {
+        let cancelled = false;
+        configApi
+            .get()
+            .then((res) => {
+                if (cancelled) return;
+                const raw = res.data?.data ?? res.data ?? {};
+                const gates = raw.gates || {};
+                const content = raw.content || {};
+                const minVal = gates.answer_block_min_chars;
+                const maxVal = gates.answer_block_max_chars;
+                const titleMaxVal = content.title_max_length;
+                const descMinVal = gates.description_word_count_min;
+                if (minVal != null && minVal !== '') {
+                    const n = parseInt(String(minVal), 10);
+                    if (!Number.isNaN(n)) setAnswerBlockMin(n);
+                }
+                if (maxVal != null && maxVal !== '') {
+                    const n = parseInt(String(maxVal), 10);
+                    if (!Number.isNaN(n)) setAnswerBlockMax(n);
+                }
+                const base = getDefaultFieldRanges();
+                let titleMax = null;
+                let descMin = null;
+                if (titleMaxVal != null && titleMaxVal !== '') {
+                    const n = parseInt(String(titleMaxVal), 10);
+                    if (!Number.isNaN(n)) titleMax = n;
+                }
+                if (descMinVal != null && descMinVal !== '') {
+                    const n = parseInt(String(descMinVal), 10);
+                    if (!Number.isNaN(n)) descMin = n;
+                }
+                setFieldRanges({
+                    ...base,
+                    title: { min: 1, max: titleMax },
+                    description: { min: descMin, max: null },
+                });
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const [suggestionsOpen, setSuggestionsOpen] = useState(true);
     const [suggestions, setSuggestions] = useState([]);
     const [hoveredId, setHoveredId] = useState(null);
     const [hasSemrushData, setHasSemrushData] = useState(false);
+    const [auditUnavailable, setAuditUnavailable] = useState(false);
+    const [copiedSuggestionId, setCopiedSuggestionId] = useState(null);
 
     const isReadonly = TIER_FIELD_MAP[tier]?.readonly === true;
     const requiredFields = useMemo(
@@ -400,6 +455,7 @@ const WriterEdit = () => {
             try {
                 setLoading(true);
                 setLoadError('');
+                setAuditUnavailable(false);
                 const res = await writerEditApi.get(skuId);
                 if (cancelled) return;
                 const payload = res?.data?.data ?? res?.data ?? {};
@@ -452,6 +508,15 @@ const WriterEdit = () => {
                         return bv - av;
                     });
                     keywordRows.forEach((row, idx) => {
+                        // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 5 — priority from search_volume thresholds
+                        const vol = row.search_volume;
+                        let priority = 'medium';
+                        if (vol != null && vol !== '') {
+                            const n = Number(vol);
+                            if (!Number.isNaN(n)) {
+                                priority = n >= 1000 ? 'high' : n >= 300 ? 'medium' : 'low';
+                            }
+                        }
                         suggestionItems.push({
                             id: `semrush-keyword-${skuId}-${idx}`,
                             type: 'keyword',
@@ -461,7 +526,7 @@ const WriterEdit = () => {
                             instruction: row.instruction,
                             title: row.title || (row.keyword ? `Keyword: ${row.keyword}` : 'Keyword Opportunity'),
                             date_range: row.date_range || row.window || '',
-                            priority: row.priority || 'medium',
+                            priority,
                         });
                     });
 
@@ -478,6 +543,8 @@ const WriterEdit = () => {
                     });
 
                     competitorRows.forEach((row, idx) => {
+                        // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 5 — HIGH if gap keyword search_volume > 1000
+                        const priority = (row.search_volume != null && Number(row.search_volume) > 1000) ? 'high' : 'medium';
                         suggestionItems.push({
                             id: `semrush-competitor-${skuId}-${idx}`,
                             type: 'competitor',
@@ -485,7 +552,7 @@ const WriterEdit = () => {
                             our_gap: row.our_gap,
                             title: row.title || 'Competitor Gap',
                             date_range: row.date_range || row.window || '',
-                            priority: row.priority || 'medium',
+                            priority,
                         });
                     });
                 }
@@ -522,7 +589,8 @@ const WriterEdit = () => {
                             }
                         }
                     } catch {
-                        // Fail-soft: if AI Audit is unavailable, fall back to SKU suggestions only
+                        // Fail-soft: if AI Audit is unavailable, show user message per CIE_v232_Hardening_Addendum §4.5
+                        setAuditUnavailable(true);
                     }
                 }
 
@@ -593,11 +661,15 @@ const WriterEdit = () => {
     }, [sku, skuId, tier, values]);
 
     const progressCompletedCount = requiredFields.filter(
-        (f) => isFieldComplete(f, values) || fieldStateAndHint(f, gates, values).state === 'pass'
+        (f) =>
+            isFieldComplete(f, values, answerBlockMin, answerBlockMax, fieldRanges) ||
+            fieldStateAndHint(f, gates, values, answerBlockMin, answerBlockMax).state === 'pass'
     ).length;
     const progressTotalRequired = requiredFields.length;
 
-    const gatePassedCount = gatedRequiredFields.filter((f) => fieldStateAndHint(f, gates, values).state === 'pass').length;
+    const gatePassedCount = gatedRequiredFields.filter(
+        (f) => fieldStateAndHint(f, gates, values, answerBlockMin, answerBlockMax).state === 'pass'
+    ).length;
     const totalRequired = gatedRequiredFields.length;
     const requiredGateKeys = gatedRequiredFields.flatMap((f) => gateKeysForField(f));
     const relevantGates = requiredGateKeys.map((k) => gates[k]).filter(Boolean);
@@ -680,9 +752,6 @@ const WriterEdit = () => {
         return <div style={{ padding: 30, textAlign: 'center', color: THEME.red }}>{loadError || 'SKU not found.'}</div>;
     }
 
-    const bannerText = TIER_BANNER_COPY[tier] || TIER_BANNER_COPY.support;
-    const bannerBg = TIER_BANNER_BG[tier] || TIER_BANNER_BG.support;
-
     return (
         <div>
             <div className="card" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -707,22 +776,7 @@ const WriterEdit = () => {
 
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    {tier !== 'kill' && (
-                        <div
-                            style={{
-                                marginBottom: 12,
-                                background: bannerBg,
-                                border: `1px solid ${C.border}`,
-                                borderRadius: 6,
-                                padding: '10px 12px',
-                                color: THEME[tier] || THEME.support,
-                                fontSize: '0.78rem',
-                                fontWeight: 700,
-                            }}
-                        >
-                            {bannerText}
-                        </div>
-                    )}
+                    <TierBanner tier={tier} />
 
                     <div className="card" style={{ marginBottom: 12 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -738,19 +792,28 @@ const WriterEdit = () => {
 
                     {isReadonly ? (
                         <>
-                            <TierLockBanner text={TIER_BANNER_COPY.kill} />
-                            {/* §6.3 render_hidden_field — Kill tier: every field gets KILL_FIELD_TOOLTIP */}
-                            {Object.keys(FIELD_LABELS).map((field) => {
-                                const killTooltips = { [field]: { kill: KILL_FIELD_TOOLTIP } };
-                                return (
-                                    <HiddenFieldSlot key={field} fieldName={field} tier="kill" tooltips={killTooltips} />
-                                );
-                            })}
+                            {Object.keys(FIELD_LABELS).map((field) => (
+                                <div
+                                    key={field}
+                                    style={{
+                                        background: THEME.surface,
+                                        border: `1px solid ${C.border}`,
+                                        borderRadius: 6,
+                                        padding: 12,
+                                        marginBottom: 12,
+                                    }}
+                                >
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: C.text, marginBottom: 6 }}>
+                                        {FIELD_LABELS[field]}
+                                    </div>
+                                    <TierFieldTooltip fieldName={field} tier={tier} />
+                                </div>
+                            ))}
                         </>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                             {requiredFields.map((field) => {
-                                const state = fieldStateAndHint(field, gates, values);
+                                const state = fieldStateAndHint(field, gates, values, answerBlockMin, answerBlockMax);
                                 // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 6 (Rule C)
                                 // FAIL: show hint text. WARNING/PENDING: amber border only, no blocking text.
                                 const showHint = state.state === 'fail';
@@ -786,20 +849,34 @@ const WriterEdit = () => {
                                             />
                                         )}
                                         <div style={{ marginTop: 5, fontSize: '0.65rem', color: THEME.textMid }}>
-                                            {counterText(field, values[field])}
+                                            {counterText(field, values[field], answerBlockMin, answerBlockMax, fieldRanges)}
                                         </div>
                                         {showHint && state.hint && (
                                             <div style={{ marginTop: 6, fontSize: '0.68rem', color: hintColorForState(state.state) }}>
-                                                💡 {state.hint}
+                                                {state.hint}
                                             </div>
                                         )}
                                     </div>
                                 );
                             })}
 
-                            {/* §6.3 render_hidden_field — placeholder divs for hidden fields */}
+                            {/* §6.2 Hidden fields: field card with label + TierFieldTooltip below */}
                             {(TIER_FIELD_MAP[tier]?.hidden || []).map((field) => (
-                                <HiddenFieldSlot key={`hidden-${field}`} fieldName={field} tier={tier} tooltips={TIER_TOOLTIPS} />
+                                <div
+                                    key={`hidden-${field}`}
+                                    style={{
+                                        background: THEME.surface,
+                                        border: `1px solid ${C.border}`,
+                                        borderRadius: 6,
+                                        padding: 12,
+                                        marginBottom: 12,
+                                    }}
+                                >
+                                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: C.text, marginBottom: 6 }}>
+                                        {FIELD_LABELS[field] || field}
+                                    </div>
+                                    <TierFieldTooltip fieldName={field} tier={tier} />
+                                </div>
                             ))}
                         </div>
                     )}
@@ -819,7 +896,7 @@ const WriterEdit = () => {
                                     color: hoveredId === 'publish' ? THEME.text : undefined,
                                 }}
                             >
-                                {publishBusy ? 'Publishing…' : 'Submit ✓'}
+                                {publishBusy ? 'Publishing…' : 'Submit'}
                             </button>
                             {publishError && (
                                 <div
@@ -861,6 +938,11 @@ const WriterEdit = () => {
 
                         {suggestionsOpen && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {auditUnavailable && (
+                                    <p style={{ color: '#6B6860', fontSize: '13px', marginBottom: '12px' }}>
+                                        AI suggestions unavailable — check back after the next Monday audit.
+                                    </p>
+                                )}
                                 {suggestions.length === 0 ? (
                                     <div
                                         style={{
@@ -895,14 +977,14 @@ const WriterEdit = () => {
                                             .map((s) => {
                                                 const typeMeta = SUGGESTION_CARD_TYPE_META[s.type] || SUGGESTION_CARD_TYPE_META.keyword;
                                                 const priorityMeta = PRIORITY_META[s.priority] || PRIORITY_META.medium;
-                                                const prioColor = priorityMeta.color;
+                                                const cardTypeColor = typeMeta.iconColor;
                                                 return (
                                             <div
                                                 key={s.id}
                                                 style={{
                                                     borderRadius: 6,
                                                     border: `1px solid ${C.border}`,
-                                                    borderLeft: `4px solid ${prioColor}`,
+                                                    borderLeft: `4px solid ${cardTypeColor}`,
                                                     padding: 10,
                                                     background: C.surface,
                                                     fontSize: '0.7rem',
@@ -918,7 +1000,6 @@ const WriterEdit = () => {
                                                     }}
                                                 >
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                        <span style={{ fontSize: '0.9rem', color: typeMeta.iconColor }}>{typeMeta.icon}</span>
                                                         <span style={{ fontWeight: 700, color: C.text }}>{typeMeta.label}</span>
                                                     </div>
                                                     <div
@@ -952,18 +1033,19 @@ const WriterEdit = () => {
                                                         {s.dismissError}
                                                     </div>
                                                 )}
+                                                {/* SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 5 Step 2c — each card: source label + data date */}
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
-                                                    <span style={{ fontSize: '0.62rem', color: C.textLight }}>Source:</span>
+                                                    <span style={{ fontSize: '0.72rem', color: C.textMid }}>Source:</span>
                                                     <span style={{
-                                                        fontSize: '0.62rem', fontWeight: 700,
+                                                        fontSize: '0.72rem', fontWeight: 700,
                                                         padding: '1px 6px', borderRadius: 3,
                                                         background: C.accentLight, color: C.accent,
                                                         border: `1px solid ${C.accentBorder}`
                                                     }}>
                                                         {s.source}
                                                     </span>
-                                                    <span style={{ fontSize: '0.62rem', color: C.textLight }}>
-                                                        ({s.dateRange || 'Date unavailable'})
+                                                    <span style={{ fontSize: '0.72rem', color: C.textMid }}>
+                                                        As of: {s.dateRange || 'Date unavailable'}
                                                     </span>
                                                 </div>
                                                 <div
@@ -974,6 +1056,28 @@ const WriterEdit = () => {
                                                         marginTop: 6,
                                                     }}
                                                 >
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-secondary btn-sm"
+                                                        onClick={() => {
+                                                            const textToCopy = s.explanation || s.title || '';
+                                                            navigator.clipboard.writeText(textToCopy).then(() => {
+                                                                setCopiedSuggestionId(s.id);
+                                                                window.setTimeout(() => setCopiedSuggestionId(null), 2000);
+                                                            });
+                                                        }}
+                                                        onMouseEnter={() => setHoveredId(`use-suggestion-${s.id}`)}
+                                                        onMouseLeave={() => setHoveredId(null)}
+                                                        style={{
+                                                            marginRight: 6,
+                                                            background: hoveredId === `use-suggestion-${s.id}` ? C.muted : undefined,
+                                                            borderColor: hoveredId === `use-suggestion-${s.id}` ? C.accentBorder : undefined,
+                                                            fontSize: '0.6rem',
+                                                            padding: '2px 6px',
+                                                        }}
+                                                    >
+                                                        {copiedSuggestionId === s.id ? 'Copied!' : 'Use this suggestion'}
+                                                    </button>
                                                     <button
                                                         type="button"
                                                         className="btn btn-secondary btn-sm"

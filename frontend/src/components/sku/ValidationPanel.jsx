@@ -1,7 +1,6 @@
 import React from 'react';
 
-// SOURCE: CIE_v232_UI_Restructure_Instructions.docx §1.5 (gate display rules)
-// SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §7 Trap 4
+// SOURCE: CLAUDE.md Section 8 (no emojis in production UI); CIE_v232_UI_Restructure_Instructions.docx §1.5
 const GATE_LABEL_MAP = {
   g1: "Title pattern",
   g2: "Main search intent",
@@ -51,7 +50,7 @@ export function ValidationPanel({ results }) {
             <h3>Validation Results</h3>
             <div className={`overall-status ${results.overall_status?.toLowerCase()}`}>
                 <strong>Status:</strong> {results.overall_status}
-                {results.can_publish ? ' ✅ Ready to publish' : ' ❌ Cannot publish'}
+                {results.can_publish ? ' Ready to publish' : ' Cannot publish'}
             </div>
             <div className="gates-list">
                 {results.gates?.map((gate, index) => (

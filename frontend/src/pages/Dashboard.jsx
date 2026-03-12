@@ -13,21 +13,19 @@ import {
     ReadinessBar,
     GATES
 } from '../components/common/UIComponents';
-import { skuApi, dashboardApi } from '../services/api';
+import { skuApi, dashboardApi, configApi } from '../services/api';
 import THEME from '../theme';
 
+// SOURCE: CLAUDE.md Section 4 — DECISION-001 (channels: shopify + gmc only)
 const CHANNEL_LABELS = {
-    own_website: 'Own Website',
-    google_sge: 'Google SGE',
-    amazon: 'Amazon',
-    ai_assistants: 'AI Assistants',
+    shopify: 'Shopify',
+    gmc: 'Google Merchant Center',
 };
+const HEATMAP_CHANNELS = ['shopify', 'gmc'];
 
-const HEATMAP_CHANNELS = ['own_website', 'google_sge', 'amazon', 'ai_assistants'];
-
-const heatmapColor = (score) => {
-    if (score > 85) return THEME.green;
-    if (score >= 60) return THEME.amber;
+const heatmapColor = (score, greenMin, amberMin) => {
+    if (score > greenMin) return THEME.green;
+    if (score >= amberMin) return THEME.amber;
     return THEME.red;
 };
 
@@ -43,11 +41,21 @@ const Dashboard = () => {
     const [summary, setSummary] = React.useState(null);
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState(null);
+    const [thresholds, setThresholds] = React.useState(null);
 
     // Filter states
     const [searchTerm, setSearchTerm] = React.useState('');
     const [tierFilter, setTierFilter] = React.useState('All Tiers');
     const [categoryFilter, setCategoryFilter] = React.useState('All Categories');
+
+    React.useEffect(() => {
+        configApi.get().then(res => {
+            const raw = res.data?.data ?? res.data ?? {};
+            setThresholds(raw);
+        }).catch(e => {
+            console.error('Failed to load business rules for dashboard:', e);
+        });
+    }, []);
 
     const fetchSummary = React.useCallback(async () => {
         try {
@@ -102,10 +110,13 @@ const Dashboard = () => {
     const harvestCount = skus.filter(s => (s.tier || '').toUpperCase() === "HARVEST").length;
     const killCount = skus.filter(s => (s.tier || '').toUpperCase() === "KILL").length;
     const avgReadiness = skus.length > 0 ? Math.round(skus.reduce((a, s) => a + (s.readiness_score || 0), 0) / skus.length) : 0;
+    const greenMin = thresholds?.readiness?.hero_primary_channel_min ?? null;
+    const amberMin = thresholds?.readiness?.support_primary_channel_min ?? null;
     const tierSummary = summary?.tier_summary ?? [];
     const categoryHeatmap = summary?.category_heatmap ?? [];
     const decayMonitor = summary?.decay_monitor ?? [];
     const effortAllocation = summary?.effort_allocation ?? { by_tier: [], hero_pct: 0, hero_alert: false };
+    const rollbackCandidates = summary?.rollback_candidates ?? { sku_ids: [], count: 0 };
 
     return (
         <div>
@@ -116,13 +127,16 @@ const Dashboard = () => {
 
             <div className="flex gap-12 mb-20 flex-wrap">
                 <StatCard label="Total SKUs" value={skus.length.toString()} sub="Connected to API" />
-                <StatCard label="Avg Readiness" value={`${avgReadiness}%`} color={avgReadiness >= 70 ? 'var(--green)' : 'var(--orange)'} />
+                <StatCard label="Avg Readiness" value={`${avgReadiness}%`} color={thresholds?.readiness?.hero_all_channels_min == null ? 'var(--text-muted)' : (avgReadiness >= thresholds.readiness.hero_all_channels_min ? 'var(--green)' : 'var(--orange)')} />
                 <StatCard 
                     label="AI Citation Rate" 
                     value={`${Math.round(skus.length > 0 ? skus.reduce((a, s) => a + (s.ai_citation_rate || 0), 0) / skus.length : 0)}%`}
                     color="var(--accent)" 
                 />
                 <StatCard label="Pending Validation" value={`${skus.filter(s => s.validation_status === 'PENDING').length}`} sub={`${skus.filter(s => s.validation_status === 'FAILED').length} failed`} color="var(--orange)" />
+                {rollbackCandidates.count > 0 && (
+                    <StatCard label="Rollback candidates" value={String(rollbackCandidates.count)} sub="D+30 position worse than baseline" color="var(--amber)" />
+                )}
             </div>
 
             {/* Tier Summary: card per tier — count, avg readiness, avg margin */}
@@ -143,10 +157,10 @@ const Dashboard = () => {
                 </div>
             )}
 
-            {/* Category Heatmap: category × channel, green >85, yellow 60–85, red <60 */}
+            {/* Category Heatmap: category × channel; thresholds from BusinessRules (green/amber/red) */}
             {categoryHeatmap.length > 0 && (
                 <div className="card mb-20">
-                    <SectionTitle sub="Avg readiness per category × channel (green >85, yellow 60–85, red <60)">Category Heatmap</SectionTitle>
+                    <SectionTitle sub={`Avg readiness per category × channel${greenMin != null && amberMin != null ? ` (green >${greenMin}, yellow ${amberMin}–${greenMin}, red <${amberMin})` : ' (loading…)'}`}>Category Heatmap</SectionTitle>
                     <div style={{ overflowX: 'auto' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
                             <thead>
@@ -163,8 +177,12 @@ const Dashboard = () => {
                                         <td style={{ padding: '8px 10px', borderBottom: '1px solid var(--border-light)', fontWeight: 600 }}>{row.category}</td>
                                         {HEATMAP_CHANNELS.map(ch => {
                                             const score = row[ch] ?? 0;
-                                            const bg = score > 85 ? 'var(--green-bg)' : score >= 60 ? 'var(--amber-bg)' : 'var(--red-bg)';
-                                            const color = heatmapColor(score);
+                                            const bg = greenMin !== null && amberMin !== null
+                                                ? (score > greenMin ? 'var(--green-bg)' : score >= amberMin ? 'var(--amber-bg)' : 'var(--red-bg)')
+                                                : 'transparent';
+                                            const color = greenMin !== null && amberMin !== null
+                                                ? heatmapColor(score, greenMin, amberMin)
+                                                : 'var(--text-muted)';
                                             return (
                                                 <td key={ch} style={{ padding: '8px 10px', borderBottom: '1px solid var(--border-light)', background: bg, color, fontWeight: 600, fontFamily: 'var(--mono)' }}>
                                                     {score}%
@@ -325,9 +343,11 @@ const Dashboard = () => {
                                             ))}
                                         </div>
                                     </td>
-                                    <td><ReadinessBar value={sku.readiness_score || 0} /></td>
+                                    <td><ReadinessBar value={sku.readiness_score || 0} greenThreshold={thresholds?.scoring?.chs_gold_threshold} amberThreshold={thresholds?.scoring?.chs_silver_threshold} /></td>
                                     <td className="mono">
-                                        <span style={{ color: (sku.ai_citation_rate || 0) >= 50 ? 'var(--green)' : (sku.ai_citation_rate || 0) >= 25 ? 'var(--orange)' : 'var(--red)', fontWeight: 600 }}>
+                                        <span style={{ color: (thresholds?.decay?.hero_citation_red_threshold != null
+                                            ? ((sku.ai_citation_rate || 0) >= thresholds.decay.hero_citation_red_threshold ? 'var(--orange)' : 'var(--red)')
+                                            : 'var(--text-muted)'), fontWeight: 600 }}>
                                             {sku.ai_citation_rate ?? 0}%
                                         </span>
                                     </td>

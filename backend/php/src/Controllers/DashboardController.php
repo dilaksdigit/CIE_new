@@ -7,6 +7,7 @@ use App\Models\Cluster;
 use App\Models\ValidationLog;
 use App\Models\StaffEffortLog;
 use App\Services\ReadinessScoreService;
+use App\Support\BusinessRules;
 use App\Utils\ResponseFormatter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -35,6 +36,7 @@ class DashboardController
         $decayMonitor = $this->safeBuild('buildDecayMonitor', []);
         $effortAllocation = $this->safeBuild('buildEffortAllocation', ['by_tier' => [], 'total_hours' => 0, 'hero_pct' => 0, 'hero_alert' => false]);
         $staffKpis = $this->safeBuild('buildStaffKpis', []);
+        $rollbackCandidates = $this->safeBuild('buildRollbackCandidates', ['sku_ids' => [], 'count' => 0]);
 
         return ResponseFormatter::format([
             'tier_summary' => $tierSummary,
@@ -42,6 +44,7 @@ class DashboardController
             'decay_monitor' => $decayMonitor,
             'effort_allocation' => $effortAllocation,
             'staff_kpis' => $staffKpis,
+            'rollback_candidates' => $rollbackCandidates,
         ]);
     }
 
@@ -53,6 +56,30 @@ class DashboardController
             Log::warning("DashboardController::{$method} failed: " . $e->getMessage(), ['exception' => $e]);
             return $default;
         }
+    }
+
+    /**
+     * Section 17 Check 9.7 — SKUs with D+30 position worse than baseline (rollback candidates).
+     */
+    private function buildRollbackCandidates(): array
+    {
+        if (!Schema::hasTable('gsc_baselines')) {
+            return ['sku_ids' => [], 'count' => 0];
+        }
+        $hasCisStatus = Schema::hasColumn('gsc_baselines', 'cis_status');
+        if (!$hasCisStatus) {
+            return ['sku_ids' => [], 'count' => 0];
+        }
+        $ids = DB::table('gsc_baselines')
+            ->where('cis_status', 'complete')
+            ->whereNotNull('d30_position')
+            ->whereNotNull('baseline_avg_position')
+            ->whereRaw('d30_position > baseline_avg_position')
+            ->distinct()
+            ->pluck('sku_id')
+            ->values()
+            ->all();
+        return ['sku_ids' => $ids, 'count' => count($ids)];
     }
 
     /**
@@ -109,6 +136,16 @@ class DashboardController
     }
 
     /**
+     * GET /api/v1/dashboard/channel-stats
+     * Returns per-channel portfolio stats: avg score, compete count, skip count (from channel_readiness).
+     */
+    public function channelStats()
+    {
+        $stats = $this->safeBuild('buildChannelStats', []);
+        return ResponseFormatter::format($stats);
+    }
+
+    /**
      * POST /api/v1/audit-results/weekly-scores
      * Store a new weekly score entry.
      */
@@ -159,7 +196,8 @@ class DashboardController
 
     private function buildCategoryHeatmap(): array
     {
-        $channels = ['own_website', 'google_sge', 'amazon', 'ai_assistants'];
+        // SOURCE: CLAUDE.md Section 4 — DECISION-001 (shopify + gmc only)
+        $channels = ['shopify', 'gmc'];
         $categories = [];
         try {
             if (Schema::hasColumn((new Cluster)->getTable(), 'category')) {
@@ -263,7 +301,7 @@ class DashboardController
             'by_tier' => $byTier,
             'total_hours' => round($totalHours, 2),
             'hero_pct' => $heroPct,
-            'hero_alert' => $heroPct < 60,
+            'hero_alert' => $heroPct < ( (float) BusinessRules::get('effort.hero_allocation_danger') * 100 ),
         ];
     }
 
@@ -326,5 +364,61 @@ class DashboardController
             ];
         }
         return $out;
+    }
+
+    private function buildChannelStats(): array
+    {
+        if (!Schema::hasTable('channel_readiness')) {
+            return $this->defaultChannelStats();
+        }
+
+        $rows = DB::table('channel_readiness')->get(['channel', 'score', 'component_scores']);
+        $byChannel = [
+            'shopify' => ['scores' => [], 'compete' => 0, 'skip' => 0],
+            'gmc'     => ['scores' => [], 'compete' => 0, 'skip' => 0],
+        ];
+
+        foreach ($rows as $row) {
+            $ch = $row->channel;
+            if (!isset($byChannel[$ch])) {
+                continue;
+            }
+            $byChannel[$ch]['scores'][] = (int) $row->score;
+            $decoded = is_string($row->component_scores)
+                ? json_decode($row->component_scores, true)
+                : $row->component_scores;
+            $status = isset($decoded['status']) ? strtoupper((string) $decoded['status']) : '';
+            if ($status === 'COMPETE') {
+                $byChannel[$ch]['compete']++;
+            } else {
+                $byChannel[$ch]['skip']++;
+            }
+        }
+
+        $labels = [
+            'shopify' => 'Shopify',
+            'gmc'     => 'Google Merchant Center',
+        ];
+        $order = ['shopify', 'gmc'];
+        $out = [];
+        foreach ($order as $key) {
+            $scores = $byChannel[$key]['scores'];
+            $avg = empty($scores) ? 0 : (int) round(array_sum($scores) / count($scores));
+            $out[] = [
+                'ch'      => $labels[$key],
+                'score'   => $avg,
+                'compete' => $byChannel[$key]['compete'],
+                'skip'    => $byChannel[$key]['skip'],
+            ];
+        }
+        return $out;
+    }
+
+    private function defaultChannelStats(): array
+    {
+        return [
+            ['ch' => 'Shopify', 'score' => 0, 'compete' => 0, 'skip' => 0],
+            ['ch' => 'Google Merchant Center', 'score' => 0, 'compete' => 0, 'skip' => 0],
+        ];
     }
 }

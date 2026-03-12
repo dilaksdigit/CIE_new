@@ -82,7 +82,7 @@ paths:
       description: |
         Internally calls /validate first with action='publish'.
         Only succeeds if ALL gates pass. Creates audit_log entry.
-        Triggers channel feed generation (JSON-LD, Amazon, Google Shopping).
+        Triggers channel feed generation (JSON-LD, Google Merchant Center).
       tags: [Enforcement]
       parameters:
         - name: sku_id
@@ -105,7 +105,7 @@ paths:
                     type: array
                     items:
                       type: string
-                    example: [google_sge, amazon, own_website]
+                    example: [shopify, gmc]
         '400':
           description: Gate validation failed — publish blocked
           content:
@@ -131,6 +131,73 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReadinessResponse'
+
+  /sku/{sku_id}/tier-change-request:
+    post:
+      summary: Create a tier change request (portfolio_holder/content_lead)
+      description: Dual sign-off; request requires portfolio_holder; approval requires finance. CLAUDE.md Section 7 + Hardening Addendum.
+      tags: [ERP Integration]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requested_tier]
+              properties:
+                requested_tier:
+                  type: string
+                  enum: [hero, support, harvest, kill]
+      responses:
+        '201':
+          description: Request created (pending_portfolio_approval)
+        '400':
+          description: Validation error or SKU already in requested tier
+        '403':
+          description: Writer/reviewer cannot create tier change request
+        '404':
+          description: SKU not found
+
+  /sku/{sku_id}/tier-change-approve:
+    post:
+      summary: Approve tier change request (finance role)
+      description: Approves the current pending_finance_approval request for this SKU. Requires finance role.
+      tags: [ERP Integration]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Request approved; tier applied
+        '403':
+          description: Writer/reviewer cannot approve (finance only)
+        '404':
+          description: SKU not found or no pending finance approval
+
+  /sku/{sku_id}/tier-change-status:
+    get:
+      summary: Get current tier change request status for SKU
+      tags: [ERP Integration]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current request status or null if none
+        '404':
+          description: SKU not found
 
   /sku/{sku_id}/embed:
     post:
@@ -510,7 +577,7 @@ components:
             properties:
               channel:
                 type: string
-                enum: [google_sge, amazon, ai_assistants, own_website]
+                enum: [shopify, gmc]
               score:
                 type: integer
                 minimum: 0

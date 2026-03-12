@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
+// SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx Sections 3–5
+
 class SemrushImportController
 {
     /**
@@ -53,9 +55,9 @@ class SemrushImportController
             'position'             => 'position',
             'previous position'    => 'prev_position',
             'search volume'        => 'search_volume',
-            'keyword difficulty'   => 'keyword_diff',
+            'keyword difficulty'   => 'keyword_difficulty',
             'cpc (usd)'            => 'cpc_usd',
-            'url'                  => 'url',
+            'url'                  => 'competitor_url',
             'traffic (%)'          => 'traffic_pct',
             'traffic volume'       => 'traffic_volume',
             'trends'               => 'trend',
@@ -100,7 +102,19 @@ class SemrushImportController
             return response()->json(['error' => 'Validation failed', 'message' => 'The file contains no data rows. Export again from Semrush and try uploading the new file.'], 422);
         }
 
-        $importBatch = now()->toDateString();
+        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx Section 4.1 — import_batch from CSV Timestamp (first data row)
+        $importBatch = null;
+        $firstTs = isset($rows[0]['timestamp']) ? trim((string) $rows[0]['timestamp']) : '';
+        if ($firstTs !== '') {
+            $t = strtotime($firstTs);
+            if ($t !== false) {
+                $importBatch = date('Y-m-d', $t);
+            }
+        }
+        if ($importBatch === null) {
+            $importBatch = now()->toDateString();
+        }
+
         $importBatchId = (string) Str::uuid();
 
         $existing = DB::table('semrush_imports')->where('import_batch', $importBatch)->count();
@@ -112,6 +126,9 @@ class SemrushImportController
 
         $insertData = [];
         foreach ($rows as $row) {
+            if (empty(trim((string) ($row['keyword'] ?? '')))) {
+                continue;
+            }
             $insertData[] = [
                 'import_batch'        => $importBatch,
                 'import_batch_id'     => $importBatchId,
@@ -119,9 +136,12 @@ class SemrushImportController
                 'position'            => isset($row['position']) && $row['position'] !== '' ? (int) $row['position'] : null,
                 'prev_position'       => isset($row['prev_position']) && $row['prev_position'] !== '' ? (int) $row['prev_position'] : null,
                 'search_volume'       => isset($row['search_volume']) && $row['search_volume'] !== '' ? (int) $row['search_volume'] : null,
-                'keyword_diff'        => isset($row['keyword_diff']) && $row['keyword_diff'] !== '' ? (int) $row['keyword_diff'] : null,
-                'url'                 => isset($row['url']) && $row['url'] !== '' ? (string) $row['url'] : null,
-                'traffic_pct'         => isset($row['traffic_pct']) && $row['traffic_pct'] !== '' ? (float) $row['traffic_pct'] : null,
+                'intent'              => isset($row['intent']) && $row['intent'] !== '' ? (string) $row['intent'] : null,
+                'sku_code'            => isset($row['sku_code']) && $row['sku_code'] !== '' ? (string) $row['sku_code'] : null,
+                'cluster_id'          => isset($row['cluster_id']) && $row['cluster_id'] !== '' ? (string) $row['cluster_id'] : null,
+                'keyword_difficulty'  => isset($row['keyword_difficulty']) && $row['keyword_difficulty'] !== '' ? (int) $row['keyword_difficulty'] : null,
+                'competitor_url'      => isset($row['competitor_url']) && $row['competitor_url'] !== '' ? (string) $row['competitor_url'] : null,
+                'traffic_pct'         => strlen(trim((string) ($row['traffic_pct'] ?? ''))) ? (float) str_replace('%', '', $row['traffic_pct']) : null,
                 'trend'               => isset($row['trend']) && $row['trend'] !== '' ? (string) $row['trend'] : null,
                 'competitor_position' => isset($row['competitor_position']) && $row['competitor_position'] !== '' ? (int) $row['competitor_position'] : null,
                 'imported_by'         => $username,
@@ -150,19 +170,32 @@ class SemrushImportController
         return response()->json([
             'import_batch'    => $importBatch,
             'import_batch_id' => $importBatchId,
-            'rows_imported'   => $rowCount,
+            'rows_imported'   => count($insertData),
             'keyword_count'   => $keywordCount,
         ], 200);
     }
 
     /**
      * GET /api/admin/semrush-import/latest
+     * Query param: filter=quick_wins (optional) — returns rows matching Quick Wins: position 11–30, keyword_difficulty < 40, search_volume > 500, tier hero/support.
      */
-    public function latest()
+    public function latest(Request $request)
     {
         $user = auth()->user();
         if (!$user || !optional($user->role)->name || strtoupper($user->role->name) !== 'ADMIN') {
             return response()->json(['error' => 'Forbidden'], 403);
+        }
+
+        if ($request->query('filter') === 'quick_wins') {
+            $quickWins = DB::table('semrush_imports')
+                ->whereRaw('import_batch = (SELECT MAX(import_batch) FROM semrush_imports)')
+                ->whereNotNull('prev_position')
+                ->whereColumn('position', '<', 'prev_position')
+                ->orderByRaw('(prev_position - position) DESC')
+                ->select('keyword', 'position', 'prev_position', 'search_volume', 'keyword_difficulty', 'sku_code')
+                ->limit(500)
+                ->get();
+            return response()->json(['filter' => 'quick_wins', 'rows' => $quickWins], 200);
         }
 
         $rows = DB::table('semrush_imports')
@@ -193,6 +226,7 @@ class SemrushImportController
 
     /**
      * DELETE /api/admin/semrush-import/{batch_date}
+     * SOURCE: openapi.yaml — DELETE /admin/semrush-import/{batch_date}; DB-04 audit_log insert only
      */
     public function delete(string $batchDate)
     {
@@ -202,6 +236,18 @@ class SemrushImportController
         }
 
         $deleted = DB::table('semrush_imports')->where('import_batch', $batchDate)->delete();
+
+        AuditLog::create([
+            'entity_type' => 'semrush_import',
+            'entity_id'   => $batchDate,
+            'action'      => 'delete_batch',
+            'field_name'  => null,
+            'old_value'   => null,
+            'new_value'   => json_encode(['batch_date' => $batchDate, 'rows_deleted' => $deleted]),
+            'actor_id'    => (string) (auth()->id() ?? ''),
+            'actor_role'  => optional(optional($user)->role)->name ?? '',
+            'timestamp'   => now(),
+        ]);
 
         return response()->json([
             'import_batch' => $batchDate,

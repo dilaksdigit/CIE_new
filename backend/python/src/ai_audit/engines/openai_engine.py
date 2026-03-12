@@ -1,3 +1,4 @@
+# SOURCE: CIE_Master_Developer_Build_Spec.docx Section 12.1
 import os
 import re
 from openai import AsyncOpenAI
@@ -8,7 +9,7 @@ class OpenAIEngine:
     
     async def query(self, prompt: str) -> dict:
         response = await self.client.chat.completions.create(
-            model="gpt-4-turbo-preview",
+            model=os.environ.get("OPENAI_CHAT_MODEL"),
             messages=[{"role": "user", "content": prompt}],
             max_tokens=10
         )

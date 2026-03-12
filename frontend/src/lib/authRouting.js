@@ -58,14 +58,14 @@ const hasRole = (user, ...targetRoles) => {
  * CONTENT_EDITOR or PRODUCT_SPECIALIST → /writer/queue
  * CONTENT_LEAD or SEO_GOVERNOR → /review/dashboard
  * ADMIN → /admin/clusters
- * Other roles → /help/flow (single allowed route)
+ * Other roles → /help (single allowed route)
  */
 export function getHomeForRole(user) {
     if (!user) return '/login';
     if (hasRole(user, 'CONTENT_EDITOR', 'PRODUCT_SPECIALIST')) return '/writer/queue';
     if (hasRole(user, 'CONTENT_LEAD', 'SEO_GOVERNOR')) return '/review/dashboard';
     if (hasRole(user, 'ADMIN')) return '/admin/clusters';
-    return '/help/flow';
+    return '/help';
 }
 
 /**

@@ -1,0 +1,126 @@
+{
+  "name": "Shopify Deploy (Task A2)",
+  "nodes": [
+    {
+      "id": "webhook_shopify_deploy",
+      "name": "Webhook shopify-deploy",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "shopify-deploy",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "shopify-deploy"
+    },
+    {
+      "id": "wait_rate_limit",
+      "name": "Wait 0.5s (2 req/s)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "parameters": {
+        "amount": 0.5,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "shopify_metafields",
+      "name": "Shopify metafields",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $env.SHOPIFY_STORE_DOMAIN }}/admin/api/2024-01/graphql.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Shopify-Access-Token",
+              "value": "={{ $env.SHOPIFY_ADMIN_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "mutation productUpdate($input: ProductInput!) { productUpdate(input: $input) { product { id } } }"
+            },
+            {
+              "name": "variables",
+              "value": "={{ JSON.stringify({ input: { id: $json.body.shopify_product_id, metafields: [] } }) }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "respond_deployed",
+      "name": "Respond deployed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'deployed', shopify_product_id: $('Webhook shopify-deploy').item.json.shopify_product_id || null, deployed_at: new Date().toISOString() } }}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook shopify-deploy": {
+      "main": [
+        [
+          {
+            "node": "Wait 0.5s (2 req/s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 0.5s (2 req/s)": {
+      "main": [
+        [
+          {
+            "node": "Shopify metafields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shopify metafields": {
+      "main": [
+        [
+          {
+            "node": "Respond deployed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "source": "CIE_Master_Developer_Build_Spec.docx Section 11; CLAUDE.md Section 10 (Shopify 2 req/s)"
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-03-12T00:00:00.000Z",
+  "versionId": "shopify-deploy-v1"
+}

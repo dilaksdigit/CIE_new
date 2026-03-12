@@ -1,9 +1,9 @@
 import React from 'react';
 const tierConfig = {
-    HERO: { label: 'Hero', color: '#8B6914', bg: '#FDF6E3', border: '#E8D5A0', icon: '⭐' },
-    SUPPORT: { label: 'Support', color: '#3D6B8E', bg: '#EBF3F9', border: '#B5D0E3', icon: '️' },
-    HARVEST: { label: 'Harvest', color: '#9E7C1A', bg: '#FFF8E7', border: '#E8D49A', icon: '  ' },
-    KILL: { label: 'Kill', color: '#A63D2F', bg: '#FDEEEB', border: '#E5B5AD', icon: '  ' },
+    HERO: { label: 'Hero', color: '#8B6914', bg: '#FDF6E3', border: '#E8D5A0' },
+    SUPPORT: { label: 'Support', color: '#3D6B8E', bg: '#EBF3F9', border: '#B5D0E3' },
+    HARVEST: { label: 'Harvest', color: '#B8860B', bg: '#FFF8E7', border: '#E8D49A' },
+    KILL: { label: 'Kill', color: '#A63D2F', bg: '#FDEEEB', border: '#E5B5AD' },
 };
 export function TierBadge({ tier }) {
     const config = tierConfig[tier] || tierConfig.SUPPORT;
@@ -20,7 +20,7 @@ export function TierBadge({ tier }) {
                 fontSize: '14px',
             }}
         >
-            {config.icon} {config.label}
+            {config.label}
         </span>
     );
 }

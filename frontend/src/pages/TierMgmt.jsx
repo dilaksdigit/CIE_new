@@ -1,3 +1,4 @@
+// SOURCE: CLAUDE.md Section 8 (no emojis in production UI); CIE_v232_Developer_Amendment_Pack Section 8 check #7
 import React, { useState, useEffect, useContext } from 'react';
 import { TierBadge } from '../components/common/UIComponents';
 import { skuApi } from '../services/api';
@@ -149,10 +150,10 @@ const TierMgmt = () => {
                                     <td style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
                                         <div className="flex gap-4 items-center">
                                             <span title="Portfolio Holder">
-                                                {row.portfolio_holder_approved ? '✓ PH' : '○ PH'}
+                                                {row.portfolio_holder_approved ? 'Yes PH' : 'No PH'}
                                             </span>
                                             <span title="Finance Director">
-                                                {row.finance_director_approved ? '✓ FD' : '○ FD'}
+                                                {row.finance_director_approved ? 'Yes FD' : 'No FD'}
                                             </span>
                                         </div>
                                     </td>

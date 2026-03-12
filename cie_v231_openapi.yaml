@@ -1,0 +1,1082 @@
+openapi: '3.0.3'
+info:
+  title: CIE v2.3.1 - Catalog Intelligence Engine
+  version: '2.3.1'
+  description: |
+    Pre-publish enforcement gates, semantic validation, AI citation audit,
+    and tier management for 120+ staff e-commerce operations.
+    
+    ## Architecture
+    - PHP CMS (frontend/admin) calls Python Engine (validation/AI/embeddings)
+    - All validation is server-side. No client-side-only checks.
+    - Every mutation creates an audit_log entry.
+    
+    ## Authentication
+    Internal bearer tokens per service. No public access.
+
+servers:
+  - url: https://cie.internal.example.com/api/v1
+    description: Production
+  - url: https://cie-staging.internal.example.com/api/v1
+    description: Staging
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Enforcement
+    description: Pre-publish validation gates (G1-G7 + G6.1 + Vector)
+  - name: Semantic
+    description: Embedding generation and cosine similarity checks
+  - name: Taxonomy
+    description: Intent taxonomy and cluster management
+  - name: Readiness
+    description: Per-channel readiness scoring
+  - name: AI Audit
+    description: Weekly AI citation audit and decay monitoring
+  - name: ERP Integration
+    description: ERP data sync and tier recomputation
+  - name: CMS TierChange
+    description: Manual tier change dual-approval workflow (portfolio + finance)
+
+paths:
+  /sku/{sku_id}/validate:
+    post:
+      summary: Pre-publish validation (G1-G7 + G6.1 + Vector)
+      description: |
+        Called on every Save/Publish action. Returns pass/fail per gate.
+        Must respond within 500ms. Creates audit_log entries for all gate results.
+      tags: [Enforcement]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+            example: SKU-CABLE-001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuValidateRequest'
+      responses:
+        '200':
+          description: All gates pass — action allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResponse'
+        '400':
+          description: One or more gates failed — action blocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResponse'
+        '403':
+          description: Insufficient permissions for this action
+        '404':
+          description: SKU not found
+
+  /sku/{sku_id}/publish:
+    post:
+      summary: Publish SKU to active channels
+      description: |
+        Internally calls /validate first with action='publish'.
+        Only succeeds if ALL gates pass. Creates audit_log entry.
+        Triggers channel feed generation (JSON-LD, Google Shopping / GMC).
+      tags: [Enforcement]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Published successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: published
+                  channels_updated:
+                    type: array
+                    items:
+                      type: string
+                    example: [shopify, gmc]
+        '400':
+          description: Gate validation failed — publish blocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResponse'
+        '403':
+          description: User role cannot publish
+
+  /sku/{sku_id}/readiness:
+    get:
+      summary: Get per-channel readiness scores (0-100)
+      tags: [Readiness]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+
+  /sku/{sku_id}/embed:
+    post:
+      summary: Generate embedding vector for text
+      tags: [Semantic]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  maxLength: 5000
+                  description: Description text to embed
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vector:
+                    type: array
+                    items:
+                      type: number
+                  dimensions:
+                    type: integer
+                    example: 1536
+                  model:
+                    type: string
+                    example: text-embedding-3-small
+
+  /sku/{sku_id}/similarity:
+    post:
+      summary: Compute cosine similarity vs cluster intent vector
+      description: |
+        Threshold: 0.72. Below threshold = description rejected.
+      tags: [Semantic]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [description, cluster_id]
+              properties:
+                description:
+                  type: string
+                cluster_id:
+                  type: string
+                  example: CLU-CABLE-PENDANT-E27
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimilarityResponse'
+
+  /taxonomy/intents:
+    get:
+      summary: Get locked 9-intent taxonomy, optionally filtered by tier
+      tags: [Taxonomy]
+      parameters:
+        - name: tier
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [hero, support, harvest, kill]
+          description: Filter to intents accessible by this tier
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  intents:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Intent'
+                  tier_rules:
+                    $ref: '#/components/schemas/TierRules'
+
+  /clusters:
+    get:
+      summary: Get all active clusters
+      tags: [Taxonomy]
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [cables, lampshades, bulbs, pendants, floor_lamps, ceiling_lights, accessories]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clusters:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Cluster'
+    post:
+      summary: Create cluster (admin)
+      tags: [Taxonomy]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '201':
+          description: Created
+
+  /audit/run:
+    post:
+      summary: Trigger weekly AI citation audit for a category
+      description: |
+        Runs all 20 golden queries across 4 AI engines.
+        Asynchronous — returns run_id immediately.
+      tags: [AI Audit]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category]
+              properties:
+                category:
+                  type: string
+                  enum: [cables, lampshades, bulbs, pendants, floor_lamps]
+      responses:
+        '202':
+          description: Audit started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  run_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    example: running
+                  estimated_duration_minutes:
+                    type: integer
+                    example: 15
+
+  /audit/results/{category}:
+    get:
+      summary: Get latest audit results with decay status
+      tags: [AI Audit]
+      parameters:
+        - name: category
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Specific run ID. If omitted, returns latest.
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditResults'
+
+  /brief/generate:
+    post:
+      summary: Auto-generate content refresh brief (citation decay Week 3)
+      description: |
+        Called automatically by N8N when a Hero SKU has 3 consecutive
+        weeks of zero citations. Can also be triggered manually by AI Ops.
+      tags: [AI Audit]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sku_id, failing_questions]
+              properties:
+                sku_id:
+                  type: string
+                failing_questions:
+                  type: array
+                  items:
+                    type: string
+                  description: Question IDs that scored 0
+      responses:
+        '201':
+          description: Brief created and added to content queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  brief_id:
+                    type: string
+                    format: uuid
+                  deadline:
+                    type: string
+                    format: date
+                  assigned_to:
+                    type: string
+
+  /erp/sync:
+    post:
+      summary: Receive ERP data push and recompute tiers
+      description: |
+        Called monthly by ERP system. Updates margin, CPPC, velocity,
+        return rate for all SKUs. Recomputes Commercial Priority Score
+        and reassigns tiers where score crosses band thresholds.
+        Creates audit_log + tier_history entries for all changes.
+      tags: [ERP Integration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ErpSyncPayload'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sync_date:
+                    type: string
+                    format: date-time
+                  skus_processed:
+                    type: integer
+                  tier_changes:
+                    type: integer
+                  auto_promotions:
+                    type: integer
+                    description: Harvest→Support auto-promotions (velocity +30%)
+                  errors:
+                    type: array
+                    items:
+                      type: string
+
+  /sku:
+    get:
+      summary: List SKUs with optional filters
+      tags: [Enforcement]
+      parameters:
+        - name: tier
+          in: query
+          schema: { type: string, enum: [hero, support, harvest, kill] }
+        - name: cluster_id
+          in: query
+          schema: { type: string }
+        - name: category
+          in: query
+          schema: { type: string }
+        - name: validation_status
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: List of SKUs
+    post:
+      summary: Create new SKU
+      tags: [Enforcement]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '201':
+          description: SKU created
+
+  /sku/stats:
+    get:
+      summary: SKU statistics (counts by tier, validated)
+      tags: [Enforcement]
+      responses:
+        '200':
+          description: Stats object
+
+  /sku/{sku_id}/content:
+    put:
+      summary: Update SKU content (gates + audit)
+      tags: [Enforcement]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Updated with validation result
+        '403':
+          description: Forbidden (e.g. Kill tier)
+        '422':
+          description: Harvest tier field blocked
+
+  /sku/{sku_id}/faq-suggestions:
+    get:
+      summary: Get FAQ suggestions for SKU
+      tags: [Enforcement]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: FAQ suggestions
+
+  /sku/{sku_id}/audit-results:
+    get:
+      summary: Get audit results for SKU
+      tags: [AI Audit]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Audit results
+
+  /sku/{sku_id}/rollback-content:
+    get:
+      summary: Get rollback candidate / content snapshot
+      tags: [Enforcement]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Rollback data
+
+  /gsc/baseline/{sku_id}:
+    post:
+      summary: Capture GSC baseline before deploy
+      tags: [Readiness]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Baseline captured
+
+  /ga4/baseline/{sku_id}:
+    post:
+      summary: Capture GA4 baseline before deploy
+      tags: [Readiness]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Baseline captured
+
+  /queue/today:
+    get:
+      summary: Writer queue for today (by commercial priority)
+      tags: [Enforcement]
+      responses:
+        '200':
+          description: Queue SKUs
+
+  /dashboard/summary:
+    get:
+      summary: Dashboard summary
+      tags: [Readiness]
+      responses:
+        '200':
+          description: Summary stats
+
+  /dashboard/decay-alerts:
+    get:
+      summary: Decay alerts for dashboard
+      tags: [AI Audit]
+      responses:
+        '200':
+          description: Decay alerts
+
+  /dashboard/channel-stats:
+    get:
+      summary: Channel statistics
+      tags: [Readiness]
+      responses:
+        '200':
+          description: Channel stats
+
+  /audit-results/weekly-scores:
+    get:
+      summary: Get weekly scores
+      tags: [AI Audit]
+      responses:
+        '200':
+          description: Weekly scores
+    post:
+      summary: Store weekly score
+      tags: [AI Audit]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Stored
+
+  /clusters/{id}:
+    put:
+      summary: Update cluster
+      tags: [Taxonomy]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Updated
+
+  /briefs:
+    get:
+      summary: List briefs
+      tags: [AI Audit]
+      responses:
+        '200':
+          description: List of briefs
+
+  /tiers/recalculate:
+    post:
+      summary: Recalculate tiers from stored ERP data
+      tags: [ERP Integration]
+      responses:
+        '200':
+          description: Recalculation result
+
+  /config:
+    get:
+      summary: Get config (business rules etc.)
+      tags: [Enforcement]
+      responses:
+        '200':
+          description: Config object
+    put:
+      summary: Update config (admin only)
+      tags: [Enforcement]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Updated
+
+  /admin/business-rules:
+    get:
+      summary: List business rules
+      tags: [Enforcement]
+      responses:
+        '200':
+          description: Business rules
+  /admin/business-rules/audit:
+    get:
+      summary: Business rules audit log
+      tags: [Enforcement]
+      responses:
+        '200':
+          description: Audit rows
+  /admin/business-rules/{key}:
+    put:
+      summary: Update business rule
+      tags: [Enforcement]
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Updated
+  /admin/business-rules/{key}/approve:
+    post:
+      summary: Second approver for dual-approval rule
+      tags: [Enforcement]
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Approved
+
+  /admin/semrush-import/latest:
+    get:
+      summary: Get latest Semrush import batches (optional Quick Wins filter)
+      tags: [Enforcement]
+      parameters:
+        - name: filter
+          in: query
+          schema: { type: string, enum: [quick_wins] }
+          description: If quick_wins, returns rows with position 11-30, keyword_difficulty < 40, search_volume > 500, tier hero/support.
+      responses:
+        '200':
+          description: Latest import info or Quick Wins rows
+
+  /admin/semrush-import/{batch_date}:
+    delete:
+      summary: Delete Semrush import batch
+      tags: [Enforcement]
+      parameters:
+        - name: batch_date
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Deleted
+
+  /audit-logs:
+    get:
+      summary: List audit log entries
+      tags: [Enforcement]
+      parameters:
+        - name: entity_type
+          in: query
+          schema: { type: string }
+        - name: entity_id
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Audit log list
+
+  # SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx — Tier change dual approval; CLAUDE.md R1 (document spec routes)
+  /sku/{sku_id}/tier-change-request:
+    post:
+      summary: Create a tier change request
+      tags: [CMS TierChange]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requested_tier]
+              properties:
+                requested_tier: { type: string, enum: [hero, support, harvest, kill] }
+      responses:
+        '201':
+          description: Request created (pending_portfolio_approval)
+        '400':
+          description: Validation error
+        '403':
+          description: Not authorised
+        '404':
+          description: SKU not found
+
+  /sku/{sku_id}/tier-change-approve:
+    post:
+      summary: Finance approves a tier change request for this SKU
+      tags: [CMS TierChange]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Tier change applied
+        '403':
+          description: Not authorised (requires FINANCE or ADMIN)
+        '404':
+          description: No pending finance approval for this SKU
+
+  /sku/{sku_id}/tier-change-status:
+    get:
+      summary: Get current tier change request status for this SKU
+      tags: [CMS TierChange]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Status and request details
+        '403':
+          description: Not authorised
+        '404':
+          description: SKU not found
+
+  /tier-change-requests/{id}/approve-portfolio:
+    post:
+      summary: Portfolio holder approves a tier change request
+      description: SOURCE CIE_v232_Developer_Amendment_Pack_v2.docx — portfolio holder approval step. Moves request to pending_finance_approval.
+      tags: [CMS TierChange]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Request moved to pending_finance_approval
+        '403':
+          description: Not authorised (requires CONTENT_LEAD or ADMIN)
+        '404':
+          description: Request not found or not pending portfolio approval
+        '422':
+          description: Request not in pending_portfolio_approval state
+
+  /sku/{sku_id}/suggestions/{suggestion_id}/status:
+    post:
+      summary: Update suggestion status (proxy to Python Engine)
+      tags: [Enforcement]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: suggestion_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Status updated
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Internal service token
+
+  schemas:
+    SkuValidateRequest:
+      type: object
+      required: [cluster_id, tier, primary_intent, title, description, action]
+      properties:
+        cluster_id:
+          type: string
+          example: CLU-CABLE-PENDANT-E27
+        tier:
+          type: string
+          enum: [hero, support, harvest, kill]
+        primary_intent:
+          type: string
+          enum: [problem_solving, comparison, compatibility, specification, installation, troubleshooting, inspiration, regulatory, replacement]
+        secondary_intents:
+          type: array
+          items:
+            type: string
+            enum: [problem_solving, comparison, compatibility, specification, installation, troubleshooting, inspiration, regulatory, replacement]
+          maxItems: 3
+        title:
+          type: string
+          maxLength: 250
+        description:
+          type: string
+        answer_block:
+          type: string
+          minLength: 250
+          maxLength: 300
+          description: Required for hero/support. Must contain primary intent keyword.
+        best_for:
+          type: array
+          items:
+            type: string
+          minItems: 2
+          description: Required for hero/support. Min 2 entries.
+        not_for:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          description: Required for hero/support. Min 1 entry.
+        expert_authority:
+          type: string
+          description: Required for hero/support. Must reference standard/cert.
+        action:
+          type: string
+          enum: [save, publish]
+
+    ValidationResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pass, fail]
+        gates:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [pass, fail, not_applicable]
+              error_code:
+                type: string
+                nullable: true
+              detail:
+                type: string
+              user_message:
+                type: string
+                nullable: true
+        vector_check:
+          type: object
+          properties:
+            cosine_similarity:
+              type: number
+              example: 0.87
+            threshold:
+              type: number
+              example: 0.72
+            status:
+              type: string
+              enum: [pass, fail]
+        publish_allowed:
+          type: boolean
+
+    SimilarityResponse:
+      type: object
+      properties:
+        cosine_similarity:
+          type: number
+          example: 0.87
+        threshold:
+          type: number
+          example: 0.72
+        status:
+          type: string
+          enum: [pass, fail]
+        message:
+          type: string
+          nullable: true
+
+    ReadinessResponse:
+      type: object
+      properties:
+        sku_id:
+          type: string
+        channels:
+          type: array
+          items:
+            type: object
+            properties:
+              channel:
+                type: string
+                enum: [shopify, gmc]
+              score:
+                type: integer
+                minimum: 0
+                maximum: 100
+              components:
+                type: object
+                description: Breakdown by field (e.g. cluster_id:10, intents:15)
+
+    Intent:
+      type: object
+      properties:
+        intent_id:
+          type: integer
+          example: 1
+        intent_key:
+          type: string
+          example: problem_solving
+        label:
+          type: string
+          example: Problem-Solving
+        definition:
+          type: string
+        tier_access:
+          type: array
+          items:
+            type: string
+
+    TierRules:
+      type: object
+      properties:
+        hero:
+          type: object
+          properties:
+            max_secondary: { type: integer, example: 3 }
+            all_intents: { type: boolean, example: true }
+        support:
+          type: object
+          properties:
+            max_secondary: { type: integer, example: 2 }
+            all_intents: { type: boolean, example: true }
+        harvest:
+          type: object
+          properties:
+            max_secondary: { type: integer, example: 1 }
+            allowed_intents:
+              type: array
+              items: { type: integer }
+              example: [1, 3, 4]
+        kill:
+          type: object
+          properties:
+            max_secondary: { type: integer, example: 0 }
+            all_intents: { type: boolean, example: false }
+
+    Cluster:
+      type: object
+      properties:
+        cluster_id:
+          type: string
+          example: CLU-CABLE-PENDANT-E27
+        category:
+          type: string
+        intent_statement:
+          type: string
+        is_active:
+          type: boolean
+
+    AuditResults:
+      type: object
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        category:
+          type: string
+        run_date:
+          type: string
+          format: date
+        aggregate_citation_rate:
+          type: number
+          example: 0.75
+        pass_fail:
+          type: string
+          enum: [pass, fail]
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              question_id:
+                type: string
+              question_text:
+                type: string
+              scores:
+                type: object
+                description: Per-engine scores
+                additionalProperties:
+                  type: integer
+              cited_sku:
+                type: string
+                nullable: true
+        decay_alerts:
+          type: array
+          items:
+            type: object
+            properties:
+              sku_id:
+                type: string
+              decay_status:
+                type: string
+                enum: [yellow_flag, alert, auto_brief, escalated]
+              consecutive_zero_weeks:
+                type: integer
+
+    ErpSyncPayload:
+      type: object
+      required: [sync_date, skus]
+      properties:
+        sync_date:
+          type: string
+          format: date-time
+        skus:
+          type: array
+          items:
+            type: object
+            required: [sku_id, contribution_margin_pct, cppc, velocity_90d, return_rate_pct]
+            properties:
+              sku_id:
+                type: string
+              contribution_margin_pct:
+                type: number
+                example: 62.0
+              cppc:
+                type: number
+                example: 0.18
+              velocity_90d:
+                type: integer
+                example: 847
+              return_rate_pct:
+                type: number
+                example: 2.1

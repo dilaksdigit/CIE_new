@@ -1,3 +1,4 @@
+// SOURCE: CLAUDE.md Section 8 (no emojis in production UI); CIE_v232_Developer_Amendment_Pack Section 8 check #7
 import React, { useState, useEffect, useContext } from 'react';
 import {
     ReadinessBar,
@@ -228,7 +229,7 @@ const Clusters = () => {
                 </div>
             )}
             <div className="alert-banner warning">
-                ⚠ Cluster changes require quarterly review. Changes affect all SKUs in the cluster. Governor-only permission.
+                Warning: Cluster changes require quarterly review. Changes affect all SKUs in the cluster. Governor-only permission.
             </div>
         </div>
     );

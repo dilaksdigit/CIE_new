@@ -25,7 +25,7 @@ const Header = () => {
                 {/* SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 4 (top nav help icon); Section 1.5 (light palette) */}
                 {isAuthenticated && (
                     <Link
-                        to="/help/flow"
+                        to="/help"
                         title="How the system works"
                         style={{
                             display: 'inline-flex',
@@ -34,7 +34,7 @@ const Header = () => {
                             width: 28,
                             height: 28,
                             borderRadius: '50%',
-                            border: '1.5px solid #E5E3DE',
+                            border: '1.5px solid #E5E5E5',
                             background: '#FFFFFF',
                             color: '#5B7A3A',
                             fontSize: '0.85rem',

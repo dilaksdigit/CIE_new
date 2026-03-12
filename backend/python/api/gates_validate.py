@@ -280,20 +280,22 @@ def run_g3(data: SkuValidateRequest) -> FailureItem | dict | None:
 
 
 def run_g4(data: SkuValidateRequest) -> FailureItem | None:
-    """G4: answer_block 250-300 chars AND contains primary intent keyword. Harvest: SUSPENDED."""
+    """G4: answer_block char-count check AND contains primary intent keyword. Harvest: SUSPENDED."""
     answer = (data.answer_block or "").strip()
     length = len(answer)
-    if length < 250:
+    min_chars = BusinessRules.get('gates.answer_block_min_chars')
+    max_chars = BusinessRules.get('gates.answer_block_max_chars')
+    if length < min_chars:
         return FailureItem(
             error_code="G4_ANSWER_TOO_SHORT",
-            detail=f"answer_block has {length} characters; minimum is 250.",
-            user_message="Answer block must be between 250 and 300 characters.",
+            detail=f"answer_block has {length} characters; minimum is {min_chars}.",
+            user_message=f"Answer block must be between {min_chars} and {max_chars} characters.",
         )
-    if length > 300:
+    if length > max_chars:
         return FailureItem(
             error_code="G4_ANSWER_TOO_LONG",
-            detail=f"answer_block has {length} characters; maximum is 300.",
-            user_message="Answer block must be between 250 and 300 characters.",
+            detail=f"answer_block has {length} characters; maximum is {max_chars}.",
+            user_message=f"Answer block must be between {min_chars} and {max_chars} characters.",
         )
     primary_norm = _norm_intent(data.primary_intent)
     keyword = INTENT_KEYWORDS.get(primary_norm, primary_norm.replace("_", "")[:6] if primary_norm else "")
@@ -344,9 +346,8 @@ def run_g6(data: SkuValidateRequest) -> list[FailureItem]:
 
     description = (data.description or "") or ""
 
-    # Check 1 — Word count
-    # SOURCE: CLAUDE.md §6 | CIE_Master_Developer_Build_Spec.docx §5.3
-    min_words = BusinessRules.get("gates.description_word_count_min")
+    # Check 1 — Word count (§5.3: gates.description_word_count_min not in 52 rules; hard-coded 50)
+    min_words = 50
     actual_words = len(description.split())
     if actual_words < min_words:
         failures.append(FailureItem(

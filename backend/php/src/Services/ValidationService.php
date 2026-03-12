@@ -1,4 +1,5 @@
 <?php
+// SOURCE: CIE_Master_Developer_Build_Spec.docx §7.1 Gate Response Format
 namespace App\Services;
 
 use App\Models\Sku;
@@ -35,14 +36,14 @@ class ValidationService
 
             $vectorValidation = null;
             foreach ($gates as $g) {
-                $gateKey = $g['gate'] ?? '';
-                if ($gateKey === 'G5_VECTOR' || $gateKey === 'G4_VECTOR') {
+                $gateKey = $g['gate'] ?? $g['gate_name'] ?? '';
+                $name = $g['gate_name'] ?? $g['gate'] ?? '';
+                if (stripos((string) $gateKey, 'VECTOR') !== false || stripos((string) $name, 'vector') !== false) {
                     $vectorValidation = [
                         'gate' => $gateKey,
                         'valid' => $g['passed'] ?? false,
                         'blocking' => $g['blocking'] ?? true,
                         'reason' => $g['reason'] ?? '',
-                        'similarity' => $g['metadata']['similarity'] ?? 0,
                     ];
                     break;
                 }
@@ -52,13 +53,14 @@ class ValidationService
             $nextAction = $validationResults['next_action'] ?? 'Fix validation errors before publication';
             $isDegraded = !empty(array_filter($gates, fn($g) => ($g['metadata']['degraded'] ?? false)));
 
-            // Build failures list: ALL failed gates with error_code, detail, user_message (for 400 response)
+            // Build failures list: ALL failed gates with gate, error_code, detail, user_message (for 400 response) — §7.1
             $failures = [];
             foreach ($gates as $g) {
                 if (!($g['passed'] ?? true)) {
                     $failures[] = [
-                        'error_code' => $g['error_code'] ?? ('CIE_' . ($g['gate'] ?? 'UNKNOWN')),
-                        'detail' => $g['detail'] ?? $g['reason'] ?? '',
+                        'gate'         => $g['gate_name'] ?? $g['gate'] ?? 'UNKNOWN',
+                        'error_code'   => $g['error_code'] ?? ('CIE_' . ($g['gate'] ?? 'UNKNOWN')),
+                        'detail'       => $g['detail'] ?? $g['reason'] ?? '',
                         'user_message' => $g['user_message'] ?? $g['reason'] ?? '',
                     ];
                 }
@@ -74,11 +76,13 @@ class ValidationService
 
             Log::info("Validation complete for SKU {$sku->id}", ['status' => $status, 'validation_log_id' => $validationLog->id]);
 
-            $httpFailStatus = 400;
-            try {
-                $httpFailStatus = (int) BusinessRules::get('validation.http_fail_status', 400);
-            } catch (\Throwable $e) {
-                // ignore
+            // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 1 — include warnings when gate passed but warn_only (e.g. vector below threshold)
+            $warnings = [];
+            foreach ($gates as $g) {
+                if (($g['passed'] ?? false) && !empty($g['metadata']['warn_only'])) {
+                    $msg = $g['metadata']['user_message'] ?? $g['reason'] ?? 'Content may not fully match expected topic.';
+                    $warnings[] = ['field' => 'description', 'message' => $msg];
+                }
             }
 
             return [
@@ -88,11 +92,12 @@ class ValidationService
                 'results' => $gates,
                 'gates' => $gates,
                 'failures' => $failures,
+                'warnings' => $warnings,
                 'next_action' => $nextAction,
                 'can_publish' => $canPublish,
                 'ai_validation_pending' => $isDegraded,
                 'vector_validation' => $vectorValidation,
-                'http_status' => ($status === ValidationStatus::VALID || ($status === ValidationStatus::DEGRADED && empty($failures))) ? 200 : $httpFailStatus,
+                'http_status' => ($status === ValidationStatus::VALID || ($status === ValidationStatus::DEGRADED && empty($failures))) ? 200 : 400,
             ];
         } catch (\Exception $e) {
             Log::error("Validation failed for SKU {$sku->id}: {$e->getMessage()}");
@@ -101,7 +106,7 @@ class ValidationService
                 'status' => ValidationStatus::INVALID,
                 'next_action' => 'Validation service error',
                 'error' => $e->getMessage(),
-                'failures' => [['error_code' => 'CIE_VALIDATION_ERROR', 'detail' => $e->getMessage(), 'user_message' => 'Validation service error.']],
+                'failures' => [['gate' => 'VALIDATION', 'error_code' => 'CIE_VALIDATION_ERROR', 'detail' => $e->getMessage(), 'user_message' => 'Validation service error.']],
                 'http_status' => 500,
             ];
         }
@@ -122,10 +127,12 @@ class ValidationService
         $successCount = collect($engineResults)->where('status', 'SUCCESS')->count();
         $sku->update(['last_audit_quorum' => $successCount]);
 
-        if ($successCount >= 3) {
-            return 'ADVANCE'; // 3/4 engines = Advance decay timer
-        } elseif ($successCount == 2) {
-            return 'PAUSE';   // 2/4 engines = Scores recorded, decay PAUSED
+        $quorumAdvance = (int) BusinessRules::get('decay.quorum_minimum');
+        $quorumPause   = 2; // §5.3: not in 52 rules; hard-coded
+        if ($successCount >= $quorumAdvance) {
+            return 'ADVANCE';
+        } elseif ($successCount == $quorumPause) {
+            return 'PAUSE';
         } else {
             return 'FREEZE';  // <=1 engine = Run FAILED, decay FROZEN
         }

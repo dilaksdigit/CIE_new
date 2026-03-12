@@ -7,9 +7,10 @@ import os
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 
+from api.gates_validate import BusinessRules
+
 logger = logging.getLogger(__name__)
 
-VECTOR_THRESHOLD = 0.72
 BATCH_LIMIT = 50
 
 
@@ -144,7 +145,8 @@ def process_vector_retry_queue():
                     continue
 
                 similarity = _cosine_similarity(embedding, cluster_vec)
-                gate_status = "pass" if similarity >= VECTOR_THRESHOLD else "fail"
+                threshold = BusinessRules.get('gates.vector_similarity_min')
+                gate_status = "pass" if similarity >= threshold else "fail"
                 error_code = "CIE_VEC_LOW" if gate_status == "fail" else None
 
                 with conn.cursor() as cursor:

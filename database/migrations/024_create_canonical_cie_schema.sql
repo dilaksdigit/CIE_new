@@ -171,7 +171,7 @@ CREATE TABLE IF NOT EXISTS sku_gate_status (
 CREATE TABLE IF NOT EXISTS channel_readiness (
     id               CHAR(36) PRIMARY KEY DEFAULT (UUID()),
     sku_id           VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-    channel          ENUM('google_sge','amazon','ai_assistants','own_website') NOT NULL,
+    channel          ENUM('shopify','gmc') NOT NULL,
     score            SMALLINT NOT NULL,
     component_scores JSON NOT NULL,
     computed_at      TIMESTAMP NOT NULL,

@@ -152,7 +152,7 @@ paths:
       description: |
         Internally calls /validate first with action='publish'.
         Only succeeds if ALL gates pass. Creates audit_log entry.
-        Triggers channel feed generation (JSON-LD, Amazon, Google Shopping).
+        Triggers channel feed generation (JSON-LD, Google Merchant Center).
       tags: [Enforcement]
       parameters:
         - name: sku_id
@@ -175,7 +175,7 @@ paths:
                     type: array
                     items:
                       type: string
-                    example: [google_sge, amazon, own_website]
+                    example: [shopify, gmc]
         '400':
           description: Gate validation failed — publish blocked
           content:
@@ -744,7 +744,7 @@ components:
             properties:
               channel:
                 type: string
-                enum: [google_sge, amazon, ai_assistants, own_website]
+                enum: [shopify, gmc]
               score:
                 type: integer
                 minimum: 0

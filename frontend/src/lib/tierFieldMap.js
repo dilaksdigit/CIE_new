@@ -18,16 +18,18 @@ export const TIER_FIELD_MAP = {
     hero: {
         // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2 (Hero=6 fields)
         // SOURCE: CIE_v232_Writer_View.jsx fields object
-        enabled: ['title', 'answerBlock', 'answer_block', 'bestFor', 'best_for', 'notFor', 'not_for', 'authority', 'expert_authority', 'intent'],
+        // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 4 + Patch 6 §6.2 — FAQ tab visible for Hero
+        enabled: ['title', 'answerBlock', 'answer_block', 'bestFor', 'best_for', 'notFor', 'not_for', 'authority', 'expert_authority', 'intent', 'faq_tab'],
         max_secondary: 3,
         banner: TIER_BANNER_COPY.hero,
     },
     support: {
         // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2 (Support=5 fields)
         // Support has same fields as Hero minus 'authority' (expert_authority not required)
-        enabled: ['title', 'answerBlock', 'answer_block', 'bestFor', 'best_for', 'notFor', 'not_for', 'intent'],
+        // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 6 §6.2 — FAQ tab visible for Support (not hidden)
+        enabled: ['title', 'answerBlock', 'answer_block', 'bestFor', 'best_for', 'notFor', 'not_for', 'intent', 'faq_tab'],
         max_secondary: 2,
-        hidden: ['wikidata_uri', 'faq_tab'],
+        hidden: ['wikidata_uri'],
         banner: TIER_BANNER_COPY.support,
     },
     // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §11.2 TIER_FIELD_MAP — Harvest enabled fields (canonical)

@@ -4,23 +4,48 @@ import {
     SectionTitle,
     TrafficLight
 } from '../components/common/UIComponents';
+import { configApi, dashboardApi } from '../services/api';
 import THEME from '../theme';
 
 const Channels = () => {
-    const channelStats = [
-        { ch: "Own Website", score: 78, compete: 186, skip: 72 },
-        { ch: "Google Shopping", score: 71, compete: 164, skip: 94 },
-        { ch: "Amazon", score: 64, compete: 142, skip: 116 },
-        { ch: "AI Assistants", score: 68, compete: 158, skip: 100 },
-    ];
+    const [thresholds, setThresholds] = React.useState(null);
+    const lastConfigRef = React.useRef(null);
+    const [channelStats, setChannelStats] = React.useState([]);
+
+    React.useEffect(() => {
+        configApi.get().then(res => {
+            const raw = res.data?.data ?? res.data ?? {};
+            lastConfigRef.current = raw;
+            setThresholds(raw);
+        }).catch(() => {});
+    }, []);
+
+    React.useEffect(() => {
+        dashboardApi.getChannelStats()
+            .then(res => {
+                const raw = res.data?.data ?? res.data ?? [];
+                const list = Array.isArray(raw) ? raw : [];
+                setChannelStats(list);
+            })
+            .catch(() => setChannelStats([]))
+            .finally(() => {});
+    }, []);
+
+    const config = thresholds ?? lastConfigRef.current;
+    const heroMin = config?.readiness?.hero_primary_channel_min;
+    const supportMin = config?.readiness?.support_primary_channel_min;
+
+    const CHANNEL_ORDER = ['Shopify', 'Google Merchant Center'];
+    const displayStats = channelStats.length > 0
+        ? channelStats
+        : CHANNEL_ORDER.map(ch => ({ ch, score: 0, compete: 0, skip: 0 }));
 
     const rules = [
-        { rule: "Hero SKUs must score ≥85% to be included in channel feeds", status: "ENFORCED" },
-        { rule: "Support SKUs must score ≥70% for Google Shopping and Amazon", status: "ENFORCED" },
-        { rule: "Harvest SKUs are excluded from paid channels (Shopping/Amazon)", status: "ENFORCED" },
+        { rule: heroMin != null ? `Hero SKUs must score ≥${heroMin}% to be included in channel feeds` : 'Hero SKUs must meet minimum readiness to be included in channel feeds', status: "ENFORCED" },
+        { rule: supportMin != null ? `Support SKUs must score ≥${supportMin}% for Shopify and Google Merchant Center` : 'Support SKUs must meet minimum readiness for Shopify and GMC', status: "ENFORCED" },
+        { rule: "Harvest SKUs are excluded from paid channels (Shopping)", status: "ENFORCED" },
         { rule: "Kill SKUs are excluded from ALL channel feeds", status: "ENFORCED" },
-        { rule: "AI Assistants channel uses JSON-LD — no feed push required", status: "PASSIVE" },
-        { rule: "Google Shopping feed regenerates nightly at 02:00 UTC", status: "SCHEDULED" },
+        { rule: "Google Merchant Center feed regenerates nightly at 02:00 UTC", status: "SCHEDULED" },
     ];
 
     return (
@@ -31,7 +56,7 @@ const Channels = () => {
             </div>
 
             <div className="flex gap-14 mb-18 flex-wrap">
-                {channelStats.map(ch => (
+                {displayStats.map(ch => (
                     <div key={ch.ch} className="card" style={{ flex: 1, minWidth: 200 }}>
                         <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text)", marginBottom: 12 }}>{ch.ch}</div>
                         <div style={{ fontSize: "1.8rem", fontWeight: 800, color: "var(--accent)", fontFamily: "var(--mono)" }}>{ch.score}%</div>
@@ -45,7 +70,7 @@ const Channels = () => {
             </div>
 
             <div className="card">
-                <SectionTitle sub="Hero ≥85 to compete, Support ≥70, Harvest/Kill excluded">Channel Eligibility Rules</SectionTitle>
+                <SectionTitle sub={heroMin != null && supportMin != null ? `Hero ≥${heroMin} to compete, Support ≥${supportMin}, Harvest/Kill excluded` : 'Channel eligibility thresholds from Business Rules'}>Channel Eligibility Rules</SectionTitle>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     {rules.map((r, i) => (
                         <div key={i} className="flex justify-between items-start gap-8" style={{

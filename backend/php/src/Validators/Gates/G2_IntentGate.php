@@ -1,4 +1,5 @@
 <?php
+// SOURCE: CLAUDE.md Section 6 (G2 rule); CIE_v231_Developer_Build_Pack G2 gate spec; CIE_v232_Developer_Amendment_Pack Section 8
 
 namespace App\Validators\Gates;
 
@@ -19,9 +20,9 @@ class G2_IntentGate implements GateInterface
             return new GateResult(
                 gate: GateType::G2_INTENT,
                 passed: false,
-                reason: 'Primary Intent required.',
+                reason: 'You must select exactly one primary intent for this product. Choose the intent that best describes what a customer is trying to accomplish when they find this product.',
                 blocking: true,
-                metadata: ['error_code' => 'G2_PRIMARY_INTENT_REQUIRED', 'user_message' => 'Main search intent missing. Add the primary intent to match what customers search for.']
+                metadata: ['user_message' => 'You must select exactly one primary intent for this product. Choose the intent that best describes what a customer is trying to accomplish when they find this product.']
             );
         }
 
@@ -29,17 +30,16 @@ class G2_IntentGate implements GateInterface
             return new GateResult(
                 gate: GateType::G2_INTENT,
                 passed: false,
-                reason: "Exactly 1 Primary Intent required. Found {$primaryCount}.",
+                reason: 'Only one primary intent is allowed. Remove the extra selection and keep the one that best fits this product.',
                 blocking: true,
-                metadata: ['error_code' => 'G2_DUPLICATE_PRIMARY_INTENT', 'user_message' => 'Only 1 main search intent is allowed. Remove the extra intent.']
+                metadata: ['user_message' => 'Only one primary intent is allowed. Remove the extra selection and keep the one that best fits this product.']
             );
         }
 
         $primaryIntent = $sku->skuIntents->where('is_primary', true)->first();
-
         $intentName = $primaryIntent->intent->name ?? '';
 
-        // Look up in canonical intent_taxonomy (label + intent_key)
+        // Look up in canonical intent_taxonomy (label + intent_key) — locked 9-intent set
         $taxonomyMatch = IntentTaxonomy::query()
             ->whereRaw('LOWER(label) = ?', [strtolower($intentName)])
             ->orWhereRaw('LOWER(intent_key) = ?', [strtolower(str_replace(' ', '_', $intentName))])
@@ -49,9 +49,9 @@ class G2_IntentGate implements GateInterface
             return new GateResult(
                 gate: GateType::G2_INTENT,
                 passed: false,
-                reason: "Intent '{$intentName}' is not a valid Primary Intent.",
+                reason: 'The intent you selected is not in the approved list. Choose from the available options in the dropdown.',
                 blocking: true,
-                metadata: ['error_code' => 'CIE_G2_INTENT_TAXONOMY', 'user_message' => 'Main search intent missing. Add a valid primary intent to match what customers search for.']
+                metadata: ['user_message' => 'The intent you selected is not in the approved list. Choose from the available options in the dropdown.']
             );
         }
 
@@ -62,16 +62,16 @@ class G2_IntentGate implements GateInterface
             return new GateResult(
                 gate: GateType::G2_INTENT,
                 passed: false,
-                reason: "Primary intent '{$intentName}' must appear in the title (e.g. keyword: {$keyword}).",
+                reason: 'Main search intent must appear in the title. Add the intent keyword to match what customers search for.',
                 blocking: true,
-                metadata: ['error_code' => 'CIE_G2_INTENT_IN_TITLE', 'user_message' => "Main search intent missing. Add \"{$keyword}\" to match what customers search for.", 'terms' => $keyword]
+                metadata: ['user_message' => 'Main search intent must appear in the title. Add the intent keyword to match what customers search for.', 'terms' => $keyword]
             );
         }
 
         return new GateResult(
             gate: GateType::G2_INTENT,
             passed: true,
-            reason: "Primary Intent '{$intentName}' validated against canonical taxonomy and title.",
+            reason: 'Primary Intent validated against canonical taxonomy and title.',
             blocking: false
         );
     }

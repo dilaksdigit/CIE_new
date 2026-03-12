@@ -3,48 +3,13 @@ import { configApi } from '../services/api';
 import { AppContext } from '../App';
 import { canModifyConfig } from '../lib/rbac';
 
-const DEFAULT_CONFIG = {
-    // fallback only — overridden by business_rules table at runtime
-    gate_thresholds: {
-        answer_block_min: 250,
-        answer_block_max: 300,
-        title_max_length: 250,
-        vector_threshold: 0.72,
-        title_intent_min: 20,
-    },
-    // fallback only — overridden by business_rules table at runtime
-    tier_score_weights: {
-        margin_weight: 0.30,
-        velocity_weight: 0.30,
-        return_rate_weight: 0.20,
-        margin_rank_weight: 0.20,
-        hero_threshold: 75,
-    },
-    // fallback only — overridden by business_rules table at runtime
-    channel_thresholds: {
-        hero_compete_min: 85,
-        support_compete_min: 70,
-        harvest: "Excluded",
-        kill: "Excluded",
-        feed_regen_time: "02:00",
-    },
-    // fallback only — overridden by business_rules table at runtime
-    audit_settings: {
-        audit_day: "Monday",
-        audit_time: "06:00",
-        questions_per_category: 20,
-        engines: 4,
-        decay_trigger: "Week 3",
-    },
-};
-
 function normalizeConfig(raw) {
-    if (!raw || typeof raw !== 'object') return DEFAULT_CONFIG;
+    if (!raw || typeof raw !== 'object') return null;
     return {
-        gate_thresholds: { ...DEFAULT_CONFIG.gate_thresholds, ...(raw.gate_thresholds || {}) },
-        tier_score_weights: { ...DEFAULT_CONFIG.tier_score_weights, ...(raw.tier_score_weights || {}) },
-        channel_thresholds: { ...DEFAULT_CONFIG.channel_thresholds, ...(raw.channel_thresholds || {}) },
-        audit_settings: { ...DEFAULT_CONFIG.audit_settings, ...(raw.audit_settings || {}) },
+        gate_thresholds: raw.gate_thresholds || {},
+        tier_score_weights: raw.tier_score_weights || {},
+        channel_thresholds: raw.channel_thresholds || {},
+        audit_settings: raw.audit_settings || {},
     };
 }
 
@@ -68,10 +33,8 @@ const Config = () => {
                 setEditingConfig(JSON.parse(JSON.stringify(configData)));
             } catch (err) {
                 console.error('Failed to fetch config:', err);
-                addNotification({ type: 'error', message: 'Failed to load configuration' });
-                const configData = DEFAULT_CONFIG;
-                setConfig(configData);
-                setEditingConfig(JSON.parse(JSON.stringify(configData)));
+                addNotification({ type: 'error', message: 'Failed to load configuration. Business rules unavailable.' });
+                setConfig(null);
             } finally {
                 setLoading(false);
             }
@@ -100,7 +63,7 @@ const Config = () => {
     };
 
     const handleCancel = () => {
-        setEditingConfig(JSON.parse(JSON.stringify(config || DEFAULT_CONFIG)));
+        setEditingConfig(config ? JSON.parse(JSON.stringify(config)) : null);
         setIsEditing(false);
     };
 
@@ -115,7 +78,8 @@ const Config = () => {
     };
 
     if (loading) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-dim)' }}>Loading configuration...</div>;
-    const displayConfig = config || DEFAULT_CONFIG;
+    if (!config) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--red)' }}>Failed to load business rules from server. No fallback defaults available.</div>;
+    const displayConfig = config;
 
     const sections = [
         {
@@ -202,7 +166,7 @@ const Config = () => {
                     color: 'var(--orange)',
                     fontSize: '0.75rem'
                 }}>
-                    🔒 Read-only mode. Only admins can modify configuration.
+                    Read-only mode. Only admins can modify configuration.
                 </div>
             )}
 

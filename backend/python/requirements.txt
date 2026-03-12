@@ -16,8 +16,10 @@ fsspec==2026.2.0
 uvicorn==0.34.0
 google-ai-generativelanguage==0.4.0
 google-api-core==2.29.0
+google-api-python-client==2.108.0
 google-auth==2.48.0
 google-generativeai==0.3.2
+google-analytics-data==0.18.0
 googleapis-common-protos==1.72.0
 grpcio==1.78.0
 grpcio-status==1.62.3

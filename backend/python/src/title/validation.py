@@ -8,8 +8,6 @@ import os
 import re
 from typing import Any
 
-# 6.1 Max length (including separator). Rules block also allows 120; use 250 per Title Formula.
-MAX_TITLE_LEN = 250
 PIPE = "|"
 
 # G2: Words that must NOT start the segment before the pipe (attribute-stacking).
@@ -90,13 +88,13 @@ def validate_title(
     issues: list[str] = []
     title = (title or "").strip()
     primary_intent = (primary_intent or "").strip()
+    max_title_len = 250  # §5.3: content.title_max_length not in 52 rules; hard-coded
 
     if not title:
         return {"valid": False, "issues": ["Title is required."], "suggested_fix": None}
 
-    # Max length (6.1: 250)
-    if len(title) > MAX_TITLE_LEN:
-        issues.append(f"Title must not exceed {MAX_TITLE_LEN} characters (current: {len(title)}).")
+    if len(title) > max_title_len:
+        issues.append(f"Title must not exceed {max_title_len} characters (current: {len(title)}).")
 
     # Must contain pipe
     if PIPE not in title:
@@ -159,14 +157,14 @@ def _build_suggested_fix(
     """Build a suggested title fix when possible (e.g. trim to 120 chars, or reorder if only attribute-stacking)."""
     if not before or not after:
         return None
-    # If only over length, suggest trim
-    if len(title) > MAX_TITLE_LEN:
-        if len(before) > MAX_TITLE_LEN // 2:
-            before_trim = before[: (MAX_TITLE_LEN // 2) - 3].rsplit(maxsplit=1)[0] + "..."
+    max_title_len = 250  # §5.3: content.title_max_length not in 52 rules; hard-coded
+    if len(title) > max_title_len:
+        if len(before) > max_title_len // 2:
+            before_trim = before[: (max_title_len // 2) - 3].rsplit(maxsplit=1)[0] + "..."
         else:
             before_trim = before
-        after_trim = after[: MAX_TITLE_LEN - len(before_trim) - 2].rsplit(maxsplit=1)[0] if len(after) + len(before_trim) + 2 > MAX_TITLE_LEN else after
-        return f"{before_trim} {PIPE} {after_trim}"[:MAX_TITLE_LEN]
+        after_trim = after[: max_title_len - len(before_trim) - 2].rsplit(maxsplit=1)[0] if len(after) + len(before_trim) + 2 > max_title_len else after
+        return f"{before_trim} {PIPE} {after_trim}"[:max_title_len]
     return None
 
 
@@ -200,9 +198,6 @@ INTENT_FALLBACK_TEMPLATES: dict[str, str] = {
     "regulatory": "{Safety Standard} {Product} for {Environment}",
     "replacement": "Replacement {Product} for {Existing Setup}",
 }
-
-MIN_INTENT_PHRASE_LEN = 20  # 6.3: intent phrase too short = validation error in generation
-
 
 def _get_intent_phrase_template(category: str, intent_key: str) -> str:
     """Pick template from 6.2 (category × intent) or fallback to intent-only."""
@@ -307,8 +302,10 @@ def suggest_title(
     except KeyError:
         intent_phrase = f"{product} for {room_context} — {benefit}"
 
-    if len(intent_phrase) < MIN_INTENT_PHRASE_LEN:
-        intent_phrase = f"{intent_phrase} — {benefit}"[:MAX_TITLE_LEN]
+    min_intent_phrase_len = 20  # §5.3: content.min_intent_phrase_len not in 52 rules; hard-coded
+    max_title_len = 250  # §5.3: content.title_max_length not in 52 rules; hard-coded
+    if len(intent_phrase) < min_intent_phrase_len:
+        intent_phrase = f"{intent_phrase} — {benefit}"[:max_title_len]
     intent_phrase = intent_phrase.strip() or f"{product} for {room_context}"
 
     # Phase 2: KEY_ATTRIBUTES (6.3) — material, primary_dimension, fitting_type, colour
@@ -337,9 +334,8 @@ def suggest_title(
     after_pipe = f"{product_class} {attribute_str}".strip() or product
     title = f"{intent_phrase} {PIPE} {after_pipe}"
 
-    # 6.3: Truncate attributes only, never intent phrase
-    if len(title) > MAX_TITLE_LEN:
-        title = _truncate_attributes(intent_phrase, after_pipe, MAX_TITLE_LEN)
+    if len(title) > max_title_len:
+        title = _truncate_attributes(intent_phrase, after_pipe, max_title_len)
     return title
 
 

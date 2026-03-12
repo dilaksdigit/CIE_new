@@ -79,6 +79,8 @@ export const skuApi = {
     validate: (id) => api.post(`/v1/sku/${id}/validate`),
     stats: () => api.get('/v1/sku/stats'),
     faqSuggestions: (id) => api.get(`/v1/sku/${id}/faq-suggestions`),
+    getRollbackContent: (id) => api.get(`/v1/sku/${id}/rollback-content`),
+    publish: (id) => api.post(`/v1/sku/${id}/publish`),
 };
 
 // ====== Clusters ======
@@ -135,7 +137,7 @@ export const semrushImportApi = {
             },
         });
     },
-    latest: () => api.get('/v1/admin/semrush-import/latest'),
+    latest: (params) => api.get('/v1/admin/semrush-import/latest', { params: params || {} }),
     deleteBatch: (batchDate) => api.delete(`/v1/admin/semrush-import/${encodeURIComponent(batchDate)}`),
 };
 
@@ -143,6 +145,7 @@ export const semrushImportApi = {
 export const dashboardApi = {
     getSummary: () => api.get('/v1/dashboard/summary'),
     getDecayAlerts: () => api.get('/v1/dashboard/decay-alerts'),
+    getChannelStats: () => api.get('/v1/dashboard/channel-stats'),
 };
 
 // ====== Audit Results ======

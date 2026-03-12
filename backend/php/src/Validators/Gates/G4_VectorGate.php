@@ -1,17 +1,21 @@
 <?php
-// SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 7 (error codes); CIE_v231_Developer_Build_Pack.pdf (sku_gate_status schema)
+// SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 1 (Fail-Soft Vector Validation); CLAUDE.md Section 11, Section 18 DECISION-005
+
 namespace App\Validators\Gates;
 
 use App\Models\Sku;
-use App\Models\AuditLog;
 use App\Enums\GateType;
 use App\Support\BusinessRules;
 use App\Validators\GateResult;
 use App\Validators\GateInterface;
+use App\Services\AuditLogService;
 use Illuminate\Support\Facades\DB;
 
 class G4_VectorGate implements GateInterface
 {
+    /** Writer-facing message when vector is below threshold — no score numbers (CLAUDE.md R4). */
+    private const VECTOR_WARN_MESSAGE = 'Your description may not fully match the expected topic for this product. Consider expanding your content to better cover the primary intent keywords.';
+
     private const PYTHON_ENDPOINT = 'http://python-worker:5000/validate-vector';
  
  public function validate(Sku $sku): GateResult
@@ -25,7 +29,7 @@ class G4_VectorGate implements GateInterface
  );
  }
  
-        $minLen = (int) BusinessRules::get('content.description_vector_min_length', 100);
+        $minLen = 100; // §5.3: content.description_vector_min_length not in 52 rules; hard-coded
         if (!$sku->long_description || strlen(trim($sku->long_description)) < $minLen) {
              return new GateResult(
              gate: GateType::G4_VECTOR,
@@ -36,7 +40,7 @@ class G4_VectorGate implements GateInterface
         }
  
         try {
-            $threshold = (float) BusinessRules::get('gates.vector_similarity_min', 0.72);
+            $threshold = (float) BusinessRules::get('gates.vector_similarity_min');
             $response = $this->callPythonValidator($sku->long_description, $sku->primary_cluster_id, $threshold);
 
             // Persist similarity to canonical sku_content (if present)
@@ -54,42 +58,20 @@ class G4_VectorGate implements GateInterface
                  );
             }
 
-            // SOURCE: CLAUDE.md §11 — "Audit log records the fail-soft event"
-            // SOURCE: DECISION-005 — "The audit log records the fail-soft event for governance tracking"
-            try {
-                AuditLog::create([
-                    'entity_type' => 'sku',
-                    'entity_id'   => $sku->id,
-                    'action'      => 'vector_similarity_warn',
-                    'field_name'  => 'G4_VECTOR',
-                    'old_value'   => null,
-                    'new_value'   => json_encode([
-                        'event'  => 'fail_soft',
-                        'gate'   => 'VECTOR',
-                        'reason' => 'cosine_similarity_below_threshold',
-                    ]),
-                    'actor_id'    => 'SYSTEM',
-                    'actor_role'  => 'system',
-                    'timestamp'   => now(),
-                    'created_at'  => now(),
-                ]);
-            } catch (\Throwable $auditErr) {
-                // Fail-soft: do not break validation if audit_log write fails
-            }
+            // SOURCE: CLAUDE.md DECISION-005; Hardening_Addendum Patch 1 — WARNING only, save succeeds. No score in writer-facing output.
+            $similarity = isset($response['similarity']) ? (float) $response['similarity'] : 0.0;
+            $auditLog = app(AuditLogService::class);
+            $auditLog->logVectorWarn((int) $sku->id, $similarity, auth()->id());
 
-            // SOURCE: CLAUDE.md §11 — Below 0.72 = WARNING, not block. Content saves with warning.
-            // SOURCE: CIE_v232_Hardening_Addendum.pdf §1.1 — Gate enforced, save allowed, publish blocked.
             return new GateResult(
                 gate: GateType::G4_VECTOR,
-                passed: false,
-                reason: 'Your content may not align with the intent. Consider revising.',
+                passed: true,
+                reason: self::VECTOR_WARN_MESSAGE,
                 blocking: false,
                 metadata: [
-                    'error_code'   => 'CIE_VEC_SIMILARITY_LOW',
-                    'user_message' => 'Your content may not align with the intent. Consider revising.',
-                    'status'       => 'warn',
-                    'can_save'     => true,
-                    'can_publish'  => false,
+                    'user_message' => self::VECTOR_WARN_MESSAGE,
+                    'gate'         => 'vector_similarity',
+                    'warn_only'    => true,
                 ]
             );
         } catch (\Exception $e) {

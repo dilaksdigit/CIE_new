@@ -8,6 +8,7 @@ use App\Support\BusinessRules;
 use App\Validators\Gates\G4_AnswerBlockGate;
 use App\Validators\Gates\G2_ImagesGate;
 use App\Utils\JsonLdRenderer;
+use Illuminate\Support\Facades\DB;
 
 /**
  * CIE v2.3.1 + v2.3.2 Patch 3 — Readiness score (0-100) per channel per SKU.
@@ -15,18 +16,21 @@ use App\Utils\JsonLdRenderer;
  */
 class ReadinessScoreService
 {
-    /** Default point values when BusinessRules not available. */
-    private const DEFAULT_COMPONENTS = [
-        'valid_cluster_id'           => 10,
-        'has_primary_intent'        => 10,
-        'has_secondary_intents'      => 10,
-        'answer_block_passes_g4'     => 15,
+    /*
+     * §5.3: Readiness component point values (not in 52 rules). Hard-coded to match former seed.
+     */
+    private const COMPONENT_POINTS = [
+        'valid_cluster_id' => 10,
+        'has_primary_intent' => 10,
+        'has_secondary_intents' => 10,
+        'answer_block_passes_g4' => 15,
         'best_for_not_for_populated' => 10,
-        'expert_authority_present'   => 10,
-        'json_ld_renders_valid'     => 10,
-        'images_meet_channel'       => 10,
-        'pricing_present'           => 10,
+        'expert_authority_present' => 10,
+        'json_ld_renders_valid' => 10,
+        'images_meet_channel' => 10,
+        'pricing_present' => 10,
         'category_specific_complete' => 5,
+        'faq_completion' => 10, // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 4 KPI #7
     ];
 
     /** Harvest tier: only these components apply (max 45). */
@@ -39,33 +43,18 @@ class ReadinessScoreService
     ];
 
     private const READINESS_KEYS = [
-        'valid_cluster_id' => 'readiness.valid_cluster_id',
-        'has_primary_intent' => 'readiness.has_primary_intent',
-        'has_secondary_intents' => 'readiness.has_secondary_intents',
-        'answer_block_passes_g4' => 'readiness.answer_block_passes_g4',
-        'best_for_not_for_populated' => 'readiness.best_for_not_for_populated',
-        'expert_authority_present' => 'readiness.expert_authority_present',
-        'json_ld_renders_valid' => 'readiness.json_ld_renders_valid',
-        'images_meet_channel' => 'readiness.images_meet_channel',
-        'pricing_present' => 'readiness.pricing_present',
-        'category_specific_complete' => 'readiness.category_specific_complete',
+        'valid_cluster_id', 'has_primary_intent', 'has_secondary_intents',
+        'answer_block_passes_g4', 'best_for_not_for_populated', 'expert_authority_present',
+        'json_ld_renders_valid', 'images_meet_channel', 'pricing_present', 'category_specific_complete',
+        'faq_completion',
     ];
 
-    /** Channels for dashboard (same base score; channel-specific thresholds applied by frontend). */
-    private const CHANNELS = ['own_website', 'google_sge', 'amazon', 'ai_assistants'];
+    /** Channels for dashboard (v2.3.2: shopify + gmc only per CLAUDE.md Section 4 — DECISION-001). */
+    private const CHANNELS = ['shopify', 'gmc'];
 
     private function getComponents(): array
     {
-        $out = [];
-        foreach (self::DEFAULT_COMPONENTS as $key => $default) {
-            $ruleKey = self::READINESS_KEYS[$key] ?? 'readiness.' . $key;
-            try {
-                $out[$key] = (int) BusinessRules::get($ruleKey, $default);
-            } catch (\Throwable $e) {
-                $out[$key] = $default;
-            }
-        }
-        return $out;
+        return self::COMPONENT_POINTS;
     }
 
     public function __construct(
@@ -87,7 +76,8 @@ class ReadinessScoreService
 
         $components = $this->evaluateComponents($sku, $isHarvest);
 
-        $maxPossible = $isHarvest ? 45 : 100;
+        $harvestMax = 45; // §5.3: readiness.harvest_max_points not in 52 rules; hard-coded
+        $maxPossible = $isHarvest ? $harvestMax : 100;
         $earned = 0;
         foreach ($components as $key => $data) {
             if ($data['applies']) {
@@ -95,9 +85,9 @@ class ReadinessScoreService
             }
         }
 
-        // §11.3: Harvest = raw score (0-45), no normalization. Hero/Support = 0-100 scale
+        // §11.3: Harvest = raw score (0-harvestMax), no normalization. Hero/Support = 0-100 scale
         if ($isHarvest) {
-            $overall = min(45, max(0, $earned));
+            $overall = min($harvestMax, max(0, $earned));
         } else {
             $overall = $maxPossible > 0
                 ? (int) round(($earned / $maxPossible) * 100)
@@ -107,12 +97,7 @@ class ReadinessScoreService
 
         $channels = [];
         foreach (self::CHANNELS as $channel) {
-            $modifier = 0;
-            try {
-                $modifier = (int) BusinessRules::get('readiness.channel_' . $channel . '_modifier', 0);
-            } catch (\Throwable $e) {
-                // keep 0
-            }
+            $modifier = 0; // §5.3: readiness.channel_*_modifier not in 52 rules; hard-coded
             $channelScore = min(100, max(0, $overall + $modifier));
             $channels[] = ['channel' => $channel, 'score' => $channelScore];
         }
@@ -243,9 +228,42 @@ class ReadinessScoreService
                     (!empty($cluster->name))
                 );
                 return $passed ? $maxPoints : 0;
+            case 'faq_completion':
+                return $this->computeFaqCompletion($sku, $maxPoints);
             default:
                 return 0;
         }
+    }
+
+    /**
+     * SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 4 KPI #7
+     * Hero FAQ completion: ratio of answered required templates >= 80% → full points; else proportional.
+     * Non-Hero tiers: full points (FAQ not required, do not penalise).
+     */
+    private function computeFaqCompletion(Sku $sku, int $maxPoints): int
+    {
+        $tier = $this->normalizeTier($sku->tier);
+        if ($tier !== 'hero') {
+            return $maxPoints;
+        }
+        $skuIdStr = (string) $sku->id;
+        $requiredCount = DB::table('faq_templates')->where('is_required', true)->count();
+        if ($requiredCount === 0) {
+            return $maxPoints;
+        }
+        $answeredCount = DB::table('sku_faq_responses')
+            ->where('sku_id', $skuIdStr)
+            ->whereNotNull('answer')
+            ->where('answer', '!=', '')
+            ->whereIn('template_id', function ($q) {
+                $q->select('id')->from('faq_templates')->where('is_required', true);
+            })
+            ->count();
+        $ratio = $answeredCount / $requiredCount;
+        if ($ratio >= 0.80) {
+            return $maxPoints;
+        }
+        return (int) round($maxPoints * $ratio / 0.80);
     }
 
     /**
@@ -257,15 +275,16 @@ class ReadinessScoreService
     {
         $bestForCount = self::countListAttribute($sku->best_for);
         $notForCount = self::countListAttribute($sku->not_for);
+        $partialFraction = 0.5; // §5.3: readiness.best_for_partial_credit_fraction not in 52 rules; hard-coded
 
         if ($tier === 'hero') {
             if ($bestForCount >= 2 && $notForCount >= 1) return $maxPoints;
-            if ($bestForCount >= 1 && $notForCount >= 1) return (int) round($maxPoints * 0.5);
+            if ($bestForCount >= 1 && $notForCount >= 1) return (int) round($maxPoints * $partialFraction);
             return 0;
         }
 
         if ($bestForCount >= 1 && $notForCount >= 1) return $maxPoints;
-        if ($bestForCount >= 1 || $notForCount >= 1) return (int) round($maxPoints * 0.5);
+        if ($bestForCount >= 1 || $notForCount >= 1) return (int) round($maxPoints * $partialFraction);
         return 0;
     }
 

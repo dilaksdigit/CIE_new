@@ -93,6 +93,7 @@ const TierTag = ({ tier }) => {
 const FieldProgress = ({ done, total }) => {
     if (total === 0) return <span style={{ fontSize: '0.7rem', color: THEME.textMid }}>—</span>;
     const pct = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+    // F6 STOP: gates.completion_amber_pct not in §5.3 — architect must add before de-hardcoding (value 50)
     const color = pct === 100 ? THEME.green : pct >= 50 ? THEME.amber : THEME.red;
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -285,6 +286,8 @@ const WriterQueue = () => {
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, marginBottom: 14 }}>
                 {renderStat('To Do', counts.todo, C.amber)}
                 {renderStat('Done Today', counts.done, C.green)}
+                {/* TODO: Wire to existing KPI endpoint for weekly count —
+                    currently shows same value as Done Today (counts.done) */}
                 {renderStat('Done This Week', counts.done, C.accent)}
                 {renderStat('Hero Time', heroTimePct === null ? null : `${heroTimePct}%`, C.hero, 'Target: 60%')}
             </div>

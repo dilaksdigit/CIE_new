@@ -8,7 +8,26 @@ use Illuminate\Support\Facades\DB;
 class ChannelGovernorService
 {
     /**
-     * Patch 5: Channel Readiness Assessment
+     * GMC feed inclusion (CHAN-02): Kill/Harvest excluded; Hero ≥85, Support ≥70.
+     */
+    public static function isEligibleForGMC(Sku $sku): bool
+    {
+        $tier = strtolower((string) ($sku->tier ?? ''));
+        if (in_array($tier, ['kill', 'harvest'])) {
+            return false;
+        }
+        $score = (int) ($sku->readiness_score ?? 0);
+        if ($tier === 'hero') {
+            return $score >= 85;
+        }
+        if ($tier === 'support') {
+            return $score >= 70;
+        }
+        return false;
+    }
+
+    /**
+     * Patch 5: Channel Readiness Assessment. Channels: shopify, gmc only (Amazon deferred).
      */
     public function assess(Sku $sku): array
     {
@@ -17,10 +36,8 @@ class ChannelGovernorService
         }
 
         return [
-            'google_sge' => $this->calculateReadiness($sku, 'GOOGLE'),
-            'amazon' => $this->calculateReadiness($sku, 'AMAZON'),
-            'ai_assistants' => $this->calculateReadiness($sku, 'AI_ASST'),
-            'own_website' => $this->calculateReadiness($sku, 'WEBSITE')
+            'shopify' => $this->calculateReadiness($sku, 'shopify'),
+            'gmc'     => $this->calculateReadinessGmc($sku),
         ];
     }
 
@@ -31,7 +48,7 @@ class ChannelGovernorService
 
         foreach ($results as $channel => $data) {
             DB::table('channel_readiness')->updateOrInsert(
-                ['sku_id' => $fresh->sku_code, 'channel' => $channel],
+                ['sku_id' => $fresh->sku_code ?? $fresh->id, 'channel' => $channel],
                 [
                     'score'            => $data['score'],
                     'component_scores' => json_encode($data),
@@ -44,13 +61,7 @@ class ChannelGovernorService
 
     private function calculateReadiness(Sku $sku, string $channel): array
     {
-        $score = $sku->readiness_score;
-        
-        // Amazon penalty if no Best-For/Not-For
-        if ($channel === 'AMAZON' && empty($sku->best_for)) {
-            $score -= 15;
-        }
-
+        $score = (int) ($sku->readiness_score ?? 0);
         if ($sku->tier === 'hero') {
             $primaryThreshold = (int) BusinessRules::get('readiness.hero_primary_channel_min');
             $allChannelsThreshold = (int) BusinessRules::get('readiness.hero_all_channels_min');
@@ -60,25 +71,25 @@ class ChannelGovernorService
         } else {
             return ['score' => max(0, $score), 'status' => 'SKIP'];
         }
-
         $status = $score >= $primaryThreshold
             ? 'COMPETE'
             : ($allChannelsThreshold !== null && $score >= $allChannelsThreshold ? 'MONITOR' : 'SKIP');
+        return ['score' => max(0, $score), 'status' => $status];
+    }
 
+    private function calculateReadinessGmc(Sku $sku): array
+    {
+        $score = (int) ($sku->readiness_score ?? 0);
+        $eligible = self::isEligibleForGMC($sku);
         return [
-            'score' => max(0, $score),
-            'status' => $status
+            'score'  => max(0, $score),
+            'status' => $eligible ? 'COMPETE' : 'SKIP',
         ];
     }
 
     private function getSkipResponse(): array
     {
         $skip = ['score' => 0, 'status' => 'SKIP'];
-        return [
-            'google_sge' => $skip,
-            'amazon' => $skip,
-            'ai_assistants' => $skip,
-            'own_website' => $skip
-        ];
+        return ['shopify' => $skip, 'gmc' => $skip];
     }
 }

@@ -1,3 +1,4 @@
+# SOURCE: CIE_Master_Developer_Build_Spec.docx Section 12.1
 """
 CIE v2.3.1 / v2.3.2 — Weekly AI citation audit service.
 
@@ -19,11 +20,14 @@ It does not manage the connection lifecycle itself.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import uuid
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+from api.gates_validate import BusinessRules
 
 logger = logging.getLogger(__name__)
 
@@ -168,9 +172,11 @@ def evaluate_citation(
     if answer_block:
         ab = answer_block.lower()
         ratio = SequenceMatcher(None, ab, text).ratio()
-        if ratio >= 0.8:
+        ratio_high = 0.8  # §5.3: audit.citation_fuzzy_ratio_high not in 52 rules; hard-coded
+        ratio_low = 0.6   # §5.3: audit.citation_fuzzy_ratio_low not in 52 rules; hard-coded
+        if ratio >= ratio_high:
             score = 3
-        elif ratio >= 0.6:
+        elif ratio >= ratio_low:
             score = max(score, 2)
 
     return score
@@ -262,9 +268,9 @@ def compute_aggregate(results: Sequence[EngineRunSummary]) -> Tuple[float, int]:
     if not per_engine_scores:
         return 0.0, 0
 
-    # Engines that met minimum coverage: at least 15 of 20 questions scored (Patch 2 §2.3)
+    min_coverage = 15  # §5.3: audit.min_engine_question_coverage not in 52 rules; hard-coded
     engines_with_coverage = {
-        e: s for e, s in per_engine_scores.items() if len(s) >= 15
+        e: s for e, s in per_engine_scores.items() if len(s) >= min_coverage
     }
     engine_count = len(engines_with_coverage)
     if engine_count == 0:
@@ -338,6 +344,8 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
     today = dt.date.today()
 
     questions = load_golden_queries(db, category)
+    expected_count = int(BusinessRules.get('decay.audit_question_count'))
+    questions = questions[:expected_count]
     if not questions:
         logger.warning("No golden queries found for category=%s", category)
         return {"status": "no_queries", "category": category, "run_date": str(today)}
@@ -357,8 +365,8 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
     cur = db.cursor()
     cur.execute(
         """
-        INSERT INTO ai_audit_runs (run_id, category, run_date, status, total_questions, engines_available, quorum_met)
-        VALUES (%s, %s, %s, 'running', %s, 0, 0)
+        INSERT INTO ai_audit_runs (run_id, category, run_date, status, total_questions, engines_available, quorum_met, degraded_mode)
+        VALUES (%s, %s, %s, 'running', %s, 0, 0, 0)
         """,
         (run_id, category, today, total_questions),
     )
@@ -376,11 +384,13 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
     ]
     engines_responded = len(engines_ok)
 
-    if engines_responded == 4 or engines_responded == 3:
+    quorum_advance = int(BusinessRules.get('decay.quorum_minimum'))
+    quorum_pause = 2  # §5.3: not in 52 rules; hard-coded
+    if engines_responded >= quorum_advance:
         quorum_status = "COMPLETE"
         decay_action = "advanced"
         quorum_met = True
-    elif engines_responded == 2:
+    elif engines_responded == quorum_pause:
         quorum_status = "PARTIAL"
         decay_action = "paused"
         quorum_met = False
@@ -391,8 +401,8 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
 
     agg_rate, questions_scored = compute_aggregate(engine_summaries)
 
-    # Map rate to pass/fail using minimum_score_for_pass (>=1) and aggregate threshold 0.70
-    pass_fail = "pass" if agg_rate >= 0.70 else "fail"
+    threshold = float(BusinessRules.get('decay.hero_citation_target'))
+    pass_fail = "pass" if agg_rate >= threshold else "fail"
 
     # Persist per-question results
     cur = db.cursor()
@@ -420,6 +430,7 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
             )
 
     # Update run row with final status and aggregate stats
+    degraded_mode = 1 if engines_responded < quorum_advance else 0
     cur.execute(
         """
         UPDATE ai_audit_runs
@@ -427,7 +438,8 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
             aggregate_citation_rate = %s,
             pass_fail = %s,
             engines_available = %s,
-            quorum_met = %s
+            quorum_met = %s,
+            degraded_mode = %s
         WHERE run_id = %s
         """,
         (
@@ -436,11 +448,27 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
             pass_fail,
             engines_responded,
             quorum_met,
+            degraded_mode,
             run_id,
         ),
     )
     db.commit()
     cur.close()
+
+    if engines_responded < quorum_advance:
+        try:
+            cur = db.cursor()
+            cur.execute(
+                """
+                INSERT INTO audit_log (entity_type, entity_id, action, field_name, new_value, created_at)
+                VALUES ('ai_audit_run', %s, 'quorum_fail', 'engines_responded', %s, NOW())
+                """,
+                (run_id, json.dumps({"quorum_minimum": quorum_advance, "run_id": run_id, "engines_responded": engines_responded})),
+            )
+            db.commit()
+            cur.close()
+        except Exception as e:
+            logger.warning("audit_log quorum_fail insert failed for run_id=%s: %s", run_id, e)
 
     decay_summary = compare_decay_last_weeks(db, category, today)
 

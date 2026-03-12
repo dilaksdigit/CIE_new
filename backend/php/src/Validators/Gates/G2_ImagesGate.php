@@ -19,6 +19,7 @@ class G2_ImagesGate implements GateInterface
  
  $filePath = storage_path('uploads/images/' . $sku->primary_image);
  $fileSize = filesize($filePath);
+ // F8 STOP: gates.image_max_size_bytes not in §5.3 — add 5242880 to seed then BusinessRules::get()
  if ($fileSize > 5 * 1024 * 1024) {
  return new GateResult(
  gate: GateType::G2_IMAGES,
@@ -29,6 +30,7 @@ class G2_ImagesGate implements GateInterface
  }
  
  $imageInfo = getimagesize($filePath);
+ // F8 STOP: gates.image_min_width not in §5.3 — add 800 to seed then BusinessRules::get()
  if ($imageInfo[0] < 800 || $imageInfo[1] < 800) {
  return new GateResult(
  gate: GateType::G2_IMAGES,

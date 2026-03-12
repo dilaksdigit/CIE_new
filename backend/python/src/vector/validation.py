@@ -9,12 +9,12 @@ logger = logging.getLogger(__name__)
 def validate_cluster_match(request_vector, cluster_id, threshold=None):
     """
     Validate request vector against cluster centroid.
-    threshold: from request (BusinessRules.get('gates.vector_similarity_min') in PHP). Not hard-coded.
-    If missing, use env CIE_VECTOR_THRESHOLD (config-driven, not code constant).
-    Fails soft if embedding API times out (allows request through with warning).
+    SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 1; CLAUDE.md Section 18 DECISION-005.
+    threshold: from request (BusinessRules.get('gates.vector_similarity_min') in PHP). If missing, use env VECTOR_SIMILARITY_THRESHOLD (default 0.72).
+    Below threshold = WARNING only (valid=False, status='warn'); score never returned to writer-facing API.
     """
     if threshold is None:
-        threshold = float(os.environ.get('CIE_VECTOR_THRESHOLD', '0.72'))
+        threshold = float(os.environ.get('VECTOR_SIMILARITY_THRESHOLD', '0.72'))
     # Check if cluster vector exists
     cluster_vec = cluster_cache.get_cluster_vector(cluster_id)
     if not cluster_vec:

@@ -1,0 +1,37 @@
+{
+  "_source": "CIE_Doc4b_Golden_Test_Data_Pack.pdf — Golden Test Data; CIE_Master_Developer_Build_Spec.docx §17 Phase 1.1 / 1.3",
+  "golden_skus": [
+    {
+      "sku_code": "SKU-CABLE-001",
+      "scenario": "hero_all_pass",
+      "tier": "hero",
+      "description": "Hero SKU — all 7 gates expected to pass. Used for Phase 1.1 validation.",
+      "expected_result": {
+        "status": "pass",
+        "http_code": 200,
+        "gates_all_pass": true
+      }
+    },
+    {
+      "sku_code": "SKU-CABLE-002",
+      "scenario": "kill_all_fields_blocked",
+      "tier": "kill",
+      "description": "Kill-tier SKU — all content fields blocked. Used for Phase 1.3 kill scenario.",
+      "expected_result": {
+        "tier": "kill",
+        "all_fields_blocked": true
+      }
+    },
+    {
+      "sku_code": "SKU-PEND-001",
+      "scenario": "harvest_limited_gates",
+      "tier": "harvest",
+      "description": "Harvest-tier SKU — G1, G2, G6 checked only; G4/G5/G7 suspended. Used for Phase 1.3 harvest scenario.",
+      "expected_result": {
+        "tier": "harvest",
+        "gates_checked": ["G1", "G2", "G6"],
+        "gates_suspended": ["G4", "G5", "G7"]
+      }
+    }
+  ]
+}

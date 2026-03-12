@@ -1,18 +1,18 @@
-// SOURCE: CIE_v232_Writer_View.jsx — const C block (lines 8-20)
-// SOURCE: CIE_v232_UI_Restructure_Instructions.docx — Section 1.5 color palette table
+// SOURCE: CLAUDE.md Section 8 — Core Colours (locked palette)
+//         CIE_v232_Developer_Amendment_Pack_v2.docx Section 9 Phase 1
 
 export const THEME = {
   // ── Backgrounds ────────────────────────────────────────────────
-  bg:            "#FAFAF8",   // warm off-white — page background
+  bg:            "#FAFAFA",   // CORRECTED was #FAFAF8 — page background
   surface:       "#FFFFFF",   // white — cards, panels
-  muted:         "#F5F4F1",   // light warm grey — alt backgrounds
+  muted:         "#F5F5F4",   // CORRECTED was #F5F4F1 — surfaceAlt / alt backgrounds
 
   // ── Borders ────────────────────────────────────────────────────
-  border:        "#E5E3DE",   // soft grey
+  border:        "#E5E5E5",   // CORRECTED was #E5E3DE
 
   // ── Text ───────────────────────────────────────────────────────
-  text:          "#2D2B28",   // near-black warm — primary text
-  textMid:       "#6B6860",   // medium grey — secondary text
+  text:          "#2D2D2D",   // CORRECTED was #2D2B28 — primary text
+  textMid:       "#6B6B6B",   // CORRECTED was #6B6860 — secondary text (textMuted)
   textLight:     "#9B978F",   // muted grey — light/placeholder text
 
   // ── Accent ─────────────────────────────────────────────────────
@@ -31,7 +31,7 @@ export const THEME = {
   supportBorder: "#B5D0E3",
 
   // ── Tier: Harvest ──────────────────────────────────────────────
-  harvest:       "#9E7C1A",   // amber
+  harvest:       "#B8860B",   // CORRECTED was #9E7C1A — Harvest badge text colour
   harvestBg:     "#FFF8E7",
   harvestBorder: "#E8D49A",
 

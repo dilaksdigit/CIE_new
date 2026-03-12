@@ -1,4 +1,5 @@
 // SOURCE: CIE_v232_Hardening_Addendum.pdf §6.2 / §6.3
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx — TierFieldTooltip for hidden fields (FIX 11)
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { skuApi } from '../../services/api';
@@ -17,7 +18,6 @@ const DEMO_SKU = {
     cluster_name: 'Audio & Sound',
     tier: 'HERO',
     validation_status: 'VALID',
-    similarity_score: 0.92,
     margin: 34.5,
     volume: 12500,
     brand: 'TechAudio',
@@ -74,7 +74,6 @@ const SkuEditForm = () => {
             setSku({
                 ...sku,
                 validation_status: 'VALID',
-                similarity_score: 0.92,
                 validation_results: {
                     overall_status: 'VALID',
                     can_publish: true,
@@ -146,6 +145,7 @@ const SkuEditForm = () => {
                             <input type="text" value={sku.sku_code} disabled style={{ opacity: 0.6 }} />
                         </div>
                         {/* SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 Gate G6.1 — Kill fields REMOVED from UI, not greyed out */}
+                        {/* SOURCE: CIE_v232_UI_Restructure_Instructions.docx — TierFieldTooltip for hidden fields */}
                         {!isKillTier && (
                         <div className="form-group">
                             <label>Brand</label>
@@ -239,17 +239,14 @@ const SkuEditForm = () => {
                     </div>
                     <div className="form-row">
                         <div className="form-group">
-                            <label>Similarity Score</label>
-                            <input type="text" value={sku.similarity_score ?? '—'} disabled style={{ opacity: 0.6 }} />
-                        </div>
-                        <div className="form-group">
                             <label>Cluster</label>
                             <input type="text" value={sku.cluster_name || `Cluster #${sku.cluster_id}`} disabled style={{ opacity: 0.6 }} />
                         </div>
                     </div>
                 </div>
 
-                {/* §6.3 render_hidden_field — non-kill tiers: placeholder divs for hidden fields */}
+                {/* §6.3 render_hidden_field — non-kill tiers: placeholder divs for hidden fields with TierFieldTooltip */}
+                {/* SOURCE: CIE_v232_UI_Restructure_Instructions.docx — TierFieldTooltip for hidden fields */}
                 {!isKillTier && (TIER_FIELD_MAP[String(sku.tier || '').trim().toLowerCase()]?.hidden || []).map((field) => (
                     <HiddenFieldSlot key={`hidden-${field}`} fieldName={field} tier={String(sku.tier || '').trim().toLowerCase()} tooltips={TIER_TOOLTIPS} />
                 ))}
@@ -257,11 +254,11 @@ const SkuEditForm = () => {
                 <div className="actions">
                     {!isKillTier && (
                         <button type="submit" className="btn btn-primary" disabled={saving}>
-                            {saving ? 'Saving...' : '💾 Save Changes'}
+                            {saving ? 'Saving...' : 'Save Changes'}
                         </button>
                     )}
                     <button type="button" className="btn btn-secondary" onClick={handleValidate} disabled={validating}>
-                        {validating ? 'Validating...' : '🔬 Run AI Validation'}
+                        {validating ? 'Validating...' : 'Run AI Validation'}
                     </button>
                     <button type="button" className="btn btn-danger" onClick={() => navigate('/skus')}>
                         Cancel

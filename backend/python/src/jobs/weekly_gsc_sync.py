@@ -2,19 +2,23 @@
 Weekly GSC sync job.
 
 SOURCE: CIE_Master_Developer_Build_Spec.docx
-- §9.2  GSC weekly pull — Sunday 03:00 UTC, url_performance table
-- §9.3  URL normalisation with normalise_url()
+- §9.1  GSC weekly pull — Monday 02:00 UTC, gsc_weekly_performance table
+- §9.3  URL normalisation with normalise_url(); unmatched URLs to gsc_unmatched_urls
 - §9.5  Error handling: 429 backoff, 500 queue for next cron, auth halt
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional
+from urllib.parse import urlparse
+
+import pymysql
 
 from utils.config import Config
 
@@ -29,6 +33,27 @@ class GscRow:
     clicks: float
     ctr: float
     avg_position: float
+
+
+def _get_db():
+    url = os.environ.get("DATABASE_URL", "")
+    if url:
+        parsed = urlparse(url)
+        return pymysql.connect(
+            host=parsed.hostname or os.environ.get("DB_HOST", "localhost"),
+            port=parsed.port or 3306,
+            user=parsed.username or os.environ.get("DB_USER", "root"),
+            password=parsed.password or os.environ.get("DB_PASSWORD", ""),
+            database=(parsed.path or "").lstrip("/") or os.environ.get("DB_DATABASE", "cie"),
+            cursorclass=pymysql.cursors.DictCursor,
+        )
+    return pymysql.connect(
+        host=os.environ.get("DB_HOST", "localhost"),
+        user=os.environ.get("DB_USER", "root"),
+        password=os.environ.get("DB_PASSWORD", ""),
+        database=os.environ.get("DB_DATABASE", "cie"),
+        cursorclass=pymysql.cursors.DictCursor,
+    )
 
 
 def normalise_url(raw: str) -> str:
@@ -61,16 +86,15 @@ def normalise_url(raw: str) -> str:
 
 def pull_weekly_gsc(start_date: datetime, end_date: datetime) -> List[GscRow]:
     """
-    Spec §9.2 pull_weekly_gsc() — 7‑day GSC window ending previous Saturday.
-
-    This function is intentionally left as a thin stub: the exact API client,
-    credentials, and query payload are environment‑specific and defined in the
-    integration runbook. The job wiring (cron, batching, error handling, URL
-    normalisation, DB writes) is implemented around this hook.
+    Spec §9.2 pull_weekly_gsc() — 7‑day GSC window.
+    Uses integrations.gsc_client with Config.GSC_SITE_URL.
     """
-    # TODO: Implement concrete GSC API call following the spec's query example.
-    logger.info("pull_weekly_gsc(%s → %s) stub called; no-op in this environment", start_date.date(), end_date.date())
-    return []
+    site_url = Config.GSC_SITE_URL or os.environ.get("GSC_SITE_URL", "")
+    if not site_url:
+        logger.warning("GSC_SITE_URL not set; skipping weekly GSC pull")
+        return []
+    from integrations.gsc_client import pull_weekly_gsc_rows
+    return pull_weekly_gsc_rows(site_url, start_date, end_date)
 
 
 def handle_rate_limit_retry(retry_after_seconds: Optional[int] = None) -> None:
@@ -82,42 +106,99 @@ def handle_rate_limit_retry(retry_after_seconds: Optional[int] = None) -> None:
     time.sleep(delay)
 
 
+def save_gsc_weekly_performance(rows: Iterable[GscRow], window_end: datetime) -> None:
+    """
+    Persist GSC rows into gsc_weekly_performance table (spec §9.1).
+    """
+    rows_list = list(rows)
+    if not rows_list:
+        return
+    db = _get_db()
+    try:
+        cur = db.cursor()
+        window_date = window_end.date()
+        for row in rows_list:
+            cur.execute(
+                """
+                INSERT INTO gsc_weekly_performance (url, window_end, impressions, clicks, ctr, avg_position)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (row.url, window_date, row.impressions, row.clicks, row.ctr, row.avg_position),
+            )
+        db.commit()
+        cur.close()
+        logger.info("gsc_weekly_performance: inserted %s rows for window_end=%s", len(rows_list), window_date)
+    finally:
+        db.close()
+
+
 def save_url_performance(rows: Iterable[GscRow], window_end: datetime) -> None:
     """
-    Persist GSC rows into url_performance table.
-
-    NOTE: DB integration is environment‑specific; this function is a stub that
-    should be wired to the project's DB access layer.
+    Persist GSC rows into url_performance table (legacy; spec §9.1 uses gsc_weekly_performance).
     """
-    count = sum(1 for _ in rows)
-    logger.info("url_performance write stub — %s rows for window ending %s", count, window_end.date())
+    rows_list = list(rows)
+    if not rows_list:
+        return
+    db = _get_db()
+    try:
+        cur = db.cursor()
+        window_date = window_end.date()
+        for row in rows_list:
+            cur.execute(
+                """
+                INSERT INTO url_performance (url, window_end, impressions, clicks, ctr, avg_position)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (row.url, window_date, row.impressions, row.clicks, row.ctr, row.avg_position),
+            )
+        db.commit()
+        cur.close()
+        logger.info("url_performance: inserted %s rows for window_end=%s", len(rows_list), window_date)
+    finally:
+        db.close()
 
 
 def save_unmatched_urls(urls: Iterable[str], window_end: datetime) -> None:
     """
-    Log unmatched URLs into gsc_unmatched_urls (spec §9.3).
-
-    As with save_url_performance, this is a stub intended to be backed by the
-    real DB layer; for now it only logs.
+    Log unmatched URLs into gsc_unmatched_urls (spec §9.3). Does not raise; unmatched URLs never error the job.
     """
-    urls = list(urls)
-    if not urls:
+    urls_list = list(urls)
+    if not urls_list:
         return
-    logger.info("gsc_unmatched_urls stub — %s unmatched URLs for window ending %s", len(urls), window_end.date())
+    window_date = window_end.date()
+    try:
+        db = _get_db()
+        try:
+            cur = db.cursor()
+            for raw_url in urls_list:
+                cur.execute(
+                    """
+                    INSERT INTO gsc_unmatched_urls (url, window_end)
+                    VALUES (%s, %s)
+                    """,
+                    (raw_url[:1000], window_date),
+                )
+            db.commit()
+            cur.close()
+            logger.info("gsc_unmatched_urls: inserted %s rows for window_end=%s", len(urls_list), window_date)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("gsc_unmatched_urls insert failed (non-fatal): %s", exc)
 
 
 def run() -> None:
     """
     Entrypoint for the weekly GSC sync.
 
-    Intended cron (per Config.GSC_CRON_SCHEDULE, default '0 3 * * 0'):
-    - Sunday 03:00 UTC
-    - 7‑day window ending previous Saturday
+    Intended cron (per Config.GSC_CRON_SCHEDULE, default '0 2 * * 1'):
+    - Monday 02:00 UTC
+    - 7‑day window ending previous Sunday
     """
     logger.info("Starting weekly GSC sync (cron=%s)", Config.GSC_CRON_SCHEDULE)
 
     today_utc = datetime.now(timezone.utc).date()
-    # For a run on Sunday, previous Saturday is yesterday.
+    # For a run on Monday 02:00, window ends previous Sunday (yesterday).
     window_end = today_utc - timedelta(days=1)
     window_start = window_end - timedelta(days=6)
 
@@ -150,7 +231,7 @@ def run() -> None:
                                       ctr=row.ctr,
                                       avg_position=row.avg_position))
 
-    save_url_performance(normalised_rows, end_dt)
+    save_gsc_weekly_performance(normalised_rows, end_dt)
     save_unmatched_urls(unmatched_urls, end_dt)
 
     logger.info("Weekly GSC sync completed: %s rows, %s unmatched URLs",

@@ -2,11 +2,12 @@ import asyncio
 import logging
 from typing import Dict, List
 
+from api.gates_validate import BusinessRules
 from .engines.openai_engine import OpenAIEngine
 from .engines.gemini_engine import GeminiEngine
 from .engines.perplexity_engine import PerplexityEngine
 
-# SOURCE: CIE_Master_Developer_Build_Spec.docx Layer L7 / CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 10.2 / CIE_v232_Hardening_Addendum.pdf Patch 2
+# SOURCE: CIE_Master_Developer_Build_Spec.docx Section 12.1
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +74,11 @@ class AuditEngine:
             sum(successful_scores) / len(successful_scores) if successful_scores else None
         )
 
-        # Quorum-based run_status
-        if responders >= 3:
+        quorum_advance = int(BusinessRules.get('decay.quorum_minimum'))
+        quorum_pause = 2  # §5.3: not in 52 rules; hard-coded
+        if responders >= quorum_advance:
             run_status = "complete"
-        elif responders == 2:
+        elif responders == quorum_pause:
             run_status = "partial"
         else:
             run_status = "failed"

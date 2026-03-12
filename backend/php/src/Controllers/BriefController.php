@@ -3,6 +3,7 @@ namespace App\Controllers;
 
 use App\Models\ContentBrief;
 use App\Models\Sku;
+use App\Support\BusinessRules;
 use App\Utils\ResponseFormatter;
 use Illuminate\Http\Request;
 
@@ -41,7 +42,7 @@ class BriefController {
             'title'             => $title,
             'suggested_actions' => $request->input('failing_questions'),
             'status'            => 'OPEN',
-            'deadline'          => now()->addDays(14)->toDateString(),
+            'deadline'          => now()->addDays((int) BusinessRules::get('decay.auto_brief_deadline_days'))->toDateString(),
         ]);
 
         $brief->load('sku');

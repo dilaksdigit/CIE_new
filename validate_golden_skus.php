@@ -56,7 +56,7 @@ foreach ($skus as $data) {
     echo "  L4 Title: {$titles['shopify_title']}\n";
 
     $channels = $governorService->assess($sku);
-    echo "  L5 Channels: Google={$channels['google_sge']['status']}, Amazon={$channels['amazon']['status']}\n";
+    echo "  L5 Channels: shopify={$channels['shopify']['status']}, gmc={$channels['gmc']['status']}\n";
 
     $maturity = $maturityService->calculate($sku);
     echo "  Maturity: {$maturity['total']} ({$maturity['level']})\n";
@@ -79,16 +79,16 @@ foreach ($skus as $data) {
         }
     }
 
-    if ($code === 'SKU-CABLE-002') {
-        if ($sku->tier === 'KILL') {
-            echo "GOLDEN TEST KILL (SKU-CABLE-002): PASS — tier=KILL (UI must fully lock fields).\n";
+    if ($code === 'FLR-ARC-BLK-175') {
+        if (strtoupper((string)$sku->tier) === 'KILL') {
+            echo "GOLDEN TEST KILL (FLR-ARC-BLK-175): PASS — tier=KILL (UI must fully lock fields).\n";
             $killPass = true;
         } else {
-            echo "GOLDEN TEST KILL (SKU-CABLE-002): FAIL — expected tier=KILL, got {$sku->tier}.\n";
+            echo "GOLDEN TEST KILL (FLR-ARC-BLK-175): FAIL — expected tier=KILL, got {$sku->tier}.\n";
         }
     }
 
-    if ($code === 'SKU-PEND-001') {
+    if ($code === 'CBL-RED-3C-2M') {
         $gateMap = [];
         foreach ($results['gates'] as $gate) {
             $gateMap[$gate['gate']] = $gate;
@@ -103,10 +103,10 @@ foreach ($skus as $data) {
             && str_contains($gateMap['G4_ANSWER_BLOCK']['reason'], 'Suspended');
 
         if ($g1Ok && $g2Ok && $g6Ok && $g4Suspended) {
-            echo "GOLDEN TEST HARVEST (SKU-PEND-001): PASS — G1/G2/G6 active, G4 suspended for Harvest tier.\n";
+            echo "GOLDEN TEST HARVEST (CBL-RED-3C-2M): PASS — G1/G2/G6 active, G4 suspended for Harvest tier.\n";
             $harvestPass = true;
         } else {
-            echo "GOLDEN TEST HARVEST (SKU-PEND-001): FAIL — expected G1/G2/G6 active and G4 suspended.\n";
+            echo "GOLDEN TEST HARVEST (CBL-RED-3C-2M): FAIL — expected G1/G2/G6 active and G4 suspended.\n";
         }
     }
     

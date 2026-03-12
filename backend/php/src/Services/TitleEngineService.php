@@ -2,6 +2,7 @@
 namespace App\Services;
 
 use App\Models\Sku;
+use App\Support\BusinessRules;
 
 class TitleEngineService
 {
@@ -18,9 +19,9 @@ class TitleEngineService
         
         $shopifyTitle = "{$baseTitle} - {$intentPrefix} | {$fitting}";
         
-        // Truncate to 70 for Shopify
-        if (strlen($shopifyTitle) > 70) {
-            $shopifyTitle = substr($shopifyTitle, 0, 67) . '...';
+        $maxLen = 70; // §5.3: content.shopify_title_max_len not in 52 rules; hard-coded
+        if (strlen($shopifyTitle) > $maxLen) {
+            $shopifyTitle = substr($shopifyTitle, 0, $maxLen - 3) . '...';
         }
 
         return [

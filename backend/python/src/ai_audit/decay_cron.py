@@ -5,26 +5,68 @@ Implements CIE v2.3.1 §5.3 / 9.3:
 - After a weekly AI citation audit has run, inspect latest run per category.
 - For Hero SKUs, compute whether this week is a "zero citation" week.
 - Maintain per-SKU consecutive_zero_weeks via `skus.decay_consecutive_zeros`.
-- Escalate decay_status:
-  - 1 week  => 'yellow_flag'
-  - 2 weeks => 'alert'
-  - 3 weeks => 'auto_brief' (auto brief generated)
-  - 4+ weeks=> 'escalated'
+- Escalate decay_status using BusinessRules: decay.yellow_flag_weeks, decay.alert_weeks,
+  decay.auto_brief_weeks, decay.escalate_weeks (§12.2, §17 Phase 4.2).
 
-NOTE:
-- This module assumes a PEP-249 DB-API 2.0 connection `db` is provided.
-- HTTP calls (e.g. to POST /api/v1/brief/generate or Slack/email) are stubbed via
-  simple hooks so that callers or N8N can wire real integrations.
+SOURCE: CIE_Master_Developer_Build_Spec.docx Section 12
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import os
+import uuid
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from api.gates_validate import BusinessRules
+
+# SOURCE: CIE_Master_Developer_Build_Spec.docx Section 12
 logger = logging.getLogger(__name__)
+
+
+def _ai_agent_call_suggested_revision(
+    sku: Dict[str, Any],
+    failing_questions: Sequence[Dict[str, Any]],
+    current_answer_block: str,
+    competitor_answers: Sequence[str],
+) -> str:
+    """
+    Call AI Agent (Claude) to generate ai_suggested_revision per Section 12.3 / 4.2.
+    Fail-soft: on any exception return fallback string (Section 4.5).
+    """
+    try:
+        from anthropic import Anthropic
+        # Section 4.3: standard system prompt for CIE AI Agent
+        system_prompt = (
+            "You are the CIE (Content Intelligence Engine) AI Agent. "
+            "You provide specific, actionable content revision guidance. "
+            "Respond only with valid JSON. No markdown, no explanation outside the JSON."
+        )
+        failing_qs_text = json.dumps([{"id": q.get("id"), "text": q.get("text", "")} for q in failing_questions])
+        user_message = f"""
+SKU: {sku.get('title') or sku.get('sku_code') or sku.get('id')} (ID: {sku.get('id')})
+Tier: HERO
+Failing audit questions (score=0): {failing_qs_text}
+Current AI Answer Block: {current_answer_block}
+Top competitor answers: {competitor_answers}
+
+Return ONLY a JSON object with one key:
+{{ "ai_suggested_revision": "<specific revision direction, 1-3 sentences, not generic>" }}
+"""
+        client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        text = message.content[0].text if message.content else ""
+        parsed = json.loads(text.strip())
+        return str(parsed.get("ai_suggested_revision", "")).strip() or "AI suggestion unavailable — enter manually."
+    except Exception:
+        return "AI suggestion unavailable — enter manually."
 
 
 def _get_latest_completed_runs(db) -> List[Tuple[str, str]]:
@@ -209,16 +251,23 @@ def _update_sku_decay(
         cur.close()
         return 0, "none"
 
-    # Zero week: increment counter
+    # Zero week: increment counter — §5.3 / §12.2 thresholds from BusinessRules
+    yellow_flag_weeks = int(BusinessRules.get('decay.yellow_flag_weeks'))
+    alert_weeks = int(BusinessRules.get('decay.alert_weeks'))
+    auto_brief_weeks = int(BusinessRules.get('decay.auto_brief_weeks'))
+    escalate_weeks = int(BusinessRules.get('decay.escalate_weeks'))
+
     new_zeros = current_zeros + 1
-    if new_zeros == 1:
-        status = "yellow_flag"
-    elif new_zeros == 2:
-        status = "alert"
-    elif new_zeros == 3:
-        status = "auto_brief"
-    else:
+    if new_zeros >= escalate_weeks:
         status = "escalated"
+    elif new_zeros >= auto_brief_weeks:
+        status = "auto_brief"
+    elif new_zeros >= alert_weeks:
+        status = "alert"
+    elif new_zeros >= yellow_flag_weeks:
+        status = "yellow_flag"
+    else:
+        status = "none"
 
     cur.execute(
         """
@@ -233,6 +282,72 @@ def _update_sku_decay(
     db.commit()
     cur.close()
     return new_zeros, status
+
+
+# SOURCE: CIE_v232_Hardening_Addendum.pdf — Decay loop action dispatch (Week 2/3/4)
+def _dispatch_decay_notification(
+    db,
+    sku_id: str,
+    status: str,
+    roles: List[str],
+) -> None:
+    """
+    Week 2 (alert) / Week 3 (auto_brief) / Week 4 (escalated): record notification in audit_log.
+    If an internal notification service or N8N webhook exists, it should be wired by the caller.
+    """
+    try:
+        cur = db.cursor()
+        log_id = str(uuid.uuid4())
+        meta = json.dumps({"status": status, "roles": roles})
+        cur.execute(
+            """
+            INSERT INTO audit_log (id, entity_type, entity_id, action, actor_id, new_value, created_at)
+            VALUES (%s, 'sku', %s, 'decay_notification', 'system', %s, NOW())
+            """,
+            (log_id, sku_id, meta),
+        )
+        db.commit()
+        cur.close()
+        logger.info("decay_notification audit_log sku_id=%s status=%s roles=%s", sku_id, status, roles)
+    except Exception as e:
+        logger.exception("audit_log insert decay_notification failed for sku_id=%s: %s", sku_id, e)
+    # GAP: decay notification delivery mechanism (email/Slack/N8N) not defined in source docs — log only
+
+
+def _create_decay_brief(db, sku: Dict[str, Any]) -> None:
+    """
+    Week 3: insert a row into content_briefs (brief_type DECAY_REFRESH, status OPEN).
+    SOURCE: CIE_v232_Hardening_Addendum.pdf — auto_brief creates brief and audit_log.
+    Schema: content_briefs (008) uses brief_type ENUM DECAY_REFRESH (spec said decay_recovery; schema has DECAY_REFRESH).
+    """
+    try:
+        cur = db.cursor()
+        brief_id = str(uuid.uuid4())
+        sku_id = sku["id"]
+        title = f"Decay recovery: {sku.get('sku_code') or sku_id}"
+        cur.execute(
+            """
+            INSERT INTO content_briefs (id, sku_id, brief_type, priority, title, status, created_at, updated_at)
+            VALUES (%s, %s, 'DECAY_REFRESH', 'HIGH', %s, 'OPEN', NOW(), NOW())
+            """,
+            (brief_id, sku_id, title[:255]),
+        )
+        db.commit()
+        cur.close()
+        logger.info("content_briefs decay brief created sku_id=%s brief_id=%s", sku_id, brief_id)
+        # audit_log: action = auto_brief_created, actor = system
+        cur = db.cursor()
+        cur.execute(
+            """
+            INSERT INTO audit_log (id, entity_type, entity_id, action, actor_id, new_value, created_at)
+            VALUES (%s, 'brief', %s, 'auto_brief_created', 'system', %s, NOW())
+            """,
+            (str(uuid.uuid4()), brief_id, json.dumps({"sku_id": sku_id, "brief_type": "DECAY_REFRESH"})),
+        )
+        db.commit()
+        cur.close()
+    except Exception as e:
+        logger.exception("_create_decay_brief failed for sku_id=%s: %s", sku.get("id"), e)
 
 
 def default_brief_generate_hook(payload: Dict[str, Any]) -> None:
@@ -281,18 +396,28 @@ def _build_brief_payload(
       7. Success criteria: Score >=1 on next weekly audit
     """
     deadline = (dt.date.today() + dt.timedelta(days=deadline_days)).isoformat()
+    current_answer_block = sku.get("ai_answer_block") or ""
+    try:
+        suggested_revision_direction = _ai_agent_call_suggested_revision(
+            sku=sku,
+            failing_questions=failing_questions,
+            current_answer_block=current_answer_block,
+            competitor_answers=list(competitor_answers[:3]),
+        )
+    except Exception:
+        suggested_revision_direction = "AI suggestion unavailable — enter manually."
     return {
         "sku_id": sku["id"],
         "sku_code": sku["sku_code"],
         "sku_title": sku["title"],
         "tier": sku["tier"],
         "margin_percent": sku["margin_percent"],
-        "current_answer_block": sku.get("ai_answer_block") or "",
+        "current_answer_block": current_answer_block,
         "failing_questions": [
             {"id": q["id"], "text": q["text"]} for q in failing_questions
         ],
         "competitor_answers": competitor_answers[:3],
-        "suggested_revision_direction": "Refresh Answer Block and authority content to align better with failing queries and out-compete top AI responses.",
+        "suggested_revision_direction": suggested_revision_direction,
         "deadline": deadline,
         "success_criteria": "Citation score >= 1 on next weekly AI audit for all listed questions.",
     }
@@ -353,7 +478,20 @@ def run_decay_escalation(
                 "decay_status": status,
             }
 
-            # Week 3: auto-brief generation
+            # SOURCE: CIE_v232_Hardening_Addendum.pdf — Decay loop action dispatch (Week 2/3/4)
+            if is_zero_week and status == "alert":
+                _dispatch_decay_notification(
+                    db, sku["id"], "alert", ["CONTENT_EDITOR", "SEO_GOVERNOR"]
+                )
+            elif is_zero_week and status == "auto_brief":
+                _dispatch_decay_notification(
+                    db, sku["id"], "auto_brief", ["CONTENT_EDITOR", "SEO_GOVERNOR"]
+                )
+                _create_decay_brief(db, sku)
+            elif is_zero_week and status == "escalated":
+                _dispatch_decay_notification(db, sku["id"], "escalated", ["CONTENT_LEAD"])
+
+            # Week 3: auto-brief generation (existing hook for worker/API)
             if status == "auto_brief" and is_zero_week:
                 failing_qs = [
                     q_by_id[qid]
@@ -391,6 +529,7 @@ def run_decay_escalation(
                     sku=sku,
                     failing_questions=failing_qs,
                     competitor_answers=competitor_answers,
+                    deadline_days=int(BusinessRules.get("decay.auto_brief_deadline_days")),
                 )
                 try:
                     brief_generate_hook(payload)

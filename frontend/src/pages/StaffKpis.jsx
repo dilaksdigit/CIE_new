@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { MiniBarChart, RoleBadge, TrendLine } from '../components/common/UIComponents';
-import { auditResultApi, dashboardApi } from '../services/api';
+import { auditResultApi, dashboardApi, configApi } from '../services/api';
 
 const StaffKpis = () => {
     const [staffKpis, setStaffKpis] = useState([]);
     const [weeklyScores, setWeeklyScores] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [thresholds, setThresholds] = useState(null);
     const [weekStart, setWeekStart] = useState('');
     const [score, setScore] = useState(1);
     const [notes, setNotes] = useState('');
@@ -33,6 +34,15 @@ const StaffKpis = () => {
     useEffect(() => {
         fetchKpis();
     }, [fetchKpis]);
+
+    useEffect(() => {
+        configApi.get().then(res => {
+            const raw = res.data?.data ?? res.data ?? {};
+            setThresholds(raw);
+        }).catch(e => {
+            console.error('Failed to load business rules for staff KPIs:', e);
+        });
+    }, []);
 
     const handleSaveWeeklyScore = async (e) => {
         e.preventDefault();
@@ -63,13 +73,13 @@ const StaffKpis = () => {
         .map(s => ({
             label: (s.user_name || 'Unknown').split(' ')[0],
             value: s.validations || 0,
-            color: (s.gate_pass_rate || 0) >= 80 ? 'var(--green)' : (s.gate_pass_rate || 0) >= 60 ? 'var(--amber)' : 'var(--accent)',
+            color: (s.gate_pass_rate || 0) >= (thresholds?.staff?.gate_pass_rate_green ?? 80) ? 'var(--green)' : (s.gate_pass_rate || 0) >= (thresholds?.staff?.gate_pass_rate_amber ?? 60) ? 'var(--amber)' : 'var(--accent)',
         }));
 
     const weeklyTrendData = weeklyScores.slice(0, 12).map((row) => ({
         label: String(row.week_start || '').slice(5),
         value: Number(row.score || 0),
-        color: Number(row.score || 0) >= 8 ? 'var(--green)' : Number(row.score || 0) >= 6 ? 'var(--amber)' : 'var(--red)',
+        color: Number(row.score || 0) >= (thresholds?.staff?.weekly_score_green ?? 8) ? 'var(--green)' : Number(row.score || 0) >= (thresholds?.staff?.weekly_score_amber ?? 6) ? 'var(--amber)' : 'var(--red)',
     }));
     // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §7 Step 5
 
@@ -103,7 +113,7 @@ const StaffKpis = () => {
                                     <td className="mono" style={{ fontSize: '0.7rem' }}>{s.validations ?? 0}</td>
                                     <td>
                                         <span style={{
-                                            color: (s.gate_pass_rate || 0) >= 80 ? 'var(--green)' : (s.gate_pass_rate || 0) >= 60 ? 'var(--amber)' : 'var(--red)',
+                                            color: (s.gate_pass_rate || 0) >= (thresholds?.staff?.gate_pass_rate_green ?? 80) ? 'var(--green)' : (s.gate_pass_rate || 0) >= (thresholds?.staff?.gate_pass_rate_amber ?? 60) ? 'var(--amber)' : 'var(--red)',
                                             fontWeight: 600
                                         }}>{s.gate_pass_rate ?? 0}%</span>
                                     </td>

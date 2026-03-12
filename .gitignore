@@ -11,3 +11,5 @@
 __pycache__
 /frontend/dist
 .DS_Store
+/backend/python/secrets/
+/backend/.env

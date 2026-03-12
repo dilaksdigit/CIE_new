@@ -7,7 +7,7 @@ import { getNavGroupForUser } from '../../lib/authRouting';
 const NAV_BY_GROUP = {
     writer: [
         { to: '/writer/queue', icon: 'Q', label: 'My Queue' },
-        { to: '/help/flow', icon: '?', label: 'Help' },
+        { to: '/help', icon: '?', label: 'Help' },
     ],
     reviewer: [
         { to: '/review/dashboard', icon: 'D', label: 'Portfolio' },
@@ -15,7 +15,7 @@ const NAV_BY_GROUP = {
         { to: '/review/ai-audit', icon: 'A', label: 'AI Audit' },
         { to: '/review/channels', icon: 'C', label: 'Channels' },
         { to: '/review/kpis', icon: 'K', label: 'Staff KPIs' },
-        { to: '/help/flow', icon: '?', label: 'Help' },
+        { to: '/help', icon: '?', label: 'Help' },
     ],
     admin: [
         { to: '/admin/clusters', icon: 'C', label: 'Clusters' },
@@ -26,10 +26,10 @@ const NAV_BY_GROUP = {
         { to: '/admin/semrush-import', icon: 'K', label: 'Semrush Import' },
         { to: '/review/dashboard', icon: 'D', label: 'Reviewer View' },
         { to: '/writer/queue', icon: 'Q', label: 'Writer View' },
-        { to: '/help/flow', icon: '?', label: 'Help' },
+        { to: '/help', icon: '?', label: 'Help' },
     ],
     other: [
-        { to: '/help/flow', icon: '?', label: 'Help' },
+        { to: '/help', icon: '?', label: 'Help' },
     ],
 };
 
