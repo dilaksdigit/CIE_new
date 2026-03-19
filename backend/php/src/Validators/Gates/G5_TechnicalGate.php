@@ -1,10 +1,16 @@
 <?php
 // SOURCE: CLAUDE.md Section 6 (G5 rule — Hero/Support only); CIE_v231_Developer_Build_Pack G5 spec; Hardening_Addendum Patch 6
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 6.1
+// GAP_LOG: $sku->specifications is referenced at line ~50 but no specifications column exists in
+// the spec schema (sku_master, sku_content, or skus in Section 6.1). The technical spec validation
+// block will see an empty array and may produce false positives/negatives depending on whether the
+// cluster has required_specifications. Awaiting architect decision on structured specs storage.
 
 namespace App\Validators\Gates;
 
 use App\Models\Sku;
 use App\Enums\GateType;
+use App\Enums\TierType;
 use App\Support\BusinessRules;
 use App\Validators\GateResult;
 use App\Validators\GateInterface;
@@ -13,9 +19,7 @@ class G5_TechnicalGate implements GateInterface
 {
  public function validate(Sku $sku): GateResult|array
  {
- $tier = strtoupper((string) ($sku->tier->value ?? $sku->tier ?? ''));
-
- if ($tier === 'KILL') {
+ if ($sku->tier === TierType::KILL) {
      return new GateResult(
          gate: GateType::G5_BEST_NOT_FOR,
          passed: true,
@@ -24,7 +28,7 @@ class G5_TechnicalGate implements GateInterface
      );
  }
 
- if ($tier === 'HARVEST') {
+ if ($sku->tier === TierType::HARVEST) {
      return new GateResult(
          gate: GateType::G5_BEST_NOT_FOR,
          passed: true,
@@ -77,7 +81,7 @@ class G5_TechnicalGate implements GateInterface
  }
 
  // --- Best-For / Not-For: min 2 best_for + min 1 not_for for Hero/Support (CLAUDE.md Section 6 G5) ---
- if (in_array($tier, ['HERO', 'SUPPORT'], true)) {
+ if (in_array($sku->tier, [TierType::HERO, TierType::SUPPORT], true)) {
      $bestForMin = (int) BusinessRules::get('gates.best_for_min_entries');
      $notForMin = (int) BusinessRules::get('gates.not_for_min_entries');
      $bestFor = self::parseListAttribute($sku->best_for);

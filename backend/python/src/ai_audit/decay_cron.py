@@ -506,7 +506,7 @@ def run_decay_escalation(
                     cur = db.cursor()
                     cur.execute(
                         """
-                        SELECT question_id, response_snippet, score
+                        SELECT question_id, response_hash, score
                         FROM ai_audit_results
                         WHERE run_id = %s
                           AND question_id IN ({placeholders})
@@ -521,9 +521,9 @@ def run_decay_escalation(
                     rows_sorted = sorted(
                         rows, key=lambda r: (r[2] if r[2] is not None else 0), reverse=True
                     )
-                    for _, snippet, _ in rows_sorted:
-                        if snippet:
-                            competitor_answers.append(snippet[:500])
+                    for _, response_val, _ in rows_sorted:
+                        if response_val:
+                            competitor_answers.append((response_val or "")[:500])
 
                 payload = _build_brief_payload(
                     sku=sku,

@@ -43,6 +43,7 @@ class GscSnapshot:
 @dataclass
 class Ga4Snapshot:
     sessions: int
+    bounce_rate: float
     conversion_rate: float
     revenue: float
 
@@ -121,7 +122,7 @@ def pull_current_gsc(url: str) -> Optional[GscSnapshot]:
     try:
         from utils.config import Config
         from integrations.gsc_client import pull_gsc_for_page
-        site_url = Config.GSC_SITE_URL or os.environ.get("GSC_SITE_URL", "")
+        site_url = Config.GSC_PROPERTY or os.environ.get("GSC_PROPERTY", "")
         if not site_url:
             return None
         end = date.today()

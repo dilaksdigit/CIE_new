@@ -1,5 +1,8 @@
 <?php
 // SOURCE: CIE_Master_Developer_Build_Spec Section 5 (Business Rules Config Layer); CIE_v231_Developer_Build_Pack G7 spec; CLAUDE.md — zero hard-coded thresholds
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 6.1
+// GAP_LOG (RESOLVED): $sku->target_channel may not exist; defaults to 'shopify' (own_website)
+// when absent or empty, as Shopify is the primary channel per spec Section 6.5.
 
 namespace App\Validators\Gates;
 
@@ -55,6 +58,9 @@ class G7_ExpertGate implements GateInterface
         }
 
         $rawChannel = strtolower(trim((string) ($sku->target_channel ?? '')));
+        if ($rawChannel === '') {
+            $rawChannel = 'shopify';
+        }
         $channel = self::CHANNEL_MAP[$rawChannel] ?? null;
 
         if ($channel === null || !in_array($channel, self::ALLOWED_CHANNELS, true)) {

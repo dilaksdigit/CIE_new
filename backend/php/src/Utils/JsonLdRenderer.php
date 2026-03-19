@@ -23,7 +23,7 @@ class JsonLdRenderer
      */
     public static function renderCieJsonld($sku): string
     {
-        $tier = strtolower(trim($sku->tier ?? ''));
+        $tier = $sku->tier instanceof \App\Enums\TierType ? $sku->tier->value : strtolower(trim((string) ($sku->tier ?? '')));
         
         // Kill tier: no schema
         if ($tier === 'kill') {

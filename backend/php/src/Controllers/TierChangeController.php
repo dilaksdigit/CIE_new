@@ -103,7 +103,7 @@ class TierChangeController
             return ResponseFormatter::error('SKU not found', 404);
         }
 
-        $currentTier = strtolower(trim((string) $sku->tier));
+        $currentTier = $sku->tier instanceof \App\Enums\TierType ? $sku->tier->value : strtolower(trim((string) ($sku->tier ?? '')));
         $newTier = strtolower($data['requested_tier']);
         if ($currentTier === $newTier) {
             return ResponseFormatter::error('SKU is already in the requested tier', 400);
@@ -147,7 +147,7 @@ class TierChangeController
         }
 
         $sku = Sku::find($row->sku_id);
-        $oldTier = strtolower(trim((string) ($sku->tier ?? 'support')));
+        $oldTier = $sku && $sku->tier instanceof \App\Enums\TierType ? $sku->tier->value : strtolower(trim((string) ($sku->tier ?? 'support')));
         $newTier = strtolower($row->requested_tier);
 
         DB::table('tier_change_requests')->where('id', $id)->update([
@@ -180,7 +180,7 @@ class TierChangeController
         }
 
         $sku = Sku::findOrFail($row->sku_id);
-        $oldTier = strtolower(trim((string) ($sku->tier ?? 'support')));
+        $oldTier = $sku->tier instanceof \App\Enums\TierType ? $sku->tier->value : strtolower(trim((string) ($sku->tier ?? 'support')));
         $newTier = strtolower($row->requested_tier);
 
         DB::table('tier_change_requests')->where('id', $id)->update([
@@ -219,7 +219,7 @@ class TierChangeController
         }
 
         $sku = Sku::find($row->sku_id);
-        $oldTier = $sku ? strtolower(trim((string) ($sku->tier ?? 'support'))) : '—';
+        $oldTier = $sku ? ($sku->tier instanceof \App\Enums\TierType ? $sku->tier->value : strtolower(trim((string) ($sku->tier ?? 'support')))) : '—';
         $newTier = strtolower($row->requested_tier);
 
         DB::table('tier_change_requests')->where('id', $id)->update([

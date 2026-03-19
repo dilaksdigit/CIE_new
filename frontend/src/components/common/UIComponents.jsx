@@ -190,3 +190,16 @@ export const GATES = [
     { id: 'G7', label: 'Authority', desc: 'Expert authority block' },
     { id: 'VEC', label: 'Vector', desc: 'Description must align with product cluster intent.' },
 ];
+
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3
+// Kill = no gates active. Harvest = G1, G2, G6 only.
+// Hero/Support = all gates.
+export const getGatesForTier = (tier) => {
+    if (!tier || tier.toLowerCase() === 'kill') return [];
+    if (tier.toLowerCase() === 'harvest') {
+        return GATES.filter(g =>
+            ['G1', 'G2', 'tier_fields'].includes(g.id)
+        );
+    }
+    return GATES;
+};

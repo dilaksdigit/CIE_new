@@ -43,7 +43,7 @@ class SkuController {
     }
 
     public function index(Request $request) {
-        $query = Sku::with(['primaryCluster']);
+        $query = Sku::with(['primaryCluster', 'skuIntents']);
         
         if ($request->has('tier')) {
             $query->where('tier', $request->query('tier'));
@@ -74,9 +74,15 @@ class SkuController {
             });
         }
 
-        $skus = $query->get()->map(function ($sku) {
+        $skuCollection = $query->get();
+        $skuCodes = $skuCollection->pluck('sku_code')->filter()->values()->toArray();
+        $allGateStatuses = $this->batchLoadGateStatuses($skuCodes);
+
+        $skus = $skuCollection->map(function ($sku) use ($allGateStatuses) {
             $arr = $sku->toArray();
-            $arr['gates'] = $this->buildGateStatuses($sku);
+            // Portfolio list: use canonical sku_gate_status when available (after validation),
+            // so gate chips match expected golden results; otherwise fallback to inline checks.
+            $arr['gates'] = $this->buildGateStatuses($sku, $allGateStatuses[$sku->sku_code] ?? null);
             $arr['vector_gate_status'] = $this->deriveVectorGateStatus($sku);
             $arr['ai_citation_rate'] = $sku->score_citation ?? 0;
             $arr = $this->addCamelCaseAliases($arr);
@@ -90,7 +96,7 @@ class SkuController {
         $sku = Sku::with(['primaryCluster', 'skuIntents.intent'])->findOrFail($id);
 
         $validation = $sku->validation_status;
-        $tierString = is_string($sku->tier) ? strtoupper(trim($sku->tier)) : (string) $sku->tier;
+        $tierString = $sku->tier instanceof \App\Enums\TierType ? strtoupper($sku->tier->value) : strtoupper(trim((string) ($sku->tier ?? '')));
         $isValid = $validation instanceof ValidationStatus
             ? $validation === ValidationStatus::VALID
             : strtoupper((string) ($validation ?? '')) === 'VALID';
@@ -105,15 +111,46 @@ class SkuController {
         ];
 
         $skuData = $sku->toArray();
-        $skuData['gates'] = $this->buildGateStatuses($sku);
+        $gateStatuses = $this->batchLoadGateStatuses([$sku->sku_code]);
+        $skuData['gates'] = $this->buildGateStatuses($sku, $gateStatuses[$sku->sku_code] ?? null);
         $skuData['vector_gate_status'] = $this->deriveVectorGateStatus($sku);
         $skuData['ai_citation_rate'] = $sku->score_citation ?? 0;
         $skuData['faqs'] = $this->decodeFaqs($sku);
         $skuData['history'] = $this->loadHistory($sku);
         $skuData['rollback_candidate'] = $this->baselineService->isRollbackCandidate($sku->id);
+        $skuData['semrush_imports'] = $this->loadSemrushImportsForSku($sku);
         $skuData = $this->addCamelCaseAliases($skuData);
 
         return ResponseFormatter::format(['sku' => $skuData, 'instructions' => $meta]);
+    }
+
+    /**
+     * Load semrush_imports rows for this SKU (by sku_code) for Writer Edit keyword/competitor cards.
+     * Returns [] if table or sku_code column missing (e.g. pre-migration 064).
+     */
+    private function loadSemrushImportsForSku(Sku $sku): array
+    {
+        if (!Schema::hasTable('semrush_imports')) {
+            return [];
+        }
+        if (!Schema::hasColumn('semrush_imports', 'sku_code')) {
+            return [];
+        }
+        $skuCode = $sku->sku_code ?? '';
+        if ($skuCode === '') {
+            return [];
+        }
+        try {
+            $rows = DB::table('semrush_imports')
+                ->where('sku_code', $skuCode)
+                ->orderByDesc('import_batch')
+                ->limit(100)
+                ->get();
+            return $rows->map(fn ($row) => (array) $row)->all();
+        } catch (\Throwable $e) {
+            Log::warning('loadSemrushImportsForSku failed: ' . $e->getMessage(), ['sku_id' => $sku->id]);
+            return [];
+        }
     }
 
     /** v2.3.2 Patch 6: Exact tier banner copy per CIE Hardening Addendum §6.1. */
@@ -137,7 +174,7 @@ class SkuController {
         try {
             // Kill-tier check first: load and reject before any other logic (no bypass)
             $sku = Sku::lockForUpdate()->findOrFail($id);
-            if (strtoupper((string) ($sku->tier ?? '')) === 'KILL') {
+            if ($sku->tier === \App\Enums\TierType::KILL) {
                 return response()->json([
                     'error' => 'KILL_TIER_LOCKED',
                     'message' => 'Kill-tier SKUs cannot be modified. Contact Portfolio Holder for tier review.',
@@ -146,7 +183,7 @@ class SkuController {
 
             // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 Gate G6.1
             // SOURCE: CIE_Master_Developer_Build_Spec.docx Gate G6.1 — Server-side enforcement
-            if (strtoupper((string) ($sku->tier ?? '')) === 'HARVEST') {
+            if ($sku->tier === \App\Enums\TierType::HARVEST) {
                 $harvestBlocked = [
                     'answer_block', 'best_for', 'not_for',
                     'expert_authority', 'title', 'long_description', 'wikidata_uri',
@@ -390,6 +427,20 @@ class SkuController {
         // Step 7: Audit log for auto-publish (INSERT only).
         $this->publishTraceService->logAutoPublish($sku_id, $channelResults, $user->id ?? null);
 
+        // CLAUDE.md §9: semrush_content_snapshots row auto-created when content is published.
+        try {
+            $now = now();
+            DB::table('semrush_content_snapshots')->insert([
+                'sku_id'         => $sku_id,
+                'import_batch_id' => null,
+                'snapshot_date'  => $now,
+                'concluded_at'   => null,
+                'created_at'     => $now,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('publish: semrush_content_snapshots insert failed: ' . $e->getMessage());
+        }
+
         return response()->json([
             'status'           => 'published',
             'channels'         => $channelResults,
@@ -504,7 +555,7 @@ class SkuController {
             if ($chs < $amberThreshold) {
                 $score += 40;
             }
-            $tierLower = strtolower((string) ($sku->tier ?? ''));
+            $tierLower = $sku->tier instanceof \App\Enums\TierType ? $sku->tier->value : strtolower((string) ($sku->tier ?? ''));
             if ($tierLower === 'hero') {
                 $readiness = (int) ($sku->readiness_score ?? 0);
                 if ($readiness < $heroReadinessMin) {
@@ -536,7 +587,7 @@ class SkuController {
                 $isValid = $status === 'VALID';
             }
 
-            $tier = strtoupper((string) ($sku->tier ?? ''));
+            $tier = $sku->tier instanceof \App\Enums\TierType ? strtoupper($sku->tier->value) : strtoupper((string) ($sku->tier ?? ''));
             [$fieldsDone, $fieldsTotal] = $this->computeFieldProgress($sku, $tier);
 
             return [
@@ -577,21 +628,138 @@ class SkuController {
         return $arr;
     }
 
-    private function buildGateStatuses(Sku $sku): array
+    /**
+     * Batch-load canonical gate statuses from sku_gate_status (populated by GateValidator).
+     * Returns array keyed by sku_code, each value an array of row objects.
+     */
+    private function batchLoadGateStatuses(array $skuCodes): array
     {
-        $tier = strtoupper($sku->tier ?? '');
+        if (empty($skuCodes) || !Schema::hasTable('sku_gate_status')) {
+            return [];
+        }
+        try {
+            $rows = DB::table('sku_gate_status')
+                ->whereIn('sku_id', $skuCodes)
+                ->get();
+            $grouped = [];
+            foreach ($rows as $row) {
+                $grouped[$row->sku_id][] = $row;
+            }
+            return $grouped;
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Build gate pass/fail map for frontend chips.
+     * Uses canonical sku_gate_status when available, otherwise corrected inline fallback.
+     */
+    private function buildGateStatuses(Sku $sku, ?array $canonicalStatuses = null): array
+    {
+        $tier = $sku->tier instanceof \App\Enums\TierType
+            ? strtoupper($sku->tier->value)
+            : strtoupper((string) ($sku->tier ?? ''));
+
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3
+        // Kill tier: no gates active, submit hidden.
+        if (strtolower($tier) === 'kill') {
+            return ['_kill_locked' => true];
+        }
+
+        // Use canonical only if we have a complete set of full gate codes (G1_BASIC_INFO, etc.).
+        // Otherwise (old short codes G1/G2, or partial writes) use fallback so portfolio shows correct chips.
+        $requiredFullCodes = [
+            'G1_BASIC_INFO', 'G2_INTENT', 'G3_SECONDARY_INTENT', 'G4_ANSWER_BLOCK',
+            'G5_BEST_NOT_FOR', 'G5_TECHNICAL', 'G6_COMMERCIAL_POLICY', 'G7_EXPERT', 'G4_VECTOR',
+        ];
+        if (!empty($canonicalStatuses) && $this->canonicalStatusesHaveRequiredFullCodes($canonicalStatuses, $requiredFullCodes)) {
+            return $this->buildGateStatusesFromCanonical($canonicalStatuses, $sku, $tier);
+        }
+        return $this->buildGateStatusesFallback($sku, $tier);
+    }
+
+    /**
+     * True only if canonical has (at least) the required full gate codes for a complete display.
+     */
+    private function canonicalStatusesHaveRequiredFullCodes(array $rows, array $requiredFullCodes): bool
+    {
+        $codes = [];
+        foreach ($rows as $row) {
+            $code = is_object($row) ? $row->gate_code : ($row['gate_code'] ?? '');
+            if (is_string($code)) {
+                $codes[$code] = true;
+            }
+        }
+        $have = 0;
+        foreach ($requiredFullCodes as $req) {
+            if (!empty($codes[$req])) {
+                $have++;
+            }
+        }
+        return $have >= 7; // require at least 7 of 9 for canonical to be used
+    }
+
+    /**
+     * Map sku_gate_status rows (gate_code → status) to frontend gate keys.
+     */
+    private function buildGateStatusesFromCanonical(array $rows, Sku $sku, string $tier): array
+    {
+        $statusMap = [];
+        foreach ($rows as $row) {
+            $code = is_object($row) ? $row->gate_code : ($row['gate_code'] ?? '');
+            $status = is_object($row) ? $row->status : ($row['status'] ?? 'fail');
+            $statusMap[$code] = in_array($status, ['pass', 'warn'], true);
+        }
+
+        return [
+            'G1'          => ['passed' => $statusMap['G1_BASIC_INFO'] ?? false],
+            'G2'          => ['passed' => $statusMap['G2_INTENT'] ?? false],
+            'G3'          => ['passed' => $statusMap['G3_SECONDARY_INTENT'] ?? false],
+            'G4'          => ['passed' => $statusMap['G4_ANSWER_BLOCK'] ?? false],
+            'G5'          => ['passed' => $statusMap['G5_BEST_NOT_FOR'] ?? false],
+            'G6'          => ['passed' => $statusMap['G5_TECHNICAL'] ?? $this->hasDescriptionQuality($sku, $tier)],
+            'tier_fields' => ['passed' => $statusMap['G6_COMMERCIAL_POLICY'] ?? $this->tierFieldsComplete($sku, $tier)],
+            'G7'          => ['passed' => $statusMap['G7_EXPERT'] ?? false],
+            'VEC'         => ['passed' => $statusMap['G4_VECTOR'] ?? false],
+        ];
+    }
+
+    /**
+     * Inline gate checks used when sku_gate_status has no data for this SKU
+     * (i.e. before first validation run). Mirrors real gate pipeline logic.
+     * SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7
+     */
+    private function buildGateStatusesFallback(Sku $sku, string $tier): array
+    {
+        $isSuspended = in_array($tier, ['HARVEST', 'KILL']);
+
         $hasCluster = !empty($sku->primary_cluster_id);
-        $hasTitle = !empty($sku->title) && strlen($sku->title) >= 10; // §5.3: content.title_min_length not in 52 rules; hard-coded
-        $hasIntents = $hasTitle;
-        $desc = $sku->short_description ?? $sku->ai_answer_block ?? '';
-        $hasAnswerBlock = strlen($desc) >= BusinessRules::get('gates.answer_block_min_chars') && strlen($desc) <= BusinessRules::get('gates.answer_block_max_chars');
-        $hasBestNotFor = !empty($sku->best_for) && !empty($sku->not_for);
-        $longDesc = $sku->long_description ?? '';
-        $hasDescription = !empty($longDesc) && str_word_count($longDesc) >= 50; // §5.3: gates.description_word_count_min not in 52 rules; hard-coded
-        $hasAuthority = !empty($sku->expert_authority) || !in_array($tier, ['HERO', 'SUPPORT']);
-        $isValid = ($sku->validation_status instanceof ValidationStatus)
-            ? $sku->validation_status === ValidationStatus::VALID
-            : strtoupper((string) ($sku->validation_status ?? '')) === 'VALID';
+        $hasTitle = !empty($sku->title) && strlen($sku->title) >= 10;
+
+        if ($sku->relationLoaded('skuIntents')) {
+            $primaryIntentCount = $sku->skuIntents->where('is_primary', true)->count();
+        } else {
+            $primaryIntentCount = DB::table('sku_intents')
+                ->where('sku_id', $sku->id)
+                ->where('is_primary', true)
+                ->count();
+        }
+        $hasIntents = $isSuspended || $primaryIntentCount > 0;
+
+        $answerBlock = trim((string) ($sku->ai_answer_block ?? ''));
+        $answerLen = strlen($answerBlock);
+        $minChars = (int) (BusinessRules::get('gates.answer_block_min_chars', 250) ?? 250);
+        $maxChars = (int) (BusinessRules::get('gates.answer_block_max_chars', 300) ?? 300);
+        $hasAnswerBlock = $isSuspended || ($answerLen >= $minChars && $answerLen <= $maxChars);
+
+        $hasBestNotFor = $isSuspended || $this->checkBestNotForCounts($sku, $tier);
+
+        $hasDescription = $this->hasDescriptionQuality($sku, $tier);
+
+        $hasG7 = $isSuspended || $this->fallbackChannelReadiness($sku, $tier);
+
+        $hasVec = $isSuspended || $hasDescription;
 
         return [
             'G1'          => ['passed' => $hasCluster],
@@ -601,9 +769,93 @@ class SkuController {
             'G5'          => ['passed' => $hasBestNotFor],
             'G6'          => ['passed' => $hasDescription],
             'tier_fields' => ['passed' => $this->tierFieldsComplete($sku, $tier)],
-            'G7'          => ['passed' => $hasAuthority],
-            'VEC'         => ['passed' => $isValid],
+            'G7'          => ['passed' => $hasG7],
+            'VEC'         => ['passed' => $hasVec],
         ];
+    }
+
+    private function hasDescriptionQuality(Sku $sku, string $tier): bool
+    {
+        if ($tier === 'KILL') return true;
+        $longDesc = $sku->long_description ?? '';
+        return !empty($longDesc) && str_word_count($longDesc) >= 50;
+    }
+
+    private function checkBestNotForCounts(Sku $sku, string $tier): bool
+    {
+        if (!in_array($tier, ['HERO', 'SUPPORT'])) return true;
+        $bestFor = self::parseListAttribute($sku->best_for);
+        $notFor = self::parseListAttribute($sku->not_for);
+        $bestForMin = (int) (BusinessRules::get('gates.best_for_min_entries') ?? 2);
+        $notForMin = (int) (BusinessRules::get('gates.not_for_min_entries') ?? 1);
+        return count($bestFor) >= $bestForMin && count($notFor) >= $notForMin;
+    }
+
+    private static function parseListAttribute($value): array
+    {
+        if (is_array($value)) {
+            return array_values(array_filter(array_map('trim', $value)));
+        }
+        $raw = $value ?? '';
+        if (is_string($raw) && (str_starts_with(trim($raw), '[') || str_starts_with(trim($raw), '{'))) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                return array_values(array_filter(array_map('trim', $decoded)));
+            }
+        }
+        return array_filter(array_map('trim', explode(',', (string) $raw)));
+    }
+
+    private function isValidStatus(Sku $sku): bool
+    {
+        return ($sku->validation_status instanceof ValidationStatus)
+            ? $sku->validation_status === ValidationStatus::VALID
+            : strtoupper((string) ($sku->validation_status ?? '')) === 'VALID';
+    }
+
+    /**
+     * G7 fallback: check channel_readiness scores directly instead of relying
+     * on validation_status, so unvalidated SKUs show accurate G7 chips.
+     * SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7 — G7 gate logic
+     */
+    private function fallbackChannelReadiness(Sku $sku, string $tier): bool
+    {
+        $skuCode = $sku->sku_code ?? '';
+        if ($skuCode === '' || !Schema::hasTable('channel_readiness')) {
+            return false;
+        }
+
+        try {
+            $rows = DB::table('channel_readiness')
+                ->where('sku_id', $skuCode)
+                ->get();
+        } catch (\Throwable $e) {
+            return false;
+        }
+
+        if ($rows->isEmpty()) {
+            return false;
+        }
+
+        $defaultThreshold = 85;
+        if ($tier === 'HERO') {
+            return $rows->every(function ($row) use ($defaultThreshold) {
+                $channel = strtolower($row->channel ?? 'shopify');
+                $threshold = (int) (BusinessRules::get(
+                    "channel.{$channel}_readiness_threshold",
+                    $defaultThreshold
+                ) ?? $defaultThreshold);
+                return ($row->score ?? 0) >= $threshold;
+            });
+        }
+
+        $primary = $rows->first();
+        $channel = strtolower($primary->channel ?? 'shopify');
+        $threshold = (int) (BusinessRules::get(
+            "channel.{$channel}_readiness_threshold",
+            $defaultThreshold
+        ) ?? $defaultThreshold);
+        return ($primary->score ?? 0) >= $threshold;
     }
 
     private function tierFieldsComplete(Sku $sku, string $tier): bool
@@ -611,17 +863,19 @@ class SkuController {
         switch ($tier) {
             case 'HERO':
                 return !empty($sku->title)
-                    && !empty($sku->short_description ?? $sku->ai_answer_block)
+                    && !empty($sku->ai_answer_block ?? $sku->short_description)
                     && !empty($sku->best_for)
                     && !empty($sku->not_for)
-                    && !empty($sku->expert_authority);
+                    && !empty($sku->long_description);
             case 'SUPPORT':
                 return !empty($sku->title)
-                    && !empty($sku->short_description ?? $sku->ai_answer_block)
+                    && !empty($sku->ai_answer_block ?? $sku->short_description)
                     && !empty($sku->best_for)
                     && !empty($sku->not_for);
             case 'HARVEST':
                 return !empty($sku->long_description);
+            case 'KILL':
+                return true;
             default:
                 return true;
         }
@@ -629,11 +883,7 @@ class SkuController {
 
     private function deriveVectorGateStatus(Sku $sku): ?string
     {
-        $isValid = ($sku->validation_status instanceof ValidationStatus)
-            ? $sku->validation_status === ValidationStatus::VALID
-            : strtoupper((string) ($sku->validation_status ?? '')) === 'VALID';
-
-        if ($isValid) return 'pass';
+        if ($this->isValidStatus($sku)) return 'pass';
 
         $isDegraded = ($sku->validation_status instanceof ValidationStatus)
             ? $sku->validation_status === ValidationStatus::DEGRADED
@@ -641,7 +891,12 @@ class SkuController {
 
         if ($isDegraded) return 'pending';
 
-        $hasContent = !empty($sku->long_description) && str_word_count($sku->long_description ?? '') >= 50; // §5.3: gates.description_word_count_min not in 52 rules; hard-coded
+        $tier = $sku->tier instanceof \App\Enums\TierType
+            ? strtoupper($sku->tier->value)
+            : strtoupper((string) ($sku->tier ?? ''));
+        if (in_array($tier, ['HARVEST', 'KILL'])) return 'pass';
+
+        $hasContent = !empty($sku->long_description) && str_word_count($sku->long_description ?? '') >= 50;
         return $hasContent ? null : 'fail';
     }
 

@@ -5,6 +5,7 @@ use App\Services\ValidationService;
 use App\Utils\ResponseFormatter;
 use Illuminate\Http\Request;
 use App\Models\AuditLog;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class ValidationController {
     protected $service;
@@ -19,6 +20,12 @@ class ValidationController {
     public function validateByPayload(Request $request)
     {
         $id = $request->input('sku_id') ?? $request->input('id');
+        if (!$id && $request->getContent()) {
+            $decoded = json_decode($request->getContent(), true);
+            if (is_array($decoded)) {
+                $id = $decoded['sku_id'] ?? $decoded['id'] ?? null;
+            }
+        }
         if (!$id) {
             return response()->json(['error' => 'sku_id or id required in body'], 400);
         }
@@ -26,7 +33,11 @@ class ValidationController {
     }
 
     public function validate($id) {
-        $result = $this->service->validateSku($id);
+        try {
+            $result = $this->service->validateSku($id);
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['error' => 'SKU not found', 'sku_id' => $id], 404);
+        }
 
         // Log validation action
         AuditLog::create([

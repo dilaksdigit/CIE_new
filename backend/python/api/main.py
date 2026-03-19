@@ -3,10 +3,14 @@ CIE Python Worker API — FastAPI (replaces Flask).
 Embed + similarity with fail-soft: on embedding API failure, log and return degraded response so save is allowed (v2.3.2).
 """
 from dotenv import load_dotenv
-load_dotenv()
-
 import logging
 import os
+
+# Load .env from project root and backend so GSC/GA4 config is set (backend/.env often holds GA4_PROPERTY_ID, GSC_SITE_URL, GOOGLE_APPLICATION_CREDENTIALS)
+_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+load_dotenv(os.path.join(_root, ".env"))
+_backend = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # api -> python -> backend
+load_dotenv(os.path.join(_backend, ".env"))
 import sys
 import uuid
 from typing import Any, Optional
@@ -236,7 +240,8 @@ def baseline_gsc_metrics(body: BaselineUrlRequest):
         from datetime import date, timedelta
         from src.utils.config import Config
         from src.integrations.gsc_client import pull_gsc_for_page
-        site_url = Config.GSC_SITE_URL or os.environ.get("GSC_SITE_URL", "")
+        site_url = (Config.GSC_PROPERTY or os.environ.get("GSC_PROPERTY", "") or
+                    os.environ.get("GSC_SITE_URL", ""))
         if not site_url:
             return {"impressions": None, "clicks": None, "ctr": None, "avg_position": None}
         end = date.today()
@@ -266,24 +271,29 @@ def baseline_ga4_metrics(body: BaselineUrlRequest):
         return JSONResponse(status_code=400, content={"error": "url required"})
     try:
         from datetime import date, timedelta
+        from urllib.parse import urlparse
         from src.utils.config import Config
         from src.integrations.ga4_client import pull_ga4_for_landing_page
         property_id = Config.GA4_PROPERTY_ID or os.environ.get("GA4_PROPERTY_ID", "")
         if not property_id:
-            return {"sessions": None, "conversion_rate": None, "revenue": None}
+            return {"sessions": None, "bounce_rate": None, "conversion_rate": None, "revenue": None}
+        # GA4 landingPage dimension is path-only (e.g. "/" or "/products/x"), not full URL
+        parsed = urlparse(url)
+        landing_path = parsed.path if parsed.path else "/"
         end = date.today()
         start = end - timedelta(days=14)
-        snapshot = pull_ga4_for_landing_page(property_id, url, start, end)
+        snapshot = pull_ga4_for_landing_page(property_id, landing_path, start, end)
         if snapshot is None:
-            return {"sessions": None, "conversion_rate": None, "revenue": None}
+            return {"sessions": None, "bounce_rate": None, "conversion_rate": None, "revenue": None}
         return {
             "sessions": snapshot.sessions,
+            "bounce_rate": snapshot.bounce_rate,
             "conversion_rate": snapshot.conversion_rate,
             "revenue": snapshot.revenue,
         }
     except Exception as e:
         logger.warning("baseline GA4 metrics failed for url=%s: %s", url, e, exc_info=True)
-        return {"sessions": None, "conversion_rate": None, "revenue": None}
+        return {"sessions": None, "bounce_rate": None, "conversion_rate": None, "revenue": None}
 
 
 if __name__ == "__main__":

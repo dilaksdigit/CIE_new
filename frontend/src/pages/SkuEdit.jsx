@@ -8,7 +8,8 @@ import {
     RoleBadge,
     SectionTitle,
     TrafficLight,
-    GATES
+    GATES,
+    getGatesForTier
 } from '../components/common/UIComponents';
 import { skuApi, clusterApi, taxonomyApi, configApi } from '../services/api';
 import { AppContext } from '../App';
@@ -327,7 +328,7 @@ const SkuEdit = () => {
             <div className="card mb-14 flex items-center gap-12 flex-wrap" style={{ padding: '10px 18px' }}>
                 <span style={{ fontSize: "0.62rem", color: "var(--text-dim)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>GATE STATUS</span>
                 <div style={{ width: 1, height: 20, background: "var(--border)" }} />
-                {GATES.map(g => (
+                {getGatesForTier(sku.tier).map(g => (
                     <GateChip 
                         key={g.id} 
                         id={g.id} 

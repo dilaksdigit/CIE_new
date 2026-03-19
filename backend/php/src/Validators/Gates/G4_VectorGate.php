@@ -1,10 +1,12 @@
 <?php
 // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 1 (Fail-Soft Vector Validation); CLAUDE.md Section 11, Section 18 DECISION-005
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7 — VEC gate + description word-count pre-check (merged from former G6_DescriptionQualityGate)
 
 namespace App\Validators\Gates;
 
 use App\Models\Sku;
 use App\Enums\GateType;
+use App\Enums\TierType;
 use App\Support\BusinessRules;
 use App\Validators\GateResult;
 use App\Validators\GateInterface;
@@ -17,28 +19,66 @@ class G4_VectorGate implements GateInterface
     private const VECTOR_WARN_MESSAGE = 'Your description may not fully match the expected topic for this product. Consider expanding your content to better cover the primary intent keywords.';
 
     private const PYTHON_ENDPOINT = 'http://python-worker:5000/validate-vector';
- 
- public function validate(Sku $sku): GateResult
- {
- if (!$sku->primary_cluster_id) {
- return new GateResult(
- gate: GateType::G4_VECTOR,
- passed: false,
- reason: 'No cluster assigned. SKU must belong to at least one cluster.',
- blocking: true
- );
- }
- 
-        $minLen = 100; // §5.3: content.description_vector_min_length not in 52 rules; hard-coded
-        if (!$sku->long_description || strlen(trim($sku->long_description)) < $minLen) {
-             return new GateResult(
-             gate: GateType::G4_VECTOR,
-             passed: false,
-             reason: "Long description missing or too short (minimum {$minLen} characters required for vector validation).",
-             blocking: true
-             );
+
+    private const MIN_DESCRIPTION_WORDS = 50;
+
+    public function validate(Sku $sku): GateResult|array
+    {
+        if ($sku->tier === TierType::KILL || $sku->tier === TierType::HARVEST) {
+            return new GateResult(
+                gate: GateType::G4_VECTOR,
+                passed: true,
+                reason: 'N/A',
+                blocking: false,
+                metadata: ['status' => 'N/A']
+            );
         }
- 
+
+        if (!$sku->primary_cluster_id) {
+            return new GateResult(
+                gate: GateType::G4_VECTOR,
+                passed: false,
+                reason: 'No cluster assigned. SKU must belong to at least one cluster.',
+                blocking: true
+            );
+        }
+
+        $failures = [];
+
+        // Description word-count pre-check (Hero/Support only; Harvest suspended)
+        if (in_array($sku->tier, [TierType::HERO, TierType::SUPPORT], true)) {
+            $actualWords = str_word_count($sku->long_description ?? '');
+            if ($actualWords < self::MIN_DESCRIPTION_WORDS) {
+                $needed = self::MIN_DESCRIPTION_WORDS - $actualWords;
+                $failures[] = new GateResult(
+                    gate: GateType::G4_VECTOR,
+                    passed: false,
+                    reason: "Description has {$actualWords} words. Minimum is " . self::MIN_DESCRIPTION_WORDS . ".",
+                    blocking: true,
+                    metadata: [
+                        'error_code'   => 'CIE_VEC_DESCRIPTION_TOO_SHORT',
+                        'user_message' => "Your description is {$actualWords} words. Add at least {$needed} more words. "
+                            . "Write to solve the problem this product addresses, not to list physical attributes.",
+                    ]
+                );
+            }
+        }
+
+        $minLen = 100;
+        if (!$sku->long_description || strlen(trim($sku->long_description)) < $minLen) {
+            $failures[] = new GateResult(
+                gate: GateType::G4_VECTOR,
+                passed: false,
+                reason: "Long description missing or too short (minimum {$minLen} characters required for vector validation).",
+                blocking: true
+            );
+            return $failures;
+        }
+
+        if (!empty($failures)) {
+            return $failures;
+        }
+
         try {
             $threshold = (float) BusinessRules::get('gates.vector_similarity_min');
             $response = $this->callPythonValidator($sku->long_description, $sku->primary_cluster_id, $threshold);
@@ -93,7 +133,7 @@ class G4_VectorGate implements GateInterface
             }
 
             try {
-                AuditLog::create([
+                \App\Models\AuditLog::create([
                     'entity_type' => 'sku',
                     'entity_id'   => $sku->id,
                     'action'      => 'embedding_api_error',
@@ -111,10 +151,10 @@ class G4_VectorGate implements GateInterface
 
             return new GateResult(
                 gate: GateType::G4_VECTOR,
-                passed: false,
+                passed: true,
                 reason: 'Description validation temporarily unavailable. Your changes are saved but publishing is paused until validation completes (typically within 30 minutes).',
                 blocking: false,
-                metadata: ['degraded' => true, 'status' => 'pending']
+                metadata: ['degraded' => true, 'status' => 'pending', 'warn_only' => true]
             );
         }
  }

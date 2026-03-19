@@ -86,7 +86,7 @@ class PermissionService
     public function canPublishSku(?Authenticatable $user, $sku): bool
     {
         if (!$user || !$sku) return false;
-        if (($sku->tier ?? '') === 'KILL') return false;
+        if ($sku->tier === \App\Enums\TierType::KILL) return false;
         $r = $this->role($user);
         if ($r === self::ROLE_ADMIN) return true;
         return in_array($r, [

@@ -81,15 +81,12 @@ const AiAudit = () => {
                 </div>
 
             <div className="card mb-18">
-                <SectionTitle sub="Citation rate trend per category (when weekly audit data exists)">Citation Trends</SectionTitle>
+                <SectionTitle sub="Weekly citation score from audit runs (existing weekly-scores endpoint)">Citation Trends</SectionTitle>
                 {auditScores.length > 0 ? (
                 <div className="flex gap-20 flex-wrap">
                     <div style={{ flex: 1, minWidth: 300 }}>
                         {[
-                            { cat: "Cables", data: auditScores.map(s => s.cables), color: THEME.hero },
-                            { cat: "Pendants", data: auditScores.map(s => s.pendants), color: THEME.harvest },
-                            { cat: "Bulbs", data: auditScores.map(s => s.bulbs), color: THEME.accent },
-                            { cat: "Lampshades", data: auditScores.map(s => s.lampshades), color: THEME.support },
+                            { cat: "Citation score", data: auditScores.map(s => (s.score != null ? Number(s.score) * 10 : 0)), color: THEME.accent },
                         ].filter(line => line.data.length > 0).map(line => (
                             <div key={line.cat} className="mb-12">
                                 <div className="flex items-center gap-8 mb-4">
@@ -103,7 +100,7 @@ const AiAudit = () => {
                     </div>
                 </div>
                 ) : (
-                    <div style={{ padding: 16, color: 'var(--text-dim)', fontSize: '0.85rem' }}>No weekly citation trend data yet. Run AI audits to populate.</div>
+                    <div style={{ padding: 16, color: 'var(--text-dim)', fontSize: '0.85rem' }}>No weekly citation trend data yet. Add entries via POST /v1/audit-results/weekly-scores to see the trend.</div>
                 )}
             </div>
 

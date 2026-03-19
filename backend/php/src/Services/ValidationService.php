@@ -69,7 +69,7 @@ class ValidationService
             $validationLog = ValidationLog::create([
                 'sku_id' => $sku->id,
                 'user_id' => auth()->id() ?? null,
-                'validation_status' => $status,
+                'validation_status' => $status->value,
                 'results_json' => json_encode(array_merge($validationResults, ['vector' => $vectorValidation])),
                 'passed' => $status === ValidationStatus::VALID,
             ]);

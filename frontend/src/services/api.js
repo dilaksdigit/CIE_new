@@ -131,7 +131,7 @@ export const semrushImportApi = {
     importFile: (file) => {
         const formData = new FormData();
         formData.append('file', file);
-        return api.post('/v1/admin/semrush-import', formData, {
+        return api.post('/admin/semrush-import', formData, {
             headers: {
                 'Content-Type': 'multipart/form-data',
             },
@@ -160,6 +160,33 @@ export const auditResultApi = {
 // ====== Audit Log (immutable trail) ======
 export const auditLogApi = {
     getLogs: (params) => api.get('/v1/audit-logs', { params }),
+};
+
+// ====== Shopify product pull (admin) ======
+export const shopifyApi = {
+    status: () => api.get('/v1/shopify/status'),
+    getProducts: (params) => api.get('/v1/shopify/products', { params: params || {} }),
+    sync: () => api.post('/v1/shopify/sync'),
+};
+
+// ====== FAQ templates (for Bulk Ops FAQ apply) ======
+export const faqApi = {
+    getTemplates: (params) => api.get('/v1/faq/templates', { params: params || {} }),
+};
+
+// ====== ERP Sync (Admin) — manual trigger ======
+export const erpSyncApi = {
+    sync: (payload) => api.post('/admin/erp-sync', payload),
+};
+
+// ====== Bulk Ops (Admin) — zero hardcode; summary + execution from API ======
+export const bulkOpsApi = {
+    getSummary: () => api.get('/v1/admin/bulk-ops/summary'),
+    listTierChangeRequests: (params) => api.get('/v1/admin/bulk-ops/tier-change-requests', { params: params || {} }),
+    clusterAssignment: (payload) => api.post('/v1/admin/bulk-ops/cluster-assignment', payload),
+    statusChange: (payload) => api.post('/v1/admin/bulk-ops/status-change', payload),
+    faqApply: (payload) => api.post('/v1/admin/bulk-ops/faq-apply', payload),
+    exportCsv: () => api.get('/v1/admin/bulk-ops/export', { params: { format: 'csv' }, responseType: 'blob' }),
 };
 
 export default api;

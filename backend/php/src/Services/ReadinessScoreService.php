@@ -4,304 +4,75 @@ namespace App\Services;
 
 use App\Models\Sku;
 use App\Enums\TierType;
-use App\Support\BusinessRules;
-use App\Validators\Gates\G4_AnswerBlockGate;
-use App\Validators\Gates\G2_ImagesGate;
-use App\Utils\JsonLdRenderer;
-use Illuminate\Support\Facades\DB;
 
 /**
- * CIE v2.3.1 + v2.3.2 Patch 3 — Readiness score (0-100) per channel per SKU.
- * CIS point values from BusinessRules (readiness.*). For Harvest: only applicable gates (max 45), then normalise to 0-100.
+ * CIE v2.3.2 — Readiness score (0-100) per channel per SKU.
+ * SOURCE: CLAUDE.md §15 — scoring model is Content Health Score (CHS).
+ * This service delegates to ContentHealthScoreService and maps CHS to the existing
+ * readiness API shape (overall, channels, components) for backward compatibility.
  */
 class ReadinessScoreService
 {
-    /*
-     * §5.3: Readiness component point values (not in 52 rules). Hard-coded to match former seed.
-     */
-    private const COMPONENT_POINTS = [
-        'valid_cluster_id' => 10,
-        'has_primary_intent' => 10,
-        'has_secondary_intents' => 10,
-        'answer_block_passes_g4' => 15,
-        'best_for_not_for_populated' => 10,
-        'expert_authority_present' => 10,
-        'json_ld_renders_valid' => 10,
-        'images_meet_channel' => 10,
-        'pricing_present' => 10,
-        'category_specific_complete' => 5,
-        'faq_completion' => 10, // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 4 KPI #7
-    ];
-
-    /** Harvest tier: only these components apply (max 45). */
-    private const HARVEST_APPLICABLE = [
-        'valid_cluster_id',
-        'has_primary_intent',
-        'has_secondary_intents',
-        'pricing_present',
-        'category_specific_complete',
-    ];
-
-    private const READINESS_KEYS = [
-        'valid_cluster_id', 'has_primary_intent', 'has_secondary_intents',
-        'answer_block_passes_g4', 'best_for_not_for_populated', 'expert_authority_present',
-        'json_ld_renders_valid', 'images_meet_channel', 'pricing_present', 'category_specific_complete',
-        'faq_completion',
-    ];
-
     /** Channels for dashboard (v2.3.2: shopify + gmc only per CLAUDE.md Section 4 — DECISION-001). */
     private const CHANNELS = ['shopify', 'gmc'];
 
-    private function getComponents(): array
-    {
-        return self::COMPONENT_POINTS;
-    }
-
     public function __construct(
-        private G4_AnswerBlockGate $g4Gate,
-        private G2_ImagesGate $g2Gate
+        private ContentHealthScoreService $contentHealthScoreService
     ) {
     }
 
     /**
-     * Compute readiness for one SKU: components earned, overall 0-100, and per-channel scores.
+     * Compute readiness for one SKU using Content Health Score (CHS) per CLAUDE.md §15.
+     * Returns existing shape: overall 0-100 (CHS), per-channel scores (CHS), and CHS component breakdown.
      *
-     * @return array{sku_id: string, tier: string, overall: int, max_possible: int, components: array<string, array{points_earned: int, points_max: int, applies: bool}>, channels: list<array{channel: string, score: int}>}
+     * @return array{sku_id: string, tier: string, overall: int, max_possible: int, content_score: int, schema_score: int, commercial_score: int, components: array, channels: list<array{channel: string, score: int}>, chs_components?: array}
      */
     public function computeReadiness(Sku $sku): array
     {
-        $sku->loadMissing(['primaryCluster', 'skuIntents.intent']);
         $tier = $this->normalizeTier($sku->tier);
-        $isHarvest = $tier === 'harvest';
-
-        $components = $this->evaluateComponents($sku, $isHarvest);
-
-        $harvestMax = 45; // §5.3: readiness.harvest_max_points not in 52 rules; hard-coded
-        $maxPossible = $isHarvest ? $harvestMax : 100;
-        $earned = 0;
-        foreach ($components as $key => $data) {
-            if ($data['applies']) {
-                $earned += $data['points_earned'];
-            }
-        }
-
-        // §11.3: Harvest = raw score (0-harvestMax), no normalization. Hero/Support = 0-100 scale
-        if ($isHarvest) {
-            $overall = min($harvestMax, max(0, $earned));
-        } else {
-            $overall = $maxPossible > 0
-                ? (int) round(($earned / $maxPossible) * 100)
-                : 0;
-            $overall = min(100, max(0, $overall));
-        }
+        $chsResult = $this->contentHealthScoreService->calculateCHS($sku);
+        $chs = (int) round($chsResult['chs']);
+        $chs = min(100, max(0, $chs));
 
         $channels = [];
         foreach (self::CHANNELS as $channel) {
-            $modifier = 0; // §5.3: readiness.channel_*_modifier not in 52 rules; hard-coded
-            $channelScore = min(100, max(0, $overall + $modifier));
-            $channels[] = ['channel' => $channel, 'score' => $channelScore];
+            $channels[] = ['channel' => $channel, 'score' => $chs];
         }
 
-        // v2.3.2 Patch 3: Decomposed sub-scores for dashboard breakdown (content / schema / commercial)
-        $subScores = $this->computeSubScores($components, $isHarvest);
+        // Map CHS components to legacy component shape for compatibility; sub-scores derived from CHS components
+        $comp = $chsResult['components'];
+        $contentScore = (int) round(($comp['intent_alignment'] + $comp['semantic_coverage']) / 2);
+        $schemaScore = (int) round($comp['technical_seo']);
+        $competitiveNum = is_numeric($comp['competitive_gap']) ? (float) $comp['competitive_gap'] : 0.0;
+        $commercialScore = (int) round(($competitiveNum + $comp['ai_readiness']) / 2);
 
         return [
-            'sku_id'         => (string) $sku->id,
-            'tier'           => $tier,
-            'overall'        => $overall,
-            'max_possible'   => $maxPossible,
-            'content_score'  => $subScores['content_score'],
-            'schema_score'   => $subScores['schema_score'],
-            'commercial_score' => $subScores['commercial_score'],
-            'components'     => $components,
-            'channels'       => $channels,
+            'sku_id'           => (string) $sku->id,
+            'tier'             => $tier,
+            'overall'          => $chs,
+            'max_possible'     => 100,
+            'content_score'    => $contentScore,
+            'schema_score'     => $schemaScore,
+            'commercial_score' => $commercialScore,
+            'components'       => $this->chsToLegacyComponents($comp),
+            'channels'         => $channels,
+            'chs_components'   => $comp,
+            'competitive_gap_no_data' => $chsResult['competitive_gap_no_data'],
         ];
     }
 
     /**
-     * v2.3.2 Patch 3: Break readiness into content_score, schema_score, commercial_score (0-100 each).
+     * Map CHS component breakdown to legacy components array shape (for API/dashboard compatibility).
      */
-    private function computeSubScores(array $components, bool $isHarvest): array
+    private function chsToLegacyComponents(array $comp): array
     {
-        $contentKeys = [
-            'valid_cluster_id', 'has_primary_intent', 'has_secondary_intents',
-            'answer_block_passes_g4', 'best_for_not_for_populated', 'expert_authority_present',
-            'category_specific_complete',
-        ];
-        $schemaKeys = ['json_ld_renders_valid'];
-        $commercialKeys = ['pricing_present', 'images_meet_channel'];
-
-        $score = fn(array $keys) => array_reduce($keys, function ($sum, $k) use ($components) {
-            $d = $components[$k] ?? null;
-            return $sum + ($d && ($d['applies'] ?? false) ? ($d['points_earned'] ?? 0) : 0);
-        }, 0);
-        $max = fn(array $keys) => array_reduce($keys, function ($sum, $k) use ($components) {
-            $d = $components[$k] ?? null;
-            return $sum + ($d && ($d['applies'] ?? false) ? ($d['points_max'] ?? 0) : 0);
-        }, 0);
-
-        $contentEarned = $score($contentKeys);
-        $contentMax = $max($contentKeys);
-        $schemaEarned = $score($schemaKeys);
-        $schemaMax = $max($schemaKeys);
-        $commercialEarned = $score($commercialKeys);
-        $commercialMax = $max($commercialKeys);
-
-        $norm = static function ($earned, $max) {
-            if ($max <= 0) return 0;
-            return min(100, (int) round(($earned / $max) * 100));
-        };
-
         return [
-            'content_score'    => $norm($contentEarned, $contentMax),
-            'schema_score'     => $norm($schemaEarned, $schemaMax),
-            'commercial_score' => $norm($commercialEarned, $commercialMax),
+            'intent_alignment'     => ['points_earned' => (int) round($comp['intent_alignment']), 'points_max' => 100, 'applies' => true],
+            'semantic_coverage'    => ['points_earned' => (int) round($comp['semantic_coverage']), 'points_max' => 100, 'applies' => true],
+            'technical_seo'        => ['points_earned' => (int) round($comp['technical_seo']), 'points_max' => 100, 'applies' => true],
+            'competitive_gap'      => ['points_earned' => is_numeric($comp['competitive_gap']) ? (int) round($comp['competitive_gap']) : 0, 'points_max' => 100, 'applies' => true, 'no_data' => $comp['competitive_gap'] === ContentHealthScoreService::COMPETITIVE_GAP_NO_DATA],
+            'ai_readiness'         => ['points_earned' => (int) round($comp['ai_readiness']), 'points_max' => 100, 'applies' => true],
         ];
-    }
-
-    /**
-     * Evaluate each component: points earned, max, and whether it applies for this tier.
-     */
-    private function evaluateComponents(Sku $sku, bool $isHarvest): array
-    {
-        $out = [];
-        $components = $this->getComponents();
-
-        foreach ($components as $key => $maxPoints) {
-            $applies = !$isHarvest || in_array($key, self::HARVEST_APPLICABLE, true);
-            $earned = $applies ? $this->scoreComponent($sku, $key, $maxPoints) : 0;
-            $out[$key] = [
-                'points_earned' => $earned,
-                'points_max'    => $applies ? $maxPoints : 0,
-                'applies'       => $applies,
-            ];
-        }
-
-        return $out;
-    }
-
-    /**
-     * Score a single component. Uses graduated scoring where applicable (e.g. best_for count, secondary intents).
-     * Spec: Hero min 2 best_for, min 1 not_for for full points.
-     */
-    private function scoreComponent(Sku $sku, string $key, int $maxPoints): int
-    {
-        $tier = $this->normalizeTier($sku->tier);
-
-        switch ($key) {
-            case 'valid_cluster_id':
-                return (!empty($sku->primary_cluster_id) && $sku->primaryCluster) ? $maxPoints : 0;
-            case 'has_primary_intent':
-                $primary = $sku->skuIntents->where('is_primary', true)->first();
-                return $primary !== null ? $maxPoints : 0;
-            case 'has_secondary_intents':
-                $secondary = $sku->skuIntents->where('is_primary', false);
-                $n = $secondary->count();
-                if ($n === 0) return 0;
-                if ($n === 1) return (int) round($maxPoints * 0.5);
-                return $maxPoints;
-            case 'answer_block_passes_g4':
-                $result = $this->g4Gate->validate($sku);
-                return $result->passed ? $maxPoints : 0;
-            case 'best_for_not_for_populated':
-                return $this->scoreBestForNotFor($sku, $maxPoints, $tier);
-            case 'expert_authority_present':
-                $auth = trim((string) ($sku->expert_authority_name ?? $sku->expert_authority ?? ''));
-                return $auth !== '' ? $maxPoints : 0;
-            case 'json_ld_renders_valid':
-                $html = JsonLdRenderer::renderCieJsonld($sku);
-                return ($html !== '' && str_contains($html, '"@type":"Product"')) ? $maxPoints : 0;
-            case 'images_meet_channel':
-                try {
-                    $result = $this->g2Gate->validate($sku);
-                    return $result->passed ? $maxPoints : 0;
-                } catch (\Throwable) {
-                    return 0;
-                }
-            case 'pricing_present':
-                $price = $sku->current_price ?? $sku->price ?? null;
-                return ($price !== null && (float) $price > 0) ? $maxPoints : 0;
-            case 'category_specific_complete':
-                $cluster = $sku->primaryCluster;
-                $passed = $cluster && (
-                    (!empty($cluster->category)) ||
-                    (!empty($cluster->name))
-                );
-                return $passed ? $maxPoints : 0;
-            case 'faq_completion':
-                return $this->computeFaqCompletion($sku, $maxPoints);
-            default:
-                return 0;
-        }
-    }
-
-    /**
-     * SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 4 KPI #7
-     * Hero FAQ completion: ratio of answered required templates >= 80% → full points; else proportional.
-     * Non-Hero tiers: full points (FAQ not required, do not penalise).
-     */
-    private function computeFaqCompletion(Sku $sku, int $maxPoints): int
-    {
-        $tier = $this->normalizeTier($sku->tier);
-        if ($tier !== 'hero') {
-            return $maxPoints;
-        }
-        $skuIdStr = (string) $sku->id;
-        $requiredCount = DB::table('faq_templates')->where('is_required', true)->count();
-        if ($requiredCount === 0) {
-            return $maxPoints;
-        }
-        $answeredCount = DB::table('sku_faq_responses')
-            ->where('sku_id', $skuIdStr)
-            ->whereNotNull('answer')
-            ->where('answer', '!=', '')
-            ->whereIn('template_id', function ($q) {
-                $q->select('id')->from('faq_templates')->where('is_required', true);
-            })
-            ->count();
-        $ratio = $answeredCount / $requiredCount;
-        if ($ratio >= 0.80) {
-            return $maxPoints;
-        }
-        return (int) round($maxPoints * $ratio / 0.80);
-    }
-
-    /**
-     * Graduated best_for/not_for: Hero requires min 2 best_for, min 1 not_for (spec).
-     * Other tiers: both non-empty = full; one empty = half; both empty = 0.
-     * Handles best_for/not_for stored as JSON array (e.g. ["Item one","Item two"]) or comma-separated string.
-     */
-    private function scoreBestForNotFor(Sku $sku, int $maxPoints, string $tier): int
-    {
-        $bestForCount = self::countListAttribute($sku->best_for);
-        $notForCount = self::countListAttribute($sku->not_for);
-        $partialFraction = 0.5; // §5.3: readiness.best_for_partial_credit_fraction not in 52 rules; hard-coded
-
-        if ($tier === 'hero') {
-            if ($bestForCount >= 2 && $notForCount >= 1) return $maxPoints;
-            if ($bestForCount >= 1 && $notForCount >= 1) return (int) round($maxPoints * $partialFraction);
-            return 0;
-        }
-
-        if ($bestForCount >= 1 && $notForCount >= 1) return $maxPoints;
-        if ($bestForCount >= 1 || $notForCount >= 1) return (int) round($maxPoints * $partialFraction);
-        return 0;
-    }
-
-    /** Count items in best_for/not_for whether stored as JSON array or comma/whitespace-separated string. */
-    private static function countListAttribute($value): int
-    {
-        if (is_array($value)) {
-            return count(array_filter($value));
-        }
-        $raw = trim((string) ($value ?? ''));
-        if ($raw !== '' && (str_starts_with($raw, '[') || str_starts_with($raw, '{'))) {
-            $decoded = json_decode($value ?? '[]', true);
-            if (is_array($decoded)) {
-                return count(array_filter($decoded));
-            }
-        }
-        return count(array_filter(preg_split('/[\s,]+/', $raw, -1, PREG_SPLIT_NO_EMPTY)));
     }
 
     private function normalizeTier($tier): string

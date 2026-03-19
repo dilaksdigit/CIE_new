@@ -13,11 +13,19 @@ use App\Controllers\SemrushImportController;
 use App\Controllers\AdminBusinessRulesController;
 use App\Controllers\ConfigController;
 use App\Controllers\BaselineController;
+use App\Controllers\ShopifyProductPullController;
 use App\Controllers\TierChangeController;
 use App\Controllers\FAQController;
 use App\Controllers\GscController;
+use App\Controllers\BulkOpsController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Http;
+
+// Semrush import — spec path POST /api/admin/semrush-import (no /v1/); CLAUDE.md §3 Rule R1
+Route::post('admin/semrush-import', [SemrushImportController::class, 'import'])->middleware(['auth', 'rbac:ADMIN']);
+
+// ERP sync — spec alias at POST /api/admin/erp-sync (openapi.yaml ERP Integration tag)
+Route::post('admin/erp-sync', [TierController::class, 'erpSync'])->middleware(['auth', 'rbac:ADMIN']);
 
 // Unified API v1 — all spec-compliant routes live under /api/v1
 // SOURCE: CLAUDE.md Section 3 R1; cie_v231_openapi.yaml (locked contract)
@@ -78,8 +86,8 @@ Route::prefix('v1')->middleware('auth')->group(function () {
 
     Route::post('/tiers/recalculate', [TierController::class, 'recalculate'])->middleware('rbac:FINANCE,ADMIN');
 
-    // ERP sync
-    Route::post('/erp/sync', [TierController::class, 'erpSync'])->middleware('rbac:FINANCE,ADMIN');
+    // ERP sync — admin only (spec: POST /api/v1/erp/sync)
+    Route::post('/erp/sync', [TierController::class, 'erpSync'])->middleware('rbac:ADMIN');
 
     Route::get('/config', [ConfigController::class, 'index']);
     Route::put('/config', [ConfigController::class, 'update'])->middleware('rbac:ADMIN');
@@ -89,10 +97,22 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     Route::put('/admin/business-rules/{key}', [AdminBusinessRulesController::class, 'update'])->middleware('rbac:ADMIN');
     Route::post('/admin/business-rules/{key}/approve', [AdminBusinessRulesController::class, 'approve'])->middleware('rbac:ADMIN');
 
-    // Semrush CSV Import — SOURCE: openapi.yaml; CLAUDE.md R1 — spec routes must be active
-    Route::post('/admin/semrush-import', [SemrushImportController::class, 'import'])->middleware('rbac:ADMIN');
-    Route::get('/admin/semrush-import/latest', [SemrushImportController::class, 'latest'])->middleware('rbac:ADMIN');
+    // Semrush CSV Import — GET/DELETE remain under v1; POST import is at /api/admin/semrush-import (see above)
+    Route::get('/admin/semrush-import/latest', [SemrushImportController::class, 'latest'])->middleware('rbac:ADMIN,CONTENT_LEAD,SEO_GOVERNOR');
     Route::delete('/admin/semrush-import/{batch_date}', [SemrushImportController::class, 'delete'])->middleware('rbac:ADMIN');
+
+    // Shopify product pull — admin only; does not affect deploy/publish
+    Route::get('/shopify/status', [ShopifyProductPullController::class, 'status']);
+    Route::get('/shopify/products', [ShopifyProductPullController::class, 'index'])->middleware('rbac:ADMIN');
+    Route::post('/shopify/sync', [ShopifyProductPullController::class, 'sync'])->middleware('rbac:ADMIN');
+
+    // Bulk Ops (Admin) — summary, counts, and execution; zero hardcode in frontend
+    Route::get('/admin/bulk-ops/summary', [BulkOpsController::class, 'summary'])->middleware('rbac:ADMIN');
+    Route::get('/admin/bulk-ops/tier-change-requests', [BulkOpsController::class, 'listTierChangeRequests'])->middleware('rbac:ADMIN');
+    Route::post('/admin/bulk-ops/cluster-assignment', [BulkOpsController::class, 'clusterAssignment'])->middleware('rbac:ADMIN');
+    Route::post('/admin/bulk-ops/status-change', [BulkOpsController::class, 'statusChange'])->middleware('rbac:ADMIN');
+    Route::post('/admin/bulk-ops/faq-apply', [BulkOpsController::class, 'faqApply'])->middleware('rbac:ADMIN');
+    Route::get('/admin/bulk-ops/export', [BulkOpsController::class, 'export'])->middleware('rbac:ADMIN');
 
     Route::get('/audit-logs', [AuditLogController::class, 'index']);
 

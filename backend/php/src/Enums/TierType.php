@@ -1,5 +1,6 @@
 <?php
 // SOURCE: CLAUDE.md §9 — "Tier stored as ENUM('hero','support','harvest','kill') — lowercase, no variants"
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 6.1
 
 namespace App\Enums;
 enum TierType: string

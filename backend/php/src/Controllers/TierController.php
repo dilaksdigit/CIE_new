@@ -30,10 +30,10 @@ class TierController {
             'sync_date' => 'required|date',
             'skus' => 'required|array',
             'skus.*.sku_id' => 'required|string',
-            'skus.*.contribution_margin_pct' => 'nullable|numeric',
-            'skus.*.cppc' => 'nullable|numeric',
-            'skus.*.velocity_90d' => 'nullable|integer',
-            'skus.*.return_rate_pct' => 'nullable|numeric',
+            'skus.*.contribution_margin_pct' => 'required|numeric',
+            'skus.*.cppc' => 'required|numeric',
+            'skus.*.velocity_90d' => 'required|integer',
+            'skus.*.return_rate_pct' => 'required|numeric',
         ]);
 
         $syncDate = $payload['sync_date'];
@@ -125,16 +125,19 @@ class TierController {
                 $previousVelocity = (int) ($sku->erp_velocity_90d ?? 0);
 
                 // Update ERP fields + keep previous velocity for QoQ comparison.
-                $sku->update([
+                $updateData = [
                     'margin_percent' => $marginPct,
                     'erp_cppc' => $cppc,
                     'erp_return_rate_pct' => $returnPct,
                     'previous_velocity_90d' => $previousVelocity > 0 ? $previousVelocity : ($sku->previous_velocity_90d ?? null),
                     'erp_velocity_90d' => $velocity,
-                    // Preserve legacy field usage elsewhere by also setting annual_volume to the latest velocity.
                     'annual_volume' => $velocity,
                     'commercial_score' => $scoresBySkuCode[$skuCode] ?? 0,
-                ]);
+                ];
+                if (\Illuminate\Support\Facades\Schema::hasColumn('skus', 'erp_sync_date')) {
+                    $updateData['erp_sync_date'] = $syncDate;
+                }
+                $sku->update($updateData);
 
                 $score = (float) ($scoresBySkuCode[$skuCode] ?? 0);
 
@@ -332,7 +335,7 @@ class TierController {
             foreach ($skus as $sku) {
                 $score = (float) $sku->commercial_score;
                 $marginPct = (float) ($sku->margin_percent ?? 0);
-                $oldTier = TierType::tryFrom((string) $sku->tier) ?? TierType::SUPPORT;
+                $oldTier = $sku->tier instanceof TierType ? $sku->tier : (TierType::tryFrom(strtolower((string) ($sku->tier ?? ''))) ?? TierType::SUPPORT);
 
                 $newTier = TierType::KILL;
                 if ($marginPct < 0) {

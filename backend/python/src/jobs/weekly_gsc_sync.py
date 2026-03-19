@@ -87,11 +87,11 @@ def normalise_url(raw: str) -> str:
 def pull_weekly_gsc(start_date: datetime, end_date: datetime) -> List[GscRow]:
     """
     Spec §9.2 pull_weekly_gsc() — 7‑day GSC window.
-    Uses integrations.gsc_client with Config.GSC_SITE_URL.
+    Uses integrations.gsc_client with Config.GSC_PROPERTY.
     """
-    site_url = Config.GSC_SITE_URL or os.environ.get("GSC_SITE_URL", "")
+    site_url = Config.GSC_PROPERTY or os.environ.get("GSC_PROPERTY", "")
     if not site_url:
-        logger.warning("GSC_SITE_URL not set; skipping weekly GSC pull")
+        logger.warning("GSC_PROPERTY not set; skipping weekly GSC pull")
         return []
     from integrations.gsc_client import pull_weekly_gsc_rows
     return pull_weekly_gsc_rows(site_url, start_date, end_date)

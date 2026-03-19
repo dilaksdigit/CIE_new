@@ -30,6 +30,7 @@ class Ga4Row:
     sessions: int
     conversions: float  # count from API; job converts to rate for output
     revenue: float
+    bounce_rate: float
 
 
 def _get_db():
@@ -89,10 +90,10 @@ def save_ga4_landing_performance(rows: Iterable[Ga4Row], window_end: datetime) -
         for row in rows_list:
             cur.execute(
                 """
-                INSERT INTO ga4_landing_performance (landing_page, window_end, sessions, conversion_rate, revenue)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO ga4_landing_performance (landing_page, window_end, sessions, conversion_rate, revenue, bounce_rate)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (row.landing_page, window_date, row.sessions, row.conversions, row.revenue),
+                (row.landing_page, window_date, row.sessions, row.conversions, row.revenue, row.bounce_rate),
             )
         db.commit()
         cur.close()
@@ -131,6 +132,8 @@ def run() -> None:
         return
 
     # Compute conversion_rate = conversions / sessions (not GA4's own rate).
+    # Cap at 99.9999 to fit DECIMAL(6,4) (conversions can exceed sessions in GA4).
+    MAX_CONVERSION_RATE = 99.9999
     out_rows: List[Ga4Row] = []
     for row in rows:
         sessions = int(row.sessions or 0)
@@ -139,11 +142,12 @@ def run() -> None:
         if sessions <= 0:
             conv_rate = 0.0
         else:
-            conv_rate = conversions / sessions
+            conv_rate = min(conversions / sessions, MAX_CONVERSION_RATE)
         out_rows.append(Ga4Row(landing_page=row.landing_page,
                                sessions=sessions,
                                conversions=conv_rate,
-                               revenue=revenue))
+                               revenue=revenue,
+                               bounce_rate=float(row.bounce_rate or 0.0)))
 
     save_ga4_landing_performance(out_rows, end_dt)
 

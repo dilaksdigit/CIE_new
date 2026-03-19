@@ -2,7 +2,7 @@
 Google Analytics Data API (GA4) client for CIE.
 
 Uses run_report with landingPage dimension and Organic Search filter.
-Credentials via GOOGLE_APPLICATION_CREDENTIALS or Config.
+Credentials via GOOGLE_SERVICE_ACCOUNT_JSON or Config.GOOGLE_SERVICE_ACCOUNT_JSON.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 class Ga4Snapshot:
     """Single landing-page GA4 metrics (for CIS D+15/D+30)."""
     sessions: int
+    bounce_rate: float
     conversion_rate: float
     revenue: float
 
@@ -30,6 +31,7 @@ class Ga4Row:
     sessions: int
     conversions: float  # count; job may convert to rate
     revenue: float
+    bounce_rate: float
 
 
 def _get_client():
@@ -41,12 +43,14 @@ def _get_client():
     creds_path = None
     try:
         from utils.config import Config
-        creds_path = Config.GOOGLE_APPLICATION_CREDENTIALS
+        creds_path = Config.GOOGLE_SERVICE_ACCOUNT_JSON
     except Exception:
         pass
     if not creds_path:
+        creds_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if not creds_path:
         creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    if creds_path:
+    if creds_path and os.path.isfile(creds_path):
         return BetaAnalyticsDataClient.from_service_account_file(creds_path)
     return BetaAnalyticsDataClient()
 
@@ -80,6 +84,7 @@ def pull_ga4_for_landing_page(
             dimensions=[Dimension(name="landingPage")],
             metrics=[
                 Metric(name="sessions"),
+                Metric(name="bounceRate"),
                 Metric(name="conversions"),
                 Metric(name="totalRevenue"),
             ],
@@ -114,10 +119,11 @@ def pull_ga4_for_landing_page(
             return None
         row = response.rows[0]
         sessions = int(row.metric_values[0].value or 0)
-        conversions = float(row.metric_values[1].value or 0)
-        revenue = float(row.metric_values[2].value or 0)
+        bounce_rate = float(row.metric_values[1].value or 0)
+        conversions = float(row.metric_values[2].value or 0)
+        revenue = float(row.metric_values[3].value or 0)
         conv_rate = (conversions / sessions) if sessions else 0.0
-        return Ga4Snapshot(sessions=sessions, conversion_rate=conv_rate, revenue=revenue)
+        return Ga4Snapshot(sessions=sessions, bounce_rate=bounce_rate, conversion_rate=conv_rate, revenue=revenue)
     except Exception as exc:
         logger.warning("GA4 pull_ga4_for_landing_page failed for url=%s: %s", landing_page_url, exc)
         return None
@@ -150,6 +156,7 @@ def pull_weekly_ga4_rows(
             dimensions=[Dimension(name="landingPage")],
             metrics=[
                 Metric(name="sessions"),
+                Metric(name="bounceRate"),
                 Metric(name="conversions"),
                 Metric(name="totalRevenue"),
             ],
@@ -174,14 +181,16 @@ def pull_weekly_ga4_rows(
         for row in (response.rows or []):
             landing = (row.dimension_values[0].value or "").strip()
             sessions = int(row.metric_values[0].value or 0)
-            conversions = float(row.metric_values[1].value or 0)
-            revenue = float(row.metric_values[2].value or 0)
+            bounce_rate = float(row.metric_values[1].value or 0)
+            conversions = float(row.metric_values[2].value or 0)
+            revenue = float(row.metric_values[3].value or 0)
             out.append(
                 Ga4Row(
                     landing_page=landing,
                     sessions=sessions,
                     conversions=conversions,
                     revenue=revenue,
+                    bounce_rate=bounce_rate,
                 )
             )
         return out

@@ -1,11 +1,13 @@
 <?php
 // SOURCE: CLAUDE.md Section 6 (G2 rule); CIE_v231_Developer_Build_Pack G2 gate spec; CIE_v232_Developer_Amendment_Pack Section 8
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3 — Kill tier: all gates suspended
 
 namespace App\Validators\Gates;
 
 use App\Models\Sku;
 use App\Models\IntentTaxonomy;
 use App\Enums\GateType;
+use App\Enums\TierType;
 use App\Validators\GateResult;
 use App\Validators\GateInterface;
 
@@ -13,6 +15,18 @@ class G2_IntentGate implements GateInterface
 {
     public function validate(Sku $sku): GateResult
     {
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3
+        // Kill tier: zero content effort. All gates suspended.
+        if ($sku->tier === TierType::KILL) {
+            return new GateResult(
+                gate: GateType::G2_INTENT,
+                passed: true,
+                reason: 'suspended',
+                blocking: false,
+                metadata: ['suspended_for_tier' => 'kill']
+            );
+        }
+
         // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 2.1 — "Exactly 1 Primary Intent"
         $primaryCount = $sku->skuIntents->where('is_primary', true)->count();
 

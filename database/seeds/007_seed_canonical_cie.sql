@@ -10,7 +10,8 @@
 -- -------------------------------------------------------------------
 -- 1. Intent Taxonomy – 9 LOCKED INTENTS (NEVER user-editable)
 -- -------------------------------------------------------------------
-INSERT INTO intent_taxonomy (intent_id, intent_key, label, definition, tier_access)
+-- Use INSERT IGNORE so re-running this seed does not fail if rows already exist.
+INSERT IGNORE INTO intent_taxonomy (intent_id, intent_key, label, definition, tier_access)
 VALUES
   (1, 'problem_solving',   'Problem-Solving',   'User has a problem, needs product to solve it',          '["hero","support","harvest"]'),
   (2, 'comparison',        'Comparison',         'User evaluating alternatives',                           '["hero","support"]'),
@@ -25,7 +26,7 @@ VALUES
 -- -------------------------------------------------------------------
 -- 2. Tier Types – 4 canonical tiers
 -- -------------------------------------------------------------------
-INSERT INTO tier_types (id, tier_key, label, description) VALUES
+INSERT IGNORE INTO tier_types (id, tier_key, label, description) VALUES
   (UUID(), 'hero',    'Hero',
    'Top-performing SKUs with full content coverage and strict gating.'),
   (UUID(), 'support', 'Support',
@@ -40,16 +41,16 @@ INSERT INTO tier_types (id, tier_key, label, description) VALUES
 --    Business rule (v2.3.1): hero/support can use all 9 intents.
 --    harvest/kill: no intents allowed (enforced by absence of rows).
 -- -------------------------------------------------------------------
-INSERT INTO tier_intent_rules (id, tier, intent_id)
+INSERT IGNORE INTO tier_intent_rules (id, tier, intent_id)
 SELECT UUID(), 'hero', intent_id FROM intent_taxonomy;
 
-INSERT INTO tier_intent_rules (id, tier, intent_id)
+INSERT IGNORE INTO tier_intent_rules (id, tier, intent_id)
 SELECT UUID(), 'support', intent_id FROM intent_taxonomy;
 
 -- -------------------------------------------------------------------
 -- 4. material_wikidata – reference materials (from spec)
 -- -------------------------------------------------------------------
-INSERT INTO material_wikidata (id, material_id, material_name, wikidata_qid, wikidata_uri, ai_signal, is_active)
+INSERT IGNORE INTO material_wikidata (id, material_id, material_name, wikidata_qid, wikidata_uri, ai_signal, is_active)
 VALUES
   (UUID(), 'MAT-BORO-GLASS', 'Borosilicate Glass', 'Q190117',
    'https://www.wikidata.org/entity/Q190117',

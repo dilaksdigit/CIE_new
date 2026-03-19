@@ -4,6 +4,7 @@ namespace App\Controllers;
 use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx Sections 3–5
@@ -153,7 +154,7 @@ class SemrushImportController
 
         AuditLog::create([
             'entity_type' => 'semrush_import',
-            'entity_id'   => null,
+            'entity_id'   => $importBatch,
             'action'      => 'import',
             'field_name'  => 'import_batch',
             'old_value'   => null,
@@ -176,26 +177,90 @@ class SemrushImportController
     }
 
     /**
-     * GET /api/admin/semrush-import/latest
-     * Query param: filter=quick_wins (optional) — returns rows matching Quick Wins: position 11–30, keyword_difficulty < 40, search_volume > 500, tier hero/support.
+     * GET /api/v1/admin/semrush-import/latest
+     * Allowed for ADMIN (full) and CONTENT_LEAD/SEO_GOVERNOR (read-only for Leadership review screen).
+     * Query param: filter=quick_wins|rank_movement|competitor_gaps (optional).
+     * - quick_wins: position 11–30, keyword_difficulty < 40, search_volume > 500, tier hero/support (CLAUDE.md §13).
+     * - rank_movement: latest batch rows with position and prev_position (position changes).
+     * - competitor_gaps: gap keywords (position > 10 or null) grouped by sku_code.
      */
     public function latest(Request $request)
     {
         $user = auth()->user();
-        if (!$user || !optional($user->role)->name || strtoupper($user->role->name) !== 'ADMIN') {
+        if (!$user || !optional($user->role)->name) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+        $role = strtoupper((string) $user->role->name);
+        $allowedRoles = ['ADMIN', 'CONTENT_LEAD', 'SEO_GOVERNOR'];
+        if (!in_array($role, $allowedRoles, true)) {
             return response()->json(['error' => 'Forbidden'], 403);
         }
 
-        if ($request->query('filter') === 'quick_wins') {
+        $filter = $request->query('filter');
+        $maxBatch = DB::table('semrush_imports')->selectRaw('MAX(import_batch) as mb')->value('mb');
+        if ($maxBatch === null) {
+            if ($filter === 'quick_wins') {
+                return response()->json(['filter' => 'quick_wins', 'rows' => []], 200);
+            }
+            if ($filter === 'rank_movement') {
+                return response()->json(['filter' => 'rank_movement', 'rows' => []], 200);
+            }
+            if ($filter === 'competitor_gaps') {
+                return response()->json(['filter' => 'competitor_gaps', 'by_sku' => []], 200);
+            }
+            return response()->json(['history' => []], 200);
+        }
+
+        if ($filter === 'quick_wins') {
+            $diffCol = Schema::hasColumn('semrush_imports', 'keyword_difficulty')
+                ? 'semrush_imports.keyword_difficulty' : 'semrush_imports.keyword_diff';
             $quickWins = DB::table('semrush_imports')
-                ->whereRaw('import_batch = (SELECT MAX(import_batch) FROM semrush_imports)')
-                ->whereNotNull('prev_position')
-                ->whereColumn('position', '<', 'prev_position')
-                ->orderByRaw('(prev_position - position) DESC')
-                ->select('keyword', 'position', 'prev_position', 'search_volume', 'keyword_difficulty', 'sku_code')
+                ->join('skus', 'skus.sku_code', '=', 'semrush_imports.sku_code')
+                ->where('semrush_imports.import_batch', $maxBatch)
+                ->whereBetween('semrush_imports.position', [11, 30])
+                ->whereRaw("({$diffCol} IS NULL OR {$diffCol} < 40)")
+                ->whereRaw('(semrush_imports.search_volume IS NULL OR semrush_imports.search_volume > 500)')
+                ->whereIn(DB::raw('LOWER(TRIM(skus.tier))'), ['hero', 'support'])
+                ->select('semrush_imports.keyword', 'semrush_imports.position', 'semrush_imports.prev_position', 'semrush_imports.search_volume', 'semrush_imports.sku_code')
+                ->orderBy('semrush_imports.position')
                 ->limit(500)
                 ->get();
             return response()->json(['filter' => 'quick_wins', 'rows' => $quickWins], 200);
+        }
+
+        if ($filter === 'rank_movement') {
+            $movement = DB::table('semrush_imports')
+                ->where('import_batch', $maxBatch)
+                ->whereNotNull('prev_position')
+                ->select('keyword', 'position', 'prev_position', 'search_volume', 'sku_code')
+                ->orderByRaw('(position - prev_position) ASC')
+                ->limit(500)
+                ->get();
+            return response()->json(['filter' => 'rank_movement', 'rows' => $movement], 200);
+        }
+
+        if ($filter === 'competitor_gaps') {
+            $gapRows = DB::table('semrush_imports')
+                ->where('import_batch', $maxBatch)
+                ->where(function ($q) {
+                    $q->whereNull('position')->orWhere('position', '>', 10);
+                })
+                ->select('sku_code', 'keyword', 'position', 'search_volume')
+                ->orderBy('sku_code')
+                ->get();
+            $bySku = [];
+            foreach ($gapRows as $row) {
+                $code = (string) ($row->sku_code ?? '');
+                if (!isset($bySku[$code])) {
+                    $bySku[$code] = [];
+                }
+                $bySku[$code][] = [
+                    'keyword' => $row->keyword,
+                    'position' => $row->position,
+                    'search_volume' => $row->search_volume,
+                ];
+            }
+            return response()->json(['filter' => 'competitor_gaps', 'by_sku' => $bySku], 200);
         }
 
         $rows = DB::table('semrush_imports')

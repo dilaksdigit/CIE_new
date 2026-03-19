@@ -12,7 +12,7 @@ class ChannelGovernorService
      */
     public static function isEligibleForGMC(Sku $sku): bool
     {
-        $tier = strtolower((string) ($sku->tier ?? ''));
+        $tier = $sku->tier instanceof \App\Enums\TierType ? $sku->tier->value : strtolower((string) ($sku->tier ?? ''));
         if (in_array($tier, ['kill', 'harvest'])) {
             return false;
         }

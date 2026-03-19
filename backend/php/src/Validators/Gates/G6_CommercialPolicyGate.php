@@ -1,5 +1,7 @@
 <?php
-// SOURCE: CLAUDE.md Section 6 (G6.1); CLAUDE.md Section 7 (Kill = total lockout); Hardening_Addendum Patch 6; CIE_v231_Developer_Build_Pack G6.1 spec
+// SOURCE: CLAUDE.md Section 6 (G6.1); Hardening_Addendum Patch 6; CIE_v231_Developer_Build_Pack G6.1 spec
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7 — G6 REQUIRED for all tiers including Kill
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3 — Kill tier: G6 validates tier enum only
 
 namespace App\Validators\Gates;
 
@@ -12,9 +14,6 @@ use App\Validators\GateInterface;
 
 class G6_CommercialPolicyGate implements GateInterface
 {
-    /** Kill tier block — all fields read-only (CLAUDE.md Section 7). */
-    private const KILL_MESSAGE = 'This product is in Kill tier. All content fields are read-only. No editing is permitted. If you believe this classification is wrong, contact your Portfolio Holder to request a tier review.';
-
     /** Harvest suspended field (Hardening_Addendum Patch 6). */
     private const HARVEST_FIELD_MESSAGE = 'This field is not available for Harvest tier products. Focus on Specification data only.';
 
@@ -31,20 +30,25 @@ class G6_CommercialPolicyGate implements GateInterface
             );
         }
 
+        // Kill tier is a valid tier assignment. G6 validates tier enum only.
+        // Content field lockout is enforced by G6.1 (UI layer), not this gate.
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7 — G6 REQUIRED for Kill.
         if ($sku->tier === TierType::KILL) {
             return new GateResult(
                 gate: GateType::G6_COMMERCIAL_POLICY,
-                passed: false,
-                reason: self::KILL_MESSAGE,
-                blocking: true,
-                metadata: ['user_message' => self::KILL_MESSAGE]
+                passed: true,
+                reason: 'Kill tier is a valid tier assignment.',
+                blocking: false,
+                metadata: ['tier' => 'kill']
             );
         }
 
         if ($sku->tier === TierType::HARVEST) {
+            // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7
+            // G1 requires title for all tiers including Harvest — do not block title here.
             $harvestBlockedFields = [
                 'answer_block', 'best_for', 'not_for',
-                'expert_authority', 'title', 'long_description', 'wikidata_uri',
+                'expert_authority', 'long_description', 'wikidata_uri',
             ];
 
             foreach ($harvestBlockedFields as $field) {

@@ -39,7 +39,7 @@ class EngineQuestionResult:
     question_id: str
     engine: str
     score: Optional[int]  # 0–3 or None when unavailable / skipped
-    response_snippet: str
+    response_hash: str  # DB column response_hash (spec §12)
     skip_reason: Optional[str]  # None, 'timeout', 'rate_limited', 'api_error', 'engine_down'
 
 
@@ -213,7 +213,7 @@ def run_audit_for_engine(
                     question_id=qid,
                     engine=engine,
                     score=score,
-                    response_snippet=snippet,
+                    response_hash=snippet,
                     skip_reason=None,
                 )
             )
@@ -228,7 +228,7 @@ def run_audit_for_engine(
                         question_id=qid,
                         engine=engine,
                         score=None,
-                        response_snippet=str(exc),
+                        response_hash=str(exc),
                         skip_reason="engine_down",
                     )
                 )
@@ -239,7 +239,7 @@ def run_audit_for_engine(
                         question_id=qid,
                         engine=engine,
                         score=None,
-                        response_snippet=str(exc),
+                        response_hash=str(exc),
                         skip_reason="api_error",
                     )
                 )
@@ -408,11 +408,11 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
     cur = db.cursor()
     insert_sql = """
         INSERT INTO ai_audit_results
-            (run_id, question_id, engine, score, response_snippet, skip_reason)
+            (run_id, question_id, engine, score, response_hash, skip_reason)
         VALUES (%s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             score = VALUES(score),
-            response_snippet = VALUES(response_snippet),
+            response_hash = VALUES(response_hash),
             skip_reason = VALUES(skip_reason)
     """
     for summary in engine_summaries:
@@ -424,7 +424,7 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
                     r.question_id,
                     r.engine,
                     r.score,
-                    r.response_snippet,
+                    r.response_hash,
                     r.skip_reason,
                 ),
             )

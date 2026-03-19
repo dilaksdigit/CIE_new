@@ -12,8 +12,8 @@ use App\Validators\Gates\G4_AnswerBlockGate;
 use App\Validators\Gates\G4_VectorGate;
 use App\Validators\Gates\G5_TechnicalGate;
 use App\Validators\Gates\G6_CommercialPolicyGate;
-use App\Validators\Gates\G6_DescriptionQualityGate;
 use App\Validators\Gates\G7_ExpertGate;
+
 class GateValidator
 {
     private array $gates = [
@@ -24,7 +24,6 @@ class GateValidator
         G4_VectorGate::class,
         G5_TechnicalGate::class,
         G6_CommercialPolicyGate::class,
-        G6_DescriptionQualityGate::class,
         G7_ExpertGate::class,
     ];
  
@@ -44,10 +43,10 @@ class GateValidator
             foreach ($gateResults as $result) {
             $results[] = $result;
 
-            // Log the gate check (legacy validation_logs)
+            // Log the gate check (legacy validation_logs) — use string value for DB compatibility
             \App\Models\ValidationLog::create([
                 'sku_id' => $sku->id,
-                'gate_type' => $result->gate,
+                'gate_type' => $result->gate->value ?? (string) $result->gate,
                 'passed' => $result->passed,
                 'reason' => $result->reason,
                 'is_blocking' => $result->blocking,
@@ -112,14 +111,12 @@ class GateValidator
  $blockingFailure = $result;
  }
  }
+ }
  if ($result->metadata['degraded'] ?? false) {
  $isDegraded = true;
  }
- // SOURCE: CLAUDE.md §11 — Below 0.72 = WARNING, not block. Save allowed, publish blocked.
- // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 1 — Gate returns passed=true, warn_only=true.
  if (($result->metadata['status'] ?? '') === 'warn' || ($result->metadata['warn_only'] ?? false)) {
  $hasVectorWarn = true;
- }
  }
  }
  }

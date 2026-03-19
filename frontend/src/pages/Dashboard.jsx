@@ -11,7 +11,8 @@ import {
     TierBadge,
     GateChip,
     ReadinessBar,
-    GATES
+    GATES,
+    getGatesForTier
 } from '../components/common/UIComponents';
 import { skuApi, dashboardApi, configApi } from '../services/api';
 import THEME from '../theme';
@@ -333,7 +334,7 @@ const Dashboard = () => {
                                     <td>{formatCategory(sku.primaryCluster?.category)}</td>
                                     <td>
                                         <div className="flex gap-4 flex-wrap">
-                                            {GATES.map(g => (
+                                            {getGatesForTier(sku.tier).map(g => (
                                                 <GateChip 
                                                     key={g.id} 
                                                     id={g.id} 

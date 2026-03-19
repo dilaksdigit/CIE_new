@@ -4,10 +4,10 @@ import os
 class Config:
     REDIS_URL = os.getenv('REDIS_URL')
 
-    # GSC / GA4 integration (env: GSC_SITE_URL, GA4_PROPERTY_ID, GOOGLE_APPLICATION_CREDENTIALS)
-    GSC_SITE_URL = os.getenv('GSC_SITE_URL', '')
+    # GSC / GA4 integration (env: GSC_PROPERTY, GA4_PROPERTY_ID, GOOGLE_SERVICE_ACCOUNT_JSON)
+    GSC_PROPERTY = os.getenv('GSC_PROPERTY', '')
     GA4_PROPERTY_ID = os.getenv('GA4_PROPERTY_ID', '')
-    GOOGLE_APPLICATION_CREDENTIALS = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
+    GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', '')
     # Base URL to build landing page URL from sku_code (e.g. https://www.example.com/products)
     CIE_LANDING_BASE_URL = os.getenv('CIE_LANDING_BASE_URL', '').rstrip('/')
 

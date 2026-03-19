@@ -1,10 +1,13 @@
 <?php
 // SOURCE: CLAUDE.md Rule R3 + CIE_v231_Developer_Build_Pack G1 gate spec; CIE_v232_Developer_Amendment_Pack Section 8 (gate code rule)
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 6.1
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3 — Kill tier: all gates suspended
 
 namespace App\Validators\Gates;
 
 use App\Models\Sku;
 use App\Enums\GateType;
+use App\Enums\TierType;
 use App\Validators\GateResult;
 use App\Validators\GateInterface;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +19,18 @@ class G1_BasicInfoGate implements GateInterface
 
     public function validate(Sku $sku): GateResult
     {
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3
+        // Kill tier: zero content effort. All gates suspended.
+        if ($sku->tier === TierType::KILL) {
+            return new GateResult(
+                gate: GateType::G1_BASIC_INFO,
+                passed: true,
+                reason: 'suspended',
+                blocking: false,
+                metadata: ['suspended_for_tier' => 'kill']
+            );
+        }
+
         $missing = [];
 
         if (!$sku->sku_code || strlen(trim($sku->sku_code)) === 0) {
@@ -32,9 +47,15 @@ class G1_BasicInfoGate implements GateInterface
             );
         }
 
-        $clusterId = $sku->primary_cluster_id;
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 6.1, Section 7 (G1)
+        // GAP_LOG: skus.primary_cluster_id is UUID FK to clusters.id; clusters.name stores the
+        // business string matching cluster_master.cluster_id. Spec Section 6.1 defines
+        // sku_master.cluster_id as VARCHAR FK directly to cluster_master.cluster_id, but the
+        // v1 skus table uses UUID indirection via clusters.id.
+        $clusterRecord = $sku->primaryCluster;
+        $clusterBusinessId = $clusterRecord ? $clusterRecord->name : null;
         $cluster = DB::table('cluster_master')
-            ->where('cluster_id', $clusterId)
+            ->where('cluster_id', $clusterBusinessId)
             ->where('is_active', true)
             ->first();
 

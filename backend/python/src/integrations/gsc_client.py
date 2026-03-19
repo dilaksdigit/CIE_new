@@ -2,7 +2,7 @@
 Google Search Console API client for CIE.
 
 Uses Search Console API (webmasters v3) searchAnalytics.query.
-Credentials via GOOGLE_APPLICATION_CREDENTIALS or Config.GOOGLE_APPLICATION_CREDENTIALS.
+Credentials via GOOGLE_SERVICE_ACCOUNT_JSON or Config.GOOGLE_SERVICE_ACCOUNT_JSON.
 """
 
 from __future__ import annotations
@@ -43,12 +43,14 @@ def _get_service():
     creds_path = None
     try:
         from utils.config import Config
-        creds_path = Config.GOOGLE_APPLICATION_CREDENTIALS
+        creds_path = Config.GOOGLE_SERVICE_ACCOUNT_JSON
     except Exception:
         pass
     if not creds_path:
+        creds_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if not creds_path:
         creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    if creds_path:
+    if creds_path and os.path.isfile(creds_path):
         credentials = service_account.Credentials.from_service_account_file(creds_path)
     else:
         import google.auth

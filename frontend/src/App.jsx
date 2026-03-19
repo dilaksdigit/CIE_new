@@ -21,6 +21,9 @@ import AuditTrail from './pages/AuditTrail';
 import BulkOps from './pages/BulkOps';
 import StaffKpis from './pages/StaffKpis';
 import SemrushImport from './pages/SemrushImport';
+import ShopifyPull from './pages/ShopifyPull';
+import ErpSync from './pages/ErpSync';
+import ReviewSemrush from './pages/review/ReviewSemrush';
 
 export const AppContext = createContext(null);
 
@@ -106,6 +109,7 @@ const App = () => {
           <Route path="/review/ai-audit" element={<AuthGuard><AppLayout><AiAudit /></AppLayout></AuthGuard>} />
           <Route path="/review/channels" element={<AuthGuard><AppLayout><Channels /></AppLayout></AuthGuard>} />
           <Route path="/review/kpis" element={<AuthGuard><AppLayout><StaffKpis /></AppLayout></AuthGuard>} />
+          <Route path="/review/semrush" element={<AuthGuard><AppLayout><ReviewSemrush /></AppLayout></AuthGuard>} />
 
           <Route path="/help" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
 
@@ -115,6 +119,8 @@ const App = () => {
           <Route path="/admin/audit-trail" element={<AuthGuard><AppLayout><AuditTrail /></AppLayout></AuthGuard>} />
           <Route path="/admin/bulk-ops" element={<AuthGuard><AppLayout><BulkOps /></AppLayout></AuthGuard>} />
           <Route path="/admin/semrush-import" element={<AuthGuard><AppLayout><SemrushImport /></AppLayout></AuthGuard>} />
+          <Route path="/admin/shopify-pull" element={<AuthGuard><AppLayout><ShopifyPull /></AppLayout></AuthGuard>} />
+          <Route path="/admin/erp-sync" element={<AuthGuard><AppLayout><ErpSync /></AppLayout></AuthGuard>} />
         </Routes>
       </AppProvider>
     </BrowserRouter>

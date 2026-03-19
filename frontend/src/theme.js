@@ -59,6 +59,18 @@ export const THEME = {
   blue:          "#1565C0",
   blueBg:        "#E3F2FD",
   blueBorder:    "#90CAF9",
+
+  // ── Bulk Ops layout (single source; no magic numbers in page) ───
+  bulkOps: {
+    gridMinPx:    280,
+    gapPx:        12,
+    iconRem:      1.2,
+    titleRem:     0.8,
+    descRem:      0.65,
+    badgeRem:     0.58,
+    badgePadding: '2px 6px',
+    badgeRadius:  3,
+  },
 };
 
 export default THEME;

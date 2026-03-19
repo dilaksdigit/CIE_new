@@ -1,8 +1,10 @@
 <?php
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 6.1
 namespace App\Validators\Gates;
 
 use App\Models\Sku;
 use App\Enums\GateType;
+use App\Enums\TierType;
 use App\Support\BusinessRules;
 use App\Validators\GateResult;
 use App\Validators\GateInterface;
@@ -17,8 +19,8 @@ class G4_AnswerBlockGate implements GateInterface
         $minLen = (int) BusinessRules::get('gates.answer_block_min_chars');
         $maxLen = (int) BusinessRules::get('gates.answer_block_max_chars');
         
-        // Harvest SKUs have G4 suspended (spec: Harvest maintenance mode)
-        if ($sku->tier === 'HARVEST') {
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7 — G4 SUSPENDED for Harvest/Kill
+        if ($sku->tier === TierType::HARVEST || $sku->tier === TierType::KILL) {
             return new GateResult(
                 gate: GateType::G4_ANSWER_BLOCK,
                 passed: true,
