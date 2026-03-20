@@ -17,108 +17,42 @@ use App\Validators\GateInterface;
 
 class G5_TechnicalGate implements GateInterface
 {
- public function validate(Sku $sku): GateResult|array
- {
- if ($sku->tier === TierType::KILL) {
-     return new GateResult(
-         gate: GateType::G5_BEST_NOT_FOR,
-         passed: true,
-         reason: 'This product tier does not require Best-For/Not-For.',
-         blocking: false
-     );
- }
+    // SOURCE: ENF§2.1 — G5 = min 2 best_for + min 1 not_for ONLY. ENF§Page18 — only CIE_G5_BESTFOR_COUNT for G5.
+    public function validate(Sku $sku): GateResult|array
+    {
+        // SOURCE: ENF§2.2 — G5 SUSPENDED for Harvest/Kill → not_applicable
+        if (in_array($sku->tier, [TierType::HARVEST, TierType::KILL], true)) {
+            return new GateResult(
+                gate: GateType::G5_BEST_NOT_FOR,
+                passed: true,
+                reason: 'not_applicable',
+                blocking: false,
+                metadata: ['status' => 'not_applicable', 'user_message' => null]
+            );
+        }
 
- if ($sku->tier === TierType::HARVEST) {
-     return new GateResult(
-         gate: GateType::G5_BEST_NOT_FOR,
-         passed: true,
-         reason: 'Best-For/Not-For check is not required for this product tier.',
-         blocking: false
-     );
- }
+        $minBestFor = (int) BusinessRules::get('gates.best_for_min_entries', 2);
+        $minNotFor = (int) BusinessRules::get('gates.not_for_min_entries', 1);
+        $bestFor = self::parseListAttribute($sku->best_for);
+        $notFor = self::parseListAttribute($sku->not_for);
 
- $failures = [];
+        if (count($bestFor) < $minBestFor || count($notFor) < $minNotFor) {
+            return new GateResult(
+                gate: GateType::G5_BEST_NOT_FOR,
+                passed: false,
+                reason: 'Insufficient best_for or not_for entries',
+                blocking: true,
+                metadata: [
+                    'error_code' => 'CIE_G5_BESTFOR_COUNT',
+                    'detail' => "Need min {$minBestFor} best_for and {$minNotFor} not_for",
+                    'user_message' => "Add at least {$minBestFor} Best-For and {$minNotFor} Not-For entries."
+                ]
+            );
+        }
 
- // --- Technical-spec block (cluster, required specs, unit format) ---
- $cluster = $sku->primaryCluster;
- $requiredSpecs = [];
- if (!$cluster) {
-     $failures[] = new GateResult(
-         gate: GateType::G5_TECHNICAL,
-         passed: false,
-         reason: 'No cluster assigned. Cannot validate technical specs.',
-         blocking: true
-     );
- } else {
-     $requiredSpecs = $cluster->required_specifications ?? [];
-     $skuSpecs = $sku->specifications ?? [];
-
-     $missing = [];
-     foreach ($requiredSpecs as $specName) {
-         if (!isset($skuSpecs[$specName]) || empty($skuSpecs[$specName])) {
-             $missing[] = $specName;
-         }
-     }
-
-     if (count($missing) > 0) {
-         $failures[] = new GateResult(
-             gate: GateType::G5_TECHNICAL,
-             passed: false,
-             reason: 'Missing required specifications: ' . implode(', ', $missing),
-             blocking: true
-         );
-     }
-
-     $unitIssues = $this->validateUnits($skuSpecs);
-     if (count($unitIssues) > 0) {
-         $failures[] = new GateResult(
-             gate: GateType::G5_TECHNICAL,
-             passed: false,
-             reason: 'Unit format issues: ' . implode(', ', $unitIssues),
-             blocking: true
-         );
-     }
- }
-
- // --- Best-For / Not-For: min 2 best_for + min 1 not_for for Hero/Support (CLAUDE.md Section 6 G5) ---
- if (in_array($sku->tier, [TierType::HERO, TierType::SUPPORT], true)) {
-     $bestForMin = (int) BusinessRules::get('gates.best_for_min_entries');
-     $notForMin = (int) BusinessRules::get('gates.not_for_min_entries');
-     $bestFor = self::parseListAttribute($sku->best_for);
-     $notFor = self::parseListAttribute($sku->not_for);
-
-     if (count($bestFor) < $bestForMin) {
-         $failures[] = new GateResult(
-             gate: GateType::G5_BEST_NOT_FOR,
-             passed: false,
-             reason: 'Add at least 2 best-for use cases. These help customers understand when this product is the right choice.',
-             blocking: true,
-             metadata: ['user_message' => 'Add at least 2 best-for use cases. These help customers understand when this product is the right choice.']
-         );
-     }
-
-     if (count($notFor) < $notForMin) {
-         $failures[] = new GateResult(
-             gate: GateType::G5_BEST_NOT_FOR,
-             passed: false,
-             reason: 'Add at least 1 not-for exclusion. This tells customers when they should choose a different product.',
-             blocking: true,
-             metadata: ['user_message' => 'Add at least 1 not-for exclusion. This tells customers when they should choose a different product.']
-         );
-     }
- }
-
- if (!empty($failures)) {
-     return $failures;
- }
-
- return new GateResult(
-     gate: GateType::G5_TECHNICAL,
-     passed: true,
-     reason: sprintf('All %d required specifications completed with valid units', count($requiredSpecs)),
-     blocking: false
- );
- }
+        return new GateResult(gate: GateType::G5_BEST_NOT_FOR, passed: true, reason: 'G5 pass', metadata: []);
+        // GAP_LOG: required_specifications and validateUnits() removed from G5 publish gate per ENF§2.1. Architect to decide: move to pre-validation or separate advisory step.
+    }
  
  private function validateUnits(array $specs): array
  {

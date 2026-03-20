@@ -1,7 +1,6 @@
 <?php
-// SOURCE: CLAUDE.md Section 6 (G6.1); Hardening_Addendum Patch 6; CIE_v231_Developer_Build_Pack G6.1 spec
-// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7 — G6 REQUIRED for all tiers including Kill
-// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3 — Kill tier: G6 validates tier enum only
+// SOURCE: ENF§2.1 — G6 (tier tag) and G6.1 (tier-locked intents / Kill edit block) are separate gates
+// SOURCE: ENF§7.2 — Response includes both G6_tier_tag and G6_1_tier_lock keys
 
 namespace App\Validators\Gates;
 
@@ -14,88 +13,121 @@ use App\Validators\GateInterface;
 
 class G6_CommercialPolicyGate implements GateInterface
 {
-    /** Harvest suspended field (Hardening_Addendum Patch 6). */
-    private const HARVEST_FIELD_MESSAGE = 'This field is not available for Harvest tier products. Focus on Specification data only.';
-
-    public function validate(Sku $sku): GateResult
+    // SOURCE: ENF§2.1 — G6 = tier enum only; G6.1 = tier-locked intents / Kill block. Returns array of GateResult.
+    public function validate(Sku $sku): array
     {
+        $results = [];
+
+        // G6: Tier tag validation
         $tierRaw = $sku->tier;
-        if ($tierRaw === null || (is_string($tierRaw) && trim($tierRaw) === '')) {
-            return new GateResult(
-                gate: GateType::G6_COMMERCIAL_POLICY,
+        if ($tierRaw === null || (is_string($tierRaw) && trim((string) $tierRaw) === '')) {
+            $results[] = new GateResult(
+                gate: GateType::G6_TIER_TAG,
                 passed: false,
-                reason: 'SKU has no tier assigned.',
+                reason: 'SKU has no tier assignment',
                 blocking: true,
-                metadata: ['user_message' => 'This SKU has no tier assigned. Contact your administrator.']
+                metadata: [
+                    'error_code' => 'CIE_G6_MISSING_TIER',
+                    'user_message' => 'This product has no tier assignment. Contact your administrator.',
+                    'detail' => 'SKU has no tier assignment'
+                ]
             );
+            return $results;
         }
 
-        // Kill tier is a valid tier assignment. G6 validates tier enum only.
-        // Content field lockout is enforced by G6.1 (UI layer), not this gate.
-        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7 — G6 REQUIRED for Kill.
+        $results[] = new GateResult(
+            gate: GateType::G6_TIER_TAG,
+            passed: true,
+            reason: 'Tier valid',
+            blocking: false,
+            metadata: []
+        );
+
+        // G6.1: Tier-locked intents / Kill block
         if ($sku->tier === TierType::KILL) {
-            return new GateResult(
-                gate: GateType::G6_COMMERCIAL_POLICY,
-                passed: true,
-                reason: 'Kill tier is a valid tier assignment.',
-                blocking: false,
-                metadata: ['tier' => 'kill']
+            $results[] = new GateResult(
+                gate: GateType::G6_1_TIER_LOCK,
+                passed: false,
+                reason: 'Kill-tier SKU: all edits blocked',
+                blocking: true,
+                metadata: [
+                    'error_code' => 'CIE_G6_1_KILL_EDIT_BLOCKED',
+                    'user_message' => 'This product is flagged for delisting. No edits are permitted.',
+                    'detail' => 'Kill-tier SKU: all edits blocked'
+                ]
             );
+            return $results;
         }
 
+        // SOURCE: ENF§2.2 — Harvest: G2 Primary Intent REQUIRED (Spec only). ENF§2.1 G6.1 — Harvest: only Specification + 1 other intent.
         if ($sku->tier === TierType::HARVEST) {
-            // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7
-            // G1 requires title for all tiers including Harvest — do not block title here.
-            $harvestBlockedFields = [
-                'answer_block', 'best_for', 'not_for',
-                'expert_authority', 'long_description', 'wikidata_uri',
-            ];
-
-            foreach ($harvestBlockedFields as $field) {
-                $value = $sku->getAttribute($field);
-                if ($value !== null && $value !== '' && $value !== '[]') {
-                    return new GateResult(
-                        gate: GateType::G6_COMMERCIAL_POLICY,
-                        passed: false,
-                        reason: self::HARVEST_FIELD_MESSAGE,
-                        blocking: true,
-                        metadata: ['user_message' => self::HARVEST_FIELD_MESSAGE]
-                    );
-                }
+            $primaryIntentNode = $sku->skuIntents->where('is_primary', true)->first();
+            $primaryNorm = $primaryIntentNode && $primaryIntentNode->intent
+                ? strtolower(trim(str_replace([' ', '-', '/'], '_', $primaryIntentNode->intent->name ?? '')))
+                : '';
+            if ($primaryNorm !== 'specification') {
+                $results[] = new GateResult(
+                    gate: GateType::G6_1_TIER_LOCK,
+                    passed: false,
+                    reason: 'Harvest primary intent must be Specification',
+                    blocking: true,
+                    metadata: [
+                        'error_code' => 'CIE_G6_1_TIER_INTENT_BLOCKED',
+                        'detail' => "Harvest tier requires primary intent = specification, got '{$primaryNorm}'",
+                        'user_message' => 'Harvest products must have Specification as their main intent.'
+                    ]
+                );
+                return $results;
             }
 
             $secondaryIntents = $sku->skuIntents->where('is_primary', false);
             if ($secondaryIntents->count() > 1) {
-                return new GateResult(
-                    gate: GateType::G6_COMMERCIAL_POLICY,
+                $results[] = new GateResult(
+                    gate: GateType::G6_1_TIER_LOCK,
                     passed: false,
-                    reason: self::HARVEST_FIELD_MESSAGE,
+                    reason: 'Harvest allows max 1 secondary intent',
                     blocking: true,
-                    metadata: ['user_message' => self::HARVEST_FIELD_MESSAGE]
+                    metadata: [
+                        'error_code' => 'CIE_G6_1_TIER_INTENT_BLOCKED',
+                        'user_message' => 'This SKU\'s tier does not permit the selected intent fields.',
+                        'detail' => 'Intent field not permitted for this SKU\'s tier.'
+                    ]
                 );
+                return $results;
             }
-
-            $allowedSecondary = ['problem_solving', 'compatibility'];
+            $allowedSecondary = ['problem_solving', 'compatibility', 'specification'];
             foreach ($secondaryIntents as $si) {
                 $intentName = strtolower($si->intent->name ?? '');
                 $intentKey  = str_replace(' ', '_', $intentName);
                 if (!in_array($intentKey, $allowedSecondary, true)) {
-                    return new GateResult(
-                        gate: GateType::G6_COMMERCIAL_POLICY,
+                    $results[] = new GateResult(
+                        gate: GateType::G6_1_TIER_LOCK,
                         passed: false,
-                        reason: self::HARVEST_FIELD_MESSAGE,
+                        reason: 'Harvest secondary not in allowed intents',
                         blocking: true,
-                        metadata: ['user_message' => self::HARVEST_FIELD_MESSAGE]
+                        metadata: [
+                            'error_code' => 'CIE_G6_1_TIER_INTENT_BLOCKED',
+                            'user_message' => 'This SKU\'s tier does not permit the selected intent fields.',
+                            'detail' => 'Intent field not permitted for this SKU\'s tier.'
+                        ]
                     );
+                    return $results;
                 }
             }
+            $results[] = new GateResult(
+                gate: GateType::G6_1_TIER_LOCK,
+                passed: true,
+                reason: 'Harvest tier-lock valid',
+                blocking: false,
+                metadata: []
+            );
+            return $results;
         }
 
-        // G6.1: Tier-locked intents via canonical tier_access
+        // Hero/Support: tier-locked intents via canonical tier_access
         $primaryIntentNode = $sku->skuIntents->where('is_primary', true)->first();
         if ($primaryIntentNode && $primaryIntentNode->intent) {
             $intentName = $primaryIntentNode->intent->name;
-
             $taxonomy = IntentTaxonomy::query()
                 ->whereRaw('LOWER(label) = ?', [strtolower($intentName)])
                 ->orWhereRaw('LOWER(intent_key) = ?', [strtolower(str_replace(' ', '_', $intentName))])
@@ -106,21 +138,29 @@ class G6_CommercialPolicyGate implements GateInterface
                 $tierKey = strtolower($sku->tier instanceof TierType ? $sku->tier->value : (string) $sku->tier);
 
                 if (!$tierAccess->contains($tierKey)) {
-                    return new GateResult(
-                        gate: GateType::G6_COMMERCIAL_POLICY,
+                    $results[] = new GateResult(
+                        gate: GateType::G6_1_TIER_LOCK,
                         passed: false,
                         reason: "The selected intent is not permitted for this product's tier.",
-                        blocking: true
+                        blocking: true,
+                        metadata: [
+                            'error_code' => 'CIE_G6_1_TIER_INTENT_BLOCKED',
+                            'user_message' => 'This SKU\'s tier does not permit the selected intent fields.',
+                            'detail' => 'Intent field not permitted for this SKU\'s tier.'
+                        ]
                     );
+                    return $results;
                 }
             }
         }
 
-        return new GateResult(
-            gate: GateType::G6_COMMERCIAL_POLICY,
+        $results[] = new GateResult(
+            gate: GateType::G6_1_TIER_LOCK,
             passed: true,
-            reason: 'Commercial tier and effort policy aligned.',
-            blocking: false
+            reason: 'Tier-lock valid',
+            blocking: false,
+            metadata: []
         );
+        return $results;
     }
 }

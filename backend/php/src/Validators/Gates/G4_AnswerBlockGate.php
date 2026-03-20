@@ -16,16 +16,34 @@ class G4_AnswerBlockGate implements GateInterface
         $answer = trim((string) ($sku->ai_answer_block ?? ''));
         $len = strlen($answer);
 
-        $minLen = (int) BusinessRules::get('gates.answer_block_min_chars');
-        $maxLen = (int) BusinessRules::get('gates.answer_block_max_chars');
-        
-        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7 — G4 SUSPENDED for Harvest/Kill
+        // SOURCE: MASTER§5 — thresholds from BusinessRules only, never hard-coded
+        $minChars = BusinessRules::get('gates.answer_block_min_chars');
+        $maxChars = BusinessRules::get('gates.answer_block_max_chars');
+        if ($minChars === null || $maxChars === null) {
+            \Illuminate\Support\Facades\Log::error('G4: BusinessRules missing gates.answer_block_min_chars or gates.answer_block_max_chars');
+            return new GateResult(
+                gate: GateType::G4_ANSWER_BLOCK,
+                passed: false,
+                reason: 'Gate configuration missing — contact administrator',
+                blocking: true,
+                metadata: [
+                    'error_code' => 'CIE_G4_CHAR_LIMIT',
+                    'user_message' => 'System configuration error. Please contact your administrator.',
+                    'detail' => 'BusinessRules gates.answer_block_min_chars or max_chars not configured'
+                ]
+            );
+        }
+        $minLen = (int) $minChars;
+        $maxLen = (int) $maxChars;
+
+        // SOURCE: ENF§2.2 — G4 SUSPENDED for Harvest/Kill → not_applicable
         if ($sku->tier === TierType::HARVEST || $sku->tier === TierType::KILL) {
             return new GateResult(
                 gate: GateType::G4_ANSWER_BLOCK,
                 passed: true,
-                reason: 'Answer block check is not required for this product tier.',
-                blocking: false
+                reason: 'not_applicable',
+                blocking: false,
+                metadata: ['status' => 'not_applicable', 'user_message' => null]
             );
         }
 
@@ -33,8 +51,13 @@ class G4_AnswerBlockGate implements GateInterface
             return new GateResult(
                 gate: GateType::G4_ANSWER_BLOCK,
                 passed: false,
-                reason: 'Your answer block is too short. It must be at least 250 characters.',
-                blocking: true
+                reason: "Your answer block is too short ({$len} characters, minimum {$minLen}).",
+                blocking: true,
+                metadata: [
+                    'error_code' => 'CIE_G4_CHAR_LIMIT',
+                    'detail' => "Answer block too short ({$len} chars, min {$minLen})",
+                    'user_message' => "Your answer block is too short. Use between {$minLen} and {$maxLen} characters."
+                ]
             );
         }
 
@@ -42,41 +65,17 @@ class G4_AnswerBlockGate implements GateInterface
             return new GateResult(
                 gate: GateType::G4_ANSWER_BLOCK,
                 passed: false,
-                reason: 'Your answer block is too long. It must be no more than 300 characters.',
-                blocking: true
+                reason: "Your answer block is too long ({$len} characters, maximum {$maxLen}).",
+                blocking: true,
+                metadata: [
+                    'error_code' => 'CIE_G4_CHAR_LIMIT',
+                    'detail' => "Answer block too long ({$len} chars, max {$maxLen})",
+                    'user_message' => "Your answer block is too long. Use between {$minLen} and {$maxLen} characters."
+                ]
             );
         }
 
-        // Brand name / marketing guardrails
-        $brand = env('CIE_BRAND_NAME');
-        if ($brand) {
-            $normalizedAnswer = strtolower($answer);
-            $normalizedBrand  = strtolower($brand);
-
-            // Must NOT start with brand name
-            if (str_starts_with($normalizedAnswer, $normalizedBrand)) {
-                return new GateResult(
-                    gate: GateType::G4_ANSWER_BLOCK,
-                    passed: false,
-                    reason: 'Your answer block cannot start with the brand name.',
-                    blocking: true
-                );
-            }
-
-            // Simple marketing-fluff heuristic: too many brand mentions relative to length (§5.3: not in 52 rules; hard-coded)
-            $brandCount = substr_count($normalizedAnswer, $normalizedBrand);
-            $brandCountThreshold = 3;
-            $lenGuard            = 400;
-            if ($brandCount >= $brandCountThreshold && $len < $lenGuard) {
-                return new GateResult(
-                    gate: GateType::G4_ANSWER_BLOCK,
-                    passed: false,
-                    reason: 'Your answer block appears to be marketing copy. Reduce brand mentions and focus on the customer question.',
-                    blocking: true
-                );
-            }
-        }
-
+        // SOURCE: ENF§Page18 — G4 only has CIE_G4_CHAR_LIMIT and CIE_G4_KEYWORD_MISSING. Brand/marketing checks NOT part of G4 publish gate. GAP_LOG: Architect to decide — move to AI Agent advisory or remove.
         // Keyword check (stemmed)
         $primaryIntentNode = $sku->skuIntents->where('is_primary', true)->first();
         if ($primaryIntentNode) {
@@ -88,7 +87,12 @@ class G4_AnswerBlockGate implements GateInterface
                     gate: GateType::G4_ANSWER_BLOCK,
                     passed: false,
                     reason: 'Your answer block must include the primary intent keyword.',
-                    blocking: true
+                    blocking: true,
+                    metadata: [
+                        'error_code' => 'CIE_G4_KEYWORD_MISSING',
+                        'detail' => 'Primary intent keyword missing from answer block',
+                        'user_message' => 'Your answer block must include the primary intent keyword.'
+                    ]
                 );
             }
         }
@@ -103,16 +107,17 @@ class G4_AnswerBlockGate implements GateInterface
 
     private function getStemmedKeyword(string $intent): string
     {
+        $intent = strtolower(str_replace([' ', '-'], '_', $intent));
         switch ($intent) {
             case 'compatibility': return 'compat';
             case 'inspiration': return 'inspir';
-            case 'problem-solving': return 'solut';
+            case 'problem_solving': case 'problem-solving': return 'solut';
             case 'specification': return 'spec';
             case 'comparison': return 'compar';
-            case 'installation': return 'install'; // Added
-            case 'troubleshooting': return 'shoot'; // Added (troubleshoot/shooting)
-            case 'regulatory': return 'safe'; // Added (regulatory/safety) - 'safe' is common root
-            case 'replacement': return 'replac'; // Added (replace/replacement)
+            case 'installation': return 'install';
+            case 'troubleshooting': return 'shoot';
+            case 'regulatory': case 'safety_compliance': return 'safe';
+            case 'replacement': return 'replac';
             default: return '';
         }
     }

@@ -162,15 +162,16 @@ const SkuEdit = () => {
         }
 
         // Content editors CANNOT override validation gate failures (RBAC critical rule)
+        // SOURCE: CLAUDE.md R3 — NO gate codes in writer UI. Plain English only.
         if (isSubmit) {
-            const blockedGates = [];
-            // F3 STOP: gates.title_min_chars not in §5.3 seed — de-hardcode after architect adds key (default 50)
-            if (!sku.title || sku.title.length < 50) blockedGates.push('G2');
-            if (answerBlockMin !== null && (!sku.short_description || sku.short_description.length < answerBlockMin)) blockedGates.push('G4');
-            if (blockedGates.length > 0) {
+            const issues = [];
+            if (!sku.title || sku.title.length < 50) issues.push('A content requirement is not met.');
+            if (answerBlockMin !== null && (!sku.short_description || sku.short_description.length < answerBlockMin)) issues.push('A content requirement is not met.');
+            const messages = [...new Set(issues)];
+            if (messages.length > 0) {
                 addNotification({
                     type: 'error',
-                    message: `Cannot submit: Gates ${blockedGates.join(', ')} not passing. Gate overrides are not permitted.`,
+                    message: `Cannot submit: ${messages.join(' ')}`,
                 });
                 return;
             }
@@ -195,9 +196,9 @@ const SkuEdit = () => {
             if (updatedSku) setSku(updatedSku);
             addNotification({
                 type: 'success',
-                message: isSubmit ? 'Submitted for review' : 'Draft saved successfully'
+                message: isSubmit ? 'Published' : 'Draft saved successfully'
             });
-            if (isSubmit) navigate('/review');
+            if (isSubmit) navigate('/');
         } catch (err) {
             console.error('Save failed:', err.response?.data || err.message);
             const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to save changes';
@@ -310,13 +311,14 @@ const SkuEdit = () => {
                             </button>
                             {canSubmitForReview() && (
                                 <button className="btn btn-primary" onClick={() => handleSave(true)} disabled={saving} style={{ cursor: 'pointer', pointerEvents: 'auto' }}>
-                                    Submit for Review
+                                    Submit
                                 </button>
                             )}
                         </>
                     )}
+                    {/* SOURCE: ENF§2.1, BUILD§Step3 — Kill banner prominent, spec wording */}
                     {isKillTier && (
-                        <div style={{ fontSize: '0.7rem', color: 'var(--red)', fontWeight: 600 }}>{getTierBanner(currentTier)}</div>
+                        <div style={{ fontSize: '0.9rem', color: 'var(--red)', fontWeight: 600 }}>{getTierBanner(currentTier)}</div>
                     )}
                     {!isKillTier && !canEditAny() && (
                         <div style={{ fontSize: '0.7rem', color: 'var(--orange)', fontWeight: 600 }}>READ-ONLY</div>
@@ -324,15 +326,25 @@ const SkuEdit = () => {
                 </div>
             </div>
 
-            {/* Gate Status Bar */}
+            {/* SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2.1 — progress below tier banner; §6 — plain English labels on chips */}
             <div className="card mb-14 flex items-center gap-12 flex-wrap" style={{ padding: '10px 18px' }}>
-                <span style={{ fontSize: "0.62rem", color: "var(--text-dim)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>GATE STATUS</span>
+                {(() => {
+                    const tierGates = getGatesForTier(sku.tier);
+                    const total = tierGates.length;
+                    const passCount = tierGates.filter((g) => sku.gates?.[g.id]?.passed).length;
+                    return (
+                        <span className="field-progress" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text)' }}>
+                            {passCount} of {total} fields complete
+                        </span>
+                    );
+                })()}
                 <div style={{ width: 1, height: 20, background: "var(--border)" }} />
                 {getGatesForTier(sku.tier).map(g => (
-                    <GateChip 
-                        key={g.id} 
-                        id={g.id} 
-                        pass={sku.gates?.[g.id]?.passed || false} 
+                    <GateChip
+                        key={g.id}
+                        id={g.id}
+                        label={g.label}
+                        pass={sku.gates?.[g.id]?.passed || false}
                     />
                 ))}
                 <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -358,9 +370,11 @@ const SkuEdit = () => {
                     {activeTab === 'content' && (
                         <div className="flex flex-col gap-14">
                             <div className="flex gap-12">
+                                {/* SOURCE: ENF§2.1 — Kill tier: all content fields removed from DOM */}
+                                {sku.tier !== 'kill' && sku.tier !== 'KILL' && (
                                 <div style={{ flex: 1 }}>
-                                    <label className="field-label">Cluster ID <GateChip id="G1" pass={sku.gates?.G1?.passed || false} compact /></label>
-                                    {!isKillTier && canEditCluster() ? (
+                                    <label className="field-label">Cluster ID <GateChip id="gate-cluster" pass={sku.gates?.G1?.passed || false} compact /></label>
+                                    {canEditCluster() ? (
                                         <select
                                             className="field-input field-select"
                                             value={sku.primary_cluster_id || sku.primaryCluster?.id || ''}
@@ -378,9 +392,10 @@ const SkuEdit = () => {
                                         </>
                                     )}
                                 </div>
+                                )}
                                 {!isKillTier && (
                                 <div style={{ flex: 1 }}>
-                                    <label className="field-label">Primary Intent <GateChip id="G2" pass={sku.gates?.G2?.passed || false} compact /></label>
+                                    <label className="field-label">Primary Intent <GateChip id="gate-intent" pass={sku.gates?.G2?.passed || false} compact /></label>
                                     <select className="field-input field-select" disabled={!canEditContent()}
                                         value={sku.primary_intent || ''} 
                                         onChange={(e) => setSku({ ...sku, primary_intent: e.target.value })}>
@@ -398,7 +413,7 @@ const SkuEdit = () => {
                             {!isKillTier && (
                             <div>
                                 <label className="field-label">
-                                    Title <GateChip id="G3" pass={sku.gates?.G3?.passed || false} compact />
+                                    Title <GateChip id="gate-secondary" pass={sku.gates?.G3?.passed || false} compact />
                                     <span className="char-count">{sku.title?.length || 0}/{titleMaxLength != null ? titleMaxLength : '—'} chars</span>
                                 </label>
                                 <input
@@ -414,7 +429,7 @@ const SkuEdit = () => {
                             {!isKillTier && isFieldEnabledForTier(currentTier, 'answer_block') && (
                                 <div>
                                     <label className="field-label">
-                                        Answer Block <GateChip id="G4" pass={sku.gates?.G4?.passed || false} compact />
+                                        Answer Block <GateChip id="gate-answer" pass={sku.gates?.G4?.passed || false} compact />
                                         <span className="char-count">{sku.short_description?.length || 0}/{answerBlockMin != null && answerBlockMax != null ? `${answerBlockMin}-${answerBlockMax}` : '—'} chars</span>
                                     </label>
                                     <textarea
@@ -428,9 +443,11 @@ const SkuEdit = () => {
                                 </div>
                             )}
 
+                            {/* SOURCE: ENF§2.1 — Kill tier: Vector panel removed from DOM */}
+                            {sku.tier !== 'kill' && sku.tier !== 'KILL' && (
                             <div className="vector-panel">
                                 <div>
-                                    <div className="field-label">VECTOR — Semantic Similarity <GateChip id="VEC" pass={sku.vector_gate_status === 'pass'} compact /></div>
+                                    <div className="field-label">VECTOR — Semantic Similarity <GateChip id="gate-vector" pass={sku.vector_gate_status === 'pass'} compact /></div>
                                     <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Description alignment with cluster intent</div>
                                 </div>
                                 <div style={{ textAlign: "right" }}>
@@ -440,13 +457,14 @@ const SkuEdit = () => {
                                     <div className="vector-threshold">{sku.vector_gate_status === 'fail' ? 'Your content may not align with the intent. Consider revising.' : 'Description must align with product cluster intent.'}</div>
                                 </div>
                             </div>
+                            )}
 
                             {/* G5: Best-For / Not-For — visible per tier (hero/support; hidden harvest/kill) */}
                             {!isKillTier && isFieldEnabledForTier(currentTier, 'best_for') && (
                                 <>
                                     <div>
                                         <label className="field-label">
-                                            Best-For Applications <GateChip id="G5" pass={sku.gates?.G5?.passed || false} compact />
+                                            Best-For Applications <GateChip id="gate-bestfor" pass={sku.gates?.G5?.passed || false} compact />
                                         </label>
                                         <textarea
                                             className="field-textarea"
@@ -459,7 +477,7 @@ const SkuEdit = () => {
                                     </div>
                                     <div>
                                         <label className="field-label">
-                                            Not-For Applications <GateChip id="G5" pass={sku.gates?.G5?.passed || false} compact />
+                                            Not-For Applications <GateChip id="gate-bestfor" pass={sku.gates?.G5?.passed || false} compact />
                                         </label>
                                         <textarea
                                             className="field-textarea"
@@ -473,11 +491,15 @@ const SkuEdit = () => {
                                 </>
                             )}
 
-                            {/* G6: Full Product Description (HERO only) */}
-                            {currentTier === 'HERO' && (
+                            {/* Full Description: HERO (G6) + SUPPORT (VEC 50-word requirement) */}
+                            {(currentTier === 'HERO' || currentTier === 'SUPPORT') && (
                                 <div>
                                     <label className="field-label">
-                                        Full Description <GateChip id="G6" pass={sku.gates?.G6?.passed || false} compact />
+                                        Full Description
+                                        {currentTier === 'HERO' && <GateChip id="gate-tier" pass={sku.gates?.G6?.passed || false} compact />}
+                                        <span className="char-count">
+                                            {(sku.long_description || '').trim().split(/\s+/).filter(Boolean).length} / 50 words
+                                        </span>
                                     </label>
                                     <textarea
                                         className="field-textarea"
@@ -485,7 +507,7 @@ const SkuEdit = () => {
                                         value={sku.long_description || ''}
                                         disabled={!canEditContent()}
                                         onChange={(e) => setSku({ ...sku, long_description: e.target.value })}
-                                        placeholder="Comprehensive product description for HERO tier (1000+ chars recommended)"
+                                        placeholder="Min 50 words for VEC gate. HERO: 1000+ chars recommended."
                                     />
                                 </div>
                             )}
@@ -494,7 +516,7 @@ const SkuEdit = () => {
                             {!isKillTier && isFieldEnabledForTier(currentTier, 'expert_authority') && (
                                 <div>
                                     <label className="field-label">
-                                        Expert Authority <GateChip id="G7" pass={sku.gates?.G7?.passed || false} compact />
+                                        Expert Authority <GateChip id="gate-authority" pass={sku.gates?.G7?.passed || false} compact />
                                     </label>
                                     <input
                                         className="field-input"

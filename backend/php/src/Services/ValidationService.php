@@ -60,7 +60,7 @@ class ValidationService
                     $failures[] = [
                         'gate'         => $g['gate_name'] ?? $g['gate'] ?? 'UNKNOWN',
                         'error_code'   => $g['error_code'] ?? ('CIE_' . ($g['gate'] ?? 'UNKNOWN')),
-                        'detail'       => $g['detail'] ?? $g['reason'] ?? '',
+                        'detail'       => $g['detail'] ?? $g['reason'] ?? $g['user_message'] ?? '',
                         'user_message' => $g['user_message'] ?? $g['reason'] ?? '',
                     ];
                 }

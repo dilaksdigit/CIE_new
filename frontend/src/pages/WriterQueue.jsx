@@ -35,10 +35,15 @@ const isDone = (item) => {
     return ['done', 'completed', 'published'].includes(status);
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const looksLikeUuid = (s) => typeof s === 'string' && UUID_REGEX.test(s.trim());
+
 const normalizeQueueItem = (item) => {
-    const name = item?.product_name || item?.name || item?.title || 'Untitled';
-    //const name = item?.name || item?.title || 'Untitled';
+    const rawName = item?.product_name || item?.name || item?.title || '';
+    const skuCode = String(item?.sku_id ?? item?.sku_code ?? '');
+    // Use UUID for routing (writer/edit/:skuId); API sends id = UUID, sku_id = sku_code
     const id = item?.id || item?.sku_id || item?.sku_code || '';
+    const name = looksLikeUuid(rawName) ? (skuCode || rawName || 'Untitled') : (rawName || 'Untitled');
     const tier = normalizeTier(item?.tier);
     const done = isDone(item);
 
@@ -50,6 +55,7 @@ const normalizeQueueItem = (item) => {
 
     return {
         id: String(id),
+        skuCode,
         name: String(name),
         tier,
         done,
@@ -217,7 +223,7 @@ const WriterQueue = () => {
 
     const filtered = queueItems.filter((item) => {
         const q = query.trim().toLowerCase();
-        const searchMatch = !q || item.name.toLowerCase().includes(q) || item.id.toLowerCase().includes(q);
+        const searchMatch = !q || item.name.toLowerCase().includes(q) || item.id.toLowerCase().includes(q) || (item.skuCode && item.skuCode.toLowerCase().includes(q));
         if (!searchMatch) return false;
 
         if (tierFilter !== 'all' && normalizeTier(item.tier) !== tierFilter) {
@@ -408,7 +414,7 @@ const WriterQueue = () => {
                                                 </span>
                                             )}
                                             <span style={{ color: C.text, fontWeight: 600, fontSize: '0.83rem' }}>{item.name}</span>
-                                            <span style={{ color: C.textMid, fontSize: '0.68rem' }}>{item.id}</span>
+                                            <span style={{ color: C.textMid, fontSize: '0.68rem' }}>{item.skuCode || item.id}</span>
                                         </div>
                                         <div style={{ color: C.textMid, fontSize: '0.68rem', marginTop: 5 }}>{item.reason}</div>
                                         {item.aiSuggestions > 0 && (

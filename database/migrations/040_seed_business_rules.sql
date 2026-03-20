@@ -1,6 +1,9 @@
 -- CIE v2.3.2 — Business Rules seed (Section 5.3 of CIE_Master_Developer_Build_Spec.docx).
 -- Exactly 52 rules. Phase 0 checklist: SELECT COUNT(*) = 52 FROM business_rules.
 -- All former "extra" keys are now hard-coded or aliased in application code.
+-- SOURCE: MASTER§5.3 C2 — spec-defined gate rules: gates.answer_block_min_chars, gates.answer_block_max_chars,
+--   gates.best_for_min_entries, gates.not_for_min_entries, gates.vector_similarity_min.
+-- Implementation-specific additions (not in C2, used by G6/VEC): gates.description_word_count_min, gates.description_min_chars.
 
 INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 -- tier — Tier Assignment Engine (8)
@@ -61,6 +64,9 @@ INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 (UUID(), 'gates.meta_title_max_chars', '65', 'integer', 'Maximum meta title length'),
 (UUID(), 'gates.meta_description_max_chars', '160', 'integer', 'Maximum meta description length'),
 (UUID(), 'gates.meta_description_min_chars', '120', 'integer', 'Minimum meta description length'),
+-- SOURCE: MASTER§5.3 — add description word count min for G6
+(UUID(), 'gates.description_word_count_min', '50', 'integer', 'Minimum word count for product description (G6)'),
+(UUID(), 'gates.description_min_chars', '100', 'integer', 'Minimum character count for description before vector check'),
 -- sync — Cron & Data Sync Schedules (5)
 (UUID(), 'sync.gsc_cron_schedule', '0 3 * * 0', 'string', 'GSC weekly pull — Sunday 03:00 UTC'),
 (UUID(), 'sync.ga4_cron_schedule', '0 3 * * 1', 'string', 'GA4 weekly pull — Monday 03:00 UTC'),

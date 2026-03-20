@@ -18,19 +18,30 @@ class G4_VectorGate implements GateInterface
     /** Writer-facing message when vector is below threshold — no score numbers (CLAUDE.md R4). */
     private const VECTOR_WARN_MESSAGE = 'Your description may not fully match the expected topic for this product. Consider expanding your content to better cover the primary intent keywords.';
 
-    private const PYTHON_ENDPOINT = 'http://python-worker:5000/validate-vector';
+    // SOURCE: openapi.yaml — Python exposes POST /api/v1/sku/similarity (returns status + message). CLAUDE.md R1 — no new endpoints.
+    private const PYTHON_ENDPOINT = 'http://python-worker:5000/api/v1/sku/similarity';
 
-    private const MIN_DESCRIPTION_WORDS = 50;
+    // SOURCE: MASTER§5 — load from BusinessRules, not hard-coded
+    private static function minDescriptionWords(): int
+    {
+        return (int) (BusinessRules::get('gates.description_word_count_min', 50) ?? 50);
+    }
+
+    private static function minDescriptionChars(): int
+    {
+        return (int) (BusinessRules::get('gates.description_min_chars', 100) ?? 100);
+    }
 
     public function validate(Sku $sku): GateResult|array
     {
+        // SOURCE: ENF§2.2 — G4 SUSPENDED for Harvest/Kill → not_applicable
         if ($sku->tier === TierType::KILL || $sku->tier === TierType::HARVEST) {
             return new GateResult(
                 gate: GateType::G4_VECTOR,
                 passed: true,
-                reason: 'N/A',
+                reason: 'not_applicable',
                 blocking: false,
-                metadata: ['status' => 'N/A']
+                metadata: ['status' => 'not_applicable', 'user_message' => null]
             );
         }
 
@@ -46,17 +57,19 @@ class G4_VectorGate implements GateInterface
         $failures = [];
 
         // Description word-count pre-check (Hero/Support only; Harvest suspended)
+        $minDescriptionWords = self::minDescriptionWords();
         if (in_array($sku->tier, [TierType::HERO, TierType::SUPPORT], true)) {
             $actualWords = str_word_count($sku->long_description ?? '');
-            if ($actualWords < self::MIN_DESCRIPTION_WORDS) {
-                $needed = self::MIN_DESCRIPTION_WORDS - $actualWords;
+            if ($actualWords < $minDescriptionWords) {
+                $needed = $minDescriptionWords - $actualWords;
                 $failures[] = new GateResult(
                     gate: GateType::G4_VECTOR,
                     passed: false,
-                    reason: "Description has {$actualWords} words. Minimum is " . self::MIN_DESCRIPTION_WORDS . ".",
+                    reason: "Description has {$actualWords} words. Minimum is {$minDescriptionWords}.",
                     blocking: true,
                     metadata: [
-                        'error_code'   => 'CIE_VEC_DESCRIPTION_TOO_SHORT',
+                        // SOURCE: ENF§Page18 — CIE_VEC_SIMILARITY_LOW is the only spec-defined vector error code
+                        'error_code'   => 'CIE_VEC_SIMILARITY_LOW',
                         'user_message' => "Your description is {$actualWords} words. Add at least {$needed} more words. "
                             . "Write to solve the problem this product addresses, not to list physical attributes.",
                     ]
@@ -64,13 +77,17 @@ class G4_VectorGate implements GateInterface
             }
         }
 
-        $minLen = 100;
+        $minLen = self::minDescriptionChars();
         if (!$sku->long_description || strlen(trim($sku->long_description)) < $minLen) {
             $failures[] = new GateResult(
                 gate: GateType::G4_VECTOR,
                 passed: false,
                 reason: "Long description missing or too short (minimum {$minLen} characters required for vector validation).",
-                blocking: true
+                blocking: true,
+                metadata: [
+                    'error_code' => 'CIE_VEC_SIMILARITY_LOW',
+                    'user_message' => "Your description is too short for semantic validation. Add at least {$minLen} characters.",
+                ]
             );
             return $failures;
         }
@@ -80,38 +97,47 @@ class G4_VectorGate implements GateInterface
         }
 
         try {
-            $threshold = (float) BusinessRules::get('gates.vector_similarity_min');
-            $response = $this->callPythonValidator($sku->long_description, $sku->primary_cluster_id, $threshold);
+            // SOURCE: openapi.yaml SimilarityResponse — POST body: description, cluster_id; response: { status, message }
+            $response = $this->callPythonSimilarity($sku->long_description, $sku->primary_cluster_id);
 
-            // Persist similarity to canonical sku_content (if present)
-            if (isset($response['similarity']) && method_exists($sku, 'content') && $sku->content) {
-                $sku->content->update(['vector_similarity' => $response['similarity']]);
+            $status = $response['status'] ?? 'fail';
+            $message = $response['message'] ?? null;
+
+            if ($status === 'pass') {
+                return new GateResult(
+                    gate: GateType::G4_VECTOR,
+                    passed: true,
+                    reason: 'Vector similarity pass',
+                    blocking: false,
+                    metadata: ['user_message' => null]
+                );
             }
 
-            if ($response['valid']) {
-                 return new GateResult(
-                 gate: GateType::G4_VECTOR,
-                 passed: true,
-                 reason: 'Semantic match confirmed',
-                 blocking: false,
-                 metadata: []
-                 );
+            if ($status === 'pending') {
+                return new GateResult(
+                    gate: GateType::G4_VECTOR,
+                    passed: true,
+                    reason: 'pending',
+                    blocking: false,
+                    metadata: [
+                        'user_message' => $message ?? 'Description validation temporarily unavailable. Your changes are saved but publishing is paused.',
+                        'status'       => 'pending',
+                        'degraded'     => true,
+                    ]
+                );
             }
 
-            // SOURCE: CLAUDE.md DECISION-005; Hardening_Addendum Patch 1 — WARNING only, save succeeds. No score in writer-facing output.
-            $similarity = isset($response['similarity']) ? (float) $response['similarity'] : 0.0;
-            $auditLog = app(AuditLogService::class);
-            $auditLog->logVectorWarn((int) $sku->id, $similarity, auth()->id());
-
+            // SOURCE: CLAUDE.md §11, DECISION-005 — below threshold = WARNING, not block. Fail-Soft Vector Validation.
             return new GateResult(
                 gate: GateType::G4_VECTOR,
                 passed: true,
-                reason: self::VECTOR_WARN_MESSAGE,
+                reason: 'warn_only',
                 blocking: false,
                 metadata: [
-                    'user_message' => self::VECTOR_WARN_MESSAGE,
-                    'gate'         => 'vector_similarity',
-                    'warn_only'    => true,
+                    'error_code' => 'CIE_VEC_SIMILARITY_LOW',
+                    'user_message' => $message ?? self::VECTOR_WARN_MESSAGE,
+                    'detail' => 'Description semantic similarity below threshold',
+                    'warn_only' => true,
                 ]
             );
         } catch (\Exception $e) {
@@ -149,26 +175,31 @@ class G4_VectorGate implements GateInterface
                 // Fail-soft: do not break validation if audit_log write fails
             }
 
+            // SOURCE: Hardening Addendum §1.1 — fail-soft: pending, not block. Save allowed, publish blocked.
             return new GateResult(
                 gate: GateType::G4_VECTOR,
                 passed: true,
-                reason: 'Description validation temporarily unavailable. Your changes are saved but publishing is paused until validation completes (typically within 30 minutes).',
+                reason: 'pending',
                 blocking: false,
-                metadata: ['degraded' => true, 'status' => 'pending', 'warn_only' => true]
+                metadata: [
+                    'user_message' => 'Description validation temporarily unavailable. Your changes are saved but publishing is paused until validation completes (typically within 30 minutes).',
+                    'status'       => 'pending',
+                    'degraded'     => true,
+                ]
             );
         }
- }
- 
-    private function callPythonValidator(string $description, string $clusterId, float $threshold): array
+    }
+
+    // SOURCE: openapi.yaml POST /api/v1/sku/similarity — request: description, cluster_id; response: status, message
+    private function callPythonSimilarity(string $description, string $clusterId): array
     {
         $client = new \GuzzleHttp\Client(['timeout' => 3.0]);
         $response = $client->post(self::PYTHON_ENDPOINT, [
             'json' => [
                 'description' => $description,
-                'cluster_id' => $clusterId,
-                'threshold' => $threshold,
+                'cluster_id'  => $clusterId,
             ],
         ]);
-        return json_decode($response->getBody()->getContents(), true);
+        return json_decode($response->getBody()->getContents(), true) ?? ['status' => 'fail', 'message' => 'Invalid response'];
     }
 }

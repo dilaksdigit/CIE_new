@@ -10,14 +10,21 @@
 -- -------------------------------------------------------------------
 -- 1. Intent Taxonomy – 9 LOCKED INTENTS (NEVER user-editable)
 -- -------------------------------------------------------------------
+-- SOURCE: ENF§8.3 — intent taxonomy: id 4 = specification, id 5 = inspiration
+-- GAP_LOG: ENF§8.3 taxonomy uses keys problem_solving, comparison, compatibility, specification, installation,
+-- troubleshooting, inspiration, regulatory, replacement (per ENF JSON). openapi.yaml SkuValidateRequest enum uses
+-- safety_compliance, replacement, bulk_trade among others. These conflict on IDs 6–9 vs this seed (installation,
+-- safety_compliance, replacement, bulk_trade). Architect must decide source of truth and align openapi + ENF + seed
+-- before changing taxonomy rows. Prior note: CLAUDE.md §6 lists Safety/Compliance and Bulk/Trade — seed follows CLAUDE/openapi alignment.
+-- SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §8.3 vs openapi.yaml SkuValidateRequest
 -- Use INSERT IGNORE so re-running this seed does not fail if rows already exist.
 INSERT IGNORE INTO intent_taxonomy (intent_id, intent_key, label, definition, tier_access)
 VALUES
   (1, 'problem_solving',   'Problem-Solving',   'User has a problem, needs product to solve it',          '["hero","support","harvest"]'),
   (2, 'comparison',        'Comparison',         'User evaluating alternatives',                           '["hero","support"]'),
   (3, 'compatibility',     'Compatibility',      'User confirming fit with existing setup',                '["hero","support","harvest"]'),
-  (4, 'inspiration',       'Inspiration',        'User browsing for ideas and style guidance',             '["hero","support"]'),
-  (5, 'specification',     'Specification',      'User needs technical details',                           '["hero","support","harvest"]'),
+  (4, 'specification',     'Specification',      'User needs technical details',                           '["hero","support","harvest"]'),
+  (5, 'inspiration',       'Inspiration / Style','User browsing for ideas and style guidance',             '["hero","support"]'),
   (6, 'installation',      'Installation',       'User needs help installing or setting up',               '["hero","support"]'),
   (7, 'safety_compliance', 'Safety/Compliance',  'User needs safety, compliance, or regulatory detail',   '["hero","support"]'),
   (8, 'replacement',       'Replacement',        'User needs a replacement part or consumable',            '["hero","support"]'),

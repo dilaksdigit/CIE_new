@@ -36,6 +36,7 @@ const FIELD_TYPES = {
 };
 
 // Field min/max from BusinessRules (content.title_max_length, gates.description_word_count_min, etc.) — loaded on mount
+// faq_tab: min 0 so it counts as complete for progress (optional; no gate) and progress bar can show 6/6 for Hero
 const getDefaultFieldRanges = () => ({
     title: { min: 1, max: null },
     description: { min: null, max: null },
@@ -43,6 +44,7 @@ const getDefaultFieldRanges = () => ({
     best_for: { min: 1, max: null },
     not_for: { min: 1, max: null },
     expert_authority: { min: 1, max: null },
+    faq_tab: { min: 0, max: null },
 });
 
 const normalizeTier = (tier) => String(tier || '').trim().toLowerCase();
@@ -148,6 +150,7 @@ const transformCardContent = (item, type) => {
     };
 };
 
+// SOURCE: CLAUDE.md R3 — Gate keys are for INTERNAL mapping only. Never render g1, g2, G1, G2 etc. to DOM. Use user_message from validation response for all writer-facing text.
 const normalizeGateKey = (value) => {
     const v = String(value || '').toLowerCase().replace(/\s+/g, '_');
     if (v.includes('vector')) return 'vector_similarity';
@@ -377,6 +380,8 @@ const WriterEdit = () => {
         expert_authority: '',
     });
     const [gates, setGates] = useState({});
+    const [degradedMode, setDegradedMode] = useState(false);
+    const [publishAllowed, setPublishAllowed] = useState(true);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
     const [validateBusy, setValidateBusy] = useState(false);
@@ -646,8 +651,11 @@ const WriterEdit = () => {
                 };
                 const res = await writerEditApi.validate(skuId, body);
                 if (cancelled) return;
-                const gatePayload = res?.data?.data?.gates ?? res?.data?.gates ?? [];
+                const data = res?.data?.data ?? res?.data ?? {};
+                const gatePayload = data.gates ?? [];
                 setGates(normalizeGates(gatePayload));
+                setDegradedMode(Boolean(data.degraded_mode));
+                setPublishAllowed(data.publish_allowed !== false);
             } catch (e) {
                 if (!cancelled) setGates({});
             } finally {
@@ -774,6 +782,26 @@ const WriterEdit = () => {
                 </button>
             </div>
 
+            {/* SOURCE: Hardening Addendum §1.1 — degraded mode banner */}
+            {degradedMode && (
+                <div
+                    className="degraded-banner"
+                    style={{
+                        background: '#FFF3CD',
+                        border: '1px solid #FFEAA7',
+                        padding: '12px 16px',
+                        marginBottom: '16px',
+                        borderRadius: '4px',
+                        color: '#856404',
+                        fontWeight: 600,
+                        fontSize: '0.9rem',
+                    }}
+                >
+                    Description validation temporarily unavailable. Your changes are saved but
+                    publishing is paused until validation completes (typically within 30 minutes).
+                </div>
+            )}
+
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <TierBanner tier={tier} />
@@ -887,7 +915,7 @@ const WriterEdit = () => {
                                 type="button"
                                 className="btn btn-primary"
                                 onClick={handleSubmit}
-                                disabled={publishBusy}
+                                disabled={publishBusy || !publishAllowed}
                                 onMouseEnter={() => setHoveredId('publish')}
                                 onMouseLeave={() => setHoveredId(null)}
                                 style={{

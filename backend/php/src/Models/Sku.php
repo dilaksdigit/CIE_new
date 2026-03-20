@@ -3,9 +3,36 @@
 namespace App\Models;
 
 use App\Enums\TierType;
-use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+
+/**
+ * SOURCE: CLAUDE.md §9 — tier ENUM lowercase; normalizes DB strings before TierType cast
+ */
+final class SkuTierCast implements CastsAttributes
+{
+    public function get($model, string $key, $value, array $attributes): ?TierType
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        return TierType::tryFrom(strtolower((string) $value));
+    }
+
+    public function set($model, string $key, $value, array $attributes): array
+    {
+        if ($value === null) {
+            return ['tier' => null];
+        }
+        if ($value instanceof TierType) {
+            return ['tier' => $value->value];
+        }
+
+        return ['tier' => strtolower((string) $value)];
+    }
+}
 
 class Sku extends Model
 {
@@ -25,18 +52,9 @@ class Sku extends Model
 
     protected $casts = [
         'validation_status' => \App\Enums\ValidationStatus::class,
+        // SOURCE: CLAUDE.md §9 — tier stored as ENUM; SkuTierCast normalizes case for tryFrom
+        'tier' => SkuTierCast::class,
     ];
-
-    // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 6.1; CLAUDE.md Section 9
-    // Uses Attribute accessor instead of $casts to handle mixed-case DB values
-    // (e.g. 'HERO' vs 'hero') — TierType::tryFrom(strtolower()) is case-safe.
-    protected function tier(): Attribute
-    {
-        return Attribute::make(
-            get: fn ($value) => $value !== null ? TierType::tryFrom(strtolower($value)) : null,
-            set: fn ($value) => $value instanceof TierType ? $value->value : ($value !== null ? strtolower($value) : null),
-        );
-    }
 
     public function primaryCluster()
     {

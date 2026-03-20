@@ -3,6 +3,7 @@ CIE Python Worker API — FastAPI (replaces Flask).
 Embed + similarity with fail-soft: on embedding API failure, log and return degraded response so save is allowed (v2.3.2).
 """
 from dotenv import load_dotenv
+import json
 import logging
 import os
 
@@ -58,8 +59,13 @@ brief_queue: dict[str, Any] = {}
 
 # SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7 — cluster_master is queried per
 # request so the validate endpoint always reflects the live DB state.
-from api.gates_validate import get_master_cluster_ids, run_all_gates, BusinessRules
-from api.schemas_validate import SkuValidateRequest, SkuValidateResponsePass, SkuValidateResponseFail
+from api.gates_validate import get_master_cluster_ids, run_all_gates, log_audit_event, BusinessRules
+from api.schemas_validate import (
+    SkuValidateRequest,
+    SkuValidateResponsePass,
+    SkuValidateResponseFail,
+    FailureItem,
+)
 
 
 # -------- Routes (paths and response structure identical to Flask) --------
@@ -154,11 +160,11 @@ def sku_similarity(body: SimilarityRequest):
             cluster_id,
             status,
         )
+        # SOURCE: CLAUDE.md §11, openapi.yaml SimilarityResponse — no numeric score in response
         return {
             "status": status,
-            "similarity": sim,
             "message": (
-                "Content semantic mismatch. Consider revising your description."
+                "Your content may not align with the intent. Consider revising."
             ) if status == "fail" else None,
         }
     except Exception as e:
@@ -177,11 +183,99 @@ def sku_similarity(body: SimilarityRequest):
         }
 
 
+# SOURCE: ENF§2.2 — tier-gate applicability matrix
+def get_gate_status_for_tier(gate_key: str, tier: str) -> str:
+    """Return not_applicable for gates that don't apply to this tier."""
+    suspended = {
+        "harvest": ["G4_answer_block", "G5_best_not_for", "G7_expert_authority"],
+        "kill": ["G2_primary_intent", "G3_secondary_intents", "G4_answer_block", "G5_best_not_for", "G7_expert_authority"],
+    }
+    tier_lower = (tier or "").strip().lower()
+    if tier_lower in suspended and gate_key in suspended[tier_lower]:
+        return "not_applicable"
+    return "pass"
+
+
+# SOURCE: openapi.yaml ValidationResponse, ENF§7.2 — gate keys match spec example:
+# G1_cluster_id, G2_primary_intent, G3_secondary_intents, G4_answer_block,
+# G5_best_not_for, G6_tier_tag, G6_1_tier_lock, G7_expert_authority
+def build_validation_response(data, tier: str, failures: list, vector_result: dict, degraded: bool) -> dict:
+    """Build response matching openapi.yaml ValidationResponse schema."""
+    # GAP_LOG: MASTER§7.1 shows short gate keys (G1, G2...); ENF§7.2 shows long keys
+    # (G1_cluster_id, G2_primary_intent...). Current implementation uses long keys per ENF§7.2.
+    # Architect decision needed to reconcile. No change applied.
+    # SOURCE: CIE_Master_Developer_Build_Spec.docx §7.1 vs CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.2
+    gate_keys = [
+        "G1_cluster_id",
+        "G2_primary_intent",
+        "G3_secondary_intents",
+        "G4_answer_block",
+        "G5_best_not_for",
+        "G6_tier_tag",
+        "G6_1_tier_lock",
+        "G7_expert_authority",
+    ]
+    failure_map = {f.gate: f for f in failures if getattr(f, "gate", None) and f.gate in gate_keys}
+    gates = {}
+    for key in gate_keys:
+        if key in failure_map:
+            f = failure_map[key]
+            gates[key] = {
+                "status": "fail",
+                "error_code": f.error_code,
+                "detail": f.detail,
+                "user_message": f.user_message,
+            }
+        else:
+            gate_status = get_gate_status_for_tier(key, tier)
+            gates[key] = {
+                "status": gate_status,
+                "error_code": None,
+                "detail": None,
+                "user_message": None,
+            }
+    vc_status = (vector_result or {}).get("status", "pass")
+    # SOURCE: CLAUDE.md §11 — vector_check FailureItem for CIE_VEC_SIMILARITY_LOW on below-threshold is warn-only; do not set overall fail
+    vector_blocks_overall = vc_status != "warn" and any(getattr(f, "gate", None) == "vector_check" for f in failures)
+    has_fail = any(g["status"] == "fail" for g in gates.values()) or vector_blocks_overall
+    has_pending = degraded or vc_status == "pending"
+    if has_fail:
+        overall = "fail"
+    elif has_pending:
+        overall = "pending"
+    else:
+        overall = "pass"
+    # SOURCE: CLAUDE.md §11 — warn does not block save but blocks publish
+    publish_allowed = (overall == "pass" and vc_status == "pass")
+    failures_serial = [{"gate": f.gate, "error_code": f.error_code, "detail": f.detail, "user_message": f.user_message} for f in failures]
+    if overall == "pass" and vc_status == "warn":
+        msg = "Gates passed; vector similarity warning — publishing not allowed until resolved."
+    elif overall == "pass":
+        msg = "All gates passed."
+    elif has_fail:
+        msg = "One or more gates failed."
+    else:
+        msg = "Validation pending."
+    return {
+        "status": overall,
+        "gates": gates,
+        "vector_check": {
+            "status": vector_result.get("status", "pass") if vector_result else "pass",
+            "user_message": vector_result.get("user_message") if vector_result else None,
+        },
+        "degraded_mode": degraded,
+        "save_allowed": True,
+        "publish_allowed": publish_allowed,
+        "message": msg,
+        "failures": failures_serial if failures_serial else None,
+    }
+
+
 @app.post("/api/v1/sku/validate")
 async def sku_validate(request: Request):
     """
     Pre-publish validation (G1–G7 + G6.1). CIE v2.3.1 Section 7.2.
-    200 + status:pass if all pass; 400 + status:fail for invalid body or gate failures.
+    SOURCE: openapi.yaml ValidationResponse — returns full shape: status, gates, vector_check, degraded_mode, save_allowed, publish_allowed.
     """
     try:
         body = await request.json()
@@ -190,9 +284,12 @@ async def sku_validate(request: Request):
             status_code=400,
             content={
                 "status": "fail",
-                "failures": [
-                    {"error_code": "INVALID_JSON", "detail": str(e), "user_message": "Request body must be valid JSON."}
-                ],
+                "gates": {},
+                "vector_check": {"status": "pass", "user_message": None},
+                "degraded_mode": False,
+                "save_allowed": True,
+                "publish_allowed": False,
+                "failures": [{"error_code": "INVALID_JSON", "detail": str(e), "user_message": "Request body must be valid JSON."}],
                 "message": "Invalid request body.",
             },
         )
@@ -203,25 +300,55 @@ async def sku_validate(request: Request):
             status_code=400,
             content={
                 "status": "fail",
-                "failures": [
-                    {"error_code": "VALIDATION_ERROR", "detail": str(e), "user_message": "Request fields did not match the required schema."}
-                ],
+                "gates": {},
+                "vector_check": {"status": "pass", "user_message": None},
+                "degraded_mode": False,
+                "save_allowed": True,
+                "publish_allowed": False,
+                "failures": [{"error_code": "VALIDATION_ERROR", "detail": str(e), "user_message": "Request fields did not match the required schema."}],
                 "message": "Validation error.",
             },
         )
-    failures = run_all_gates(data, get_master_cluster_ids())
-    if not failures:
+    try:
+        master_ids = get_master_cluster_ids()
+    except Exception as e:
         return JSONResponse(
-            status_code=200,
-            content=SkuValidateResponsePass(message="All gates passed.").model_dump(),
+            status_code=500,
+            content={
+                "status": "fail",
+                "gates": {},
+                "vector_check": {"status": "pass", "user_message": None},
+                "degraded_mode": False,
+                "save_allowed": True,
+                "publish_allowed": False,
+                "failures": [{"error_code": "CIE_VALIDATION_ERROR", "detail": str(e), "user_message": "Validation service error."}],
+                "message": "Validation service error.",
+            },
         )
-    return JSONResponse(
-        status_code=400,
-        content=SkuValidateResponseFail(
-            failures=failures,
-            message="One or more gates failed.",
-        ).model_dump(),
+    result = run_all_gates(data, master_ids)
+    failures = result["failures"]
+    vector_result = result["vector_result"]
+    degraded = result["degraded"]
+    tier = (data.tier or "").strip().lower()
+    response = build_validation_response(data, tier, failures, vector_result, degraded)
+    # SOURCE: MASTER§17 — audit log must include gate results summary
+    gate_summary = {k: v.get("status") for k, v in response.get("gates", {}).items()}
+    audit_detail = {
+        "action": getattr(data, "action", "save"),
+        "tier": tier,
+        "status": response["status"],
+        "gates": gate_summary,
+        "vector_status": response.get("vector_check", {}).get("status"),
+        "degraded_mode": degraded,
+    }
+    detail_str = json.dumps(audit_detail)[:255]
+    log_audit_event(
+        sku_id=data.sku_id,
+        event="VALIDATION_COMPLETE",
+        detail=detail_str,
     )
+    status_code = 200 if response["status"] == "pass" else 400
+    return JSONResponse(status_code=status_code, content=response)
 
 
 # -------- Baseline capture (Section 17 Check 9.3) — GSC/GA4 metrics for a URL --------

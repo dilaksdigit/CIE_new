@@ -25,6 +25,7 @@
   --kill: #A63D2F;
   --kill-bg: #FDEEEB;
   --kill-border: #E5B5AD;
+  /* SOURCE: UI§6 — gate field border colours (pass green, fail red, warning amber) */
   --green: #2E7D32;
   --green-bg: #E8F5E9;
   --red: #C62828;

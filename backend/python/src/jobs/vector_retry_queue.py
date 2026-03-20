@@ -147,7 +147,8 @@ def process_vector_retry_queue():
                 similarity = _cosine_similarity(embedding, cluster_vec)
                 threshold = BusinessRules.get('gates.vector_similarity_min')
                 gate_status = "pass" if similarity >= threshold else "fail"
-                error_code = "CIE_VEC_LOW" if gate_status == "fail" else None
+                # SOURCE: ENF§Page18 — CIE_VEC_SIMILARITY_LOW
+                error_code = "CIE_VEC_SIMILARITY_LOW" if gate_status == "fail" else None
 
                 with conn.cursor() as cursor:
                     cursor.execute(

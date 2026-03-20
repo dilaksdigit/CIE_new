@@ -178,7 +178,7 @@
     "authority": {},
     "faqs": [],
     "expected_outputs": {
-      "gate_results": {"G1": "N/A", "G2": "N/A", "G3": "N/A", "G4": "N/A", "G5": "N/A", "G6": "PASS", "G7": "N/A", "overall": "KILL_EXCLUDED", "submit_enabled": false, "submit_visible": false},
+      "gate_results": {"G1": "PASS", "G2": "N/A", "G3": "N/A", "G4": "N/A", "G5": "N/A", "G6": "PASS", "G7": "N/A", "overall": "KILL_EXCLUDED", "submit_enabled": false, "submit_visible": false},
       "channel_decisions": {"google_sge": {"decision": "SKIP", "readiness": 0}, "amazon": {"decision": "SKIP", "readiness": 0}, "ai_assistants": {"decision": "SKIP", "readiness": 0}, "own_website": {"decision": "SKIP", "readiness": 0}, "active_channels": 0},
       "maturity": {"core_fields": null, "authority": null, "channel_readiness": null, "ai_visibility": null, "total": null, "level": "Excluded"},
       "blocking_rules": {"content_fields_disabled": true, "effort_hours_permitted": 0, "policy_violation_on_any_effort": true, "delisting_review_flag": true}

@@ -1,57 +1,37 @@
 <?php
-// SOURCE: CLAUDE.md Rule R3 + CIE_v231_Developer_Build_Pack G1 gate spec; CIE_v232_Developer_Amendment_Pack Section 8 (gate code rule)
-// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 6.1
-// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3 — Kill tier: all gates suspended
+// SOURCE: ENF§2.1 — G1 = Cluster ID: valid cluster from approved semantic contract. ENF§Page18 — CIE_G1_INVALID_CLUSTER = Cluster ID not in approved master list.
+// SOURCE: CLAUDE.md Rule R3; CIE_Master_Developer_Build_Spec.docx Section 6.1
 
 namespace App\Validators\Gates;
 
 use App\Models\Sku;
 use App\Enums\GateType;
-use App\Enums\TierType;
 use App\Validators\GateResult;
 use App\Validators\GateInterface;
 use Illuminate\Support\Facades\DB;
 
 class G1_BasicInfoGate implements GateInterface
 {
-    /** Writer-facing message when cluster is missing or invalid — no gate codes (CLAUDE.md R3). */
-    private const CLUSTER_MESSAGE = "Your product must be assigned to an approved topic cluster before it can be saved.\nSelect a valid cluster from the list, or contact your SEO Governor if the correct cluster is missing.";
-
+    // SOURCE: ENF§2.1, ENF§Page18 — G1 = cluster_id vs cluster_master ONLY
     public function validate(Sku $sku): GateResult
     {
-        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3
-        // Kill tier: zero content effort. All gates suspended.
-        if ($sku->tier === TierType::KILL) {
-            return new GateResult(
-                gate: GateType::G1_BASIC_INFO,
-                passed: true,
-                reason: 'suspended',
-                blocking: false,
-                metadata: ['suspended_for_tier' => 'kill']
-            );
-        }
+        $clusterId = $sku->primary_cluster_id ?? '';
 
-        $missing = [];
-
-        if (!$sku->sku_code || strlen(trim($sku->sku_code)) === 0) {
-            $missing[] = 'SKU code';
-        }
-
-        if (!$sku->primary_cluster_id) {
+        if (empty($clusterId)) {
             return new GateResult(
                 gate: GateType::G1_BASIC_INFO,
                 passed: false,
-                reason: self::CLUSTER_MESSAGE,
+                reason: 'Cluster ID missing',
                 blocking: true,
-                metadata: ['user_message' => self::CLUSTER_MESSAGE]
+                metadata: [
+                    'error_code' => 'CIE_G1_INVALID_CLUSTER',
+                    'detail' => 'Cluster ID not in approved master list',
+                    'user_message' => 'Select a valid product group from the approved list.'
+                ]
             );
         }
 
-        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 6.1, Section 7 (G1)
-        // GAP_LOG: skus.primary_cluster_id is UUID FK to clusters.id; clusters.name stores the
-        // business string matching cluster_master.cluster_id. Spec Section 6.1 defines
-        // sku_master.cluster_id as VARCHAR FK directly to cluster_master.cluster_id, but the
-        // v1 skus table uses UUID indirection via clusters.id.
+        // Resolve primary_cluster_id (UUID) → cluster_master via clusters.name = cluster_id
         $clusterRecord = $sku->primaryCluster;
         $clusterBusinessId = $clusterRecord ? $clusterRecord->name : null;
         $cluster = DB::table('cluster_master')
@@ -63,35 +43,17 @@ class G1_BasicInfoGate implements GateInterface
             return new GateResult(
                 gate: GateType::G1_BASIC_INFO,
                 passed: false,
-                reason: self::CLUSTER_MESSAGE,
+                reason: 'Cluster ID not in master list',
                 blocking: true,
-                metadata: ['user_message' => self::CLUSTER_MESSAGE]
+                metadata: [
+                    'error_code' => 'CIE_G1_INVALID_CLUSTER',
+                    'detail' => 'Cluster ID not in approved master list',
+                    'user_message' => 'The selected product group is not recognised. Choose from the approved list.'
+                ]
             );
         }
 
-        if (!$sku->title || strlen(trim($sku->title)) === 0) {
-            $missing[] = 'Title';
-        }
-
-        if (!$sku->short_description || strlen(trim($sku->short_description)) < 50) {
-            $missing[] = 'Short description (min 50 characters)';
-        }
-
-        if (count($missing) > 0) {
-            return new GateResult(
-                gate: GateType::G1_BASIC_INFO,
-                passed: false,
-                reason: 'Missing required fields: ' . implode(', ', $missing),
-                blocking: true,
-                metadata: ['user_message' => 'Complete required basic info: ' . implode(', ', $missing) . '.']
-            );
-        }
-
-        return new GateResult(
-            gate: GateType::G1_BASIC_INFO,
-            passed: true,
-            reason: 'All required basic information fields (incl. Cluster_ID) are present',
-            blocking: false
-        );
+        // GAP_LOG: Title/description presence checks were in G1 but are not part of G1 per ENF§2.1. Architect to decide: move to pre-validation or create separate check.
+        return new GateResult(gate: GateType::G1_BASIC_INFO, passed: true, reason: 'Cluster valid', metadata: []);
     }
 }

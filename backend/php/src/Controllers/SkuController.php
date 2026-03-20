@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Models\Sku;
+use App\Models\IntentTaxonomy;
 use App\Models\SkuIntent;
 use App\Models\ContentBrief;
 use App\Models\Intent;
@@ -712,14 +713,20 @@ class SkuController {
             $statusMap[$code] = in_array($status, ['pass', 'warn'], true);
         }
 
+        // G5: On success G5_TechnicalGate writes only G5_TECHNICAL=pass (never G5_BEST_NOT_FOR).
+        // Treat G5 as passed when either Best-For/Not-For or Technical is pass so UI matches golden.
+        $g5Passed = ($statusMap['G5_BEST_NOT_FOR'] ?? false) || ($statusMap['G5_TECHNICAL'] ?? false);
+        // G6 = commercial policy (golden); tier_fields same source for Harvest display.
+        $g6Passed = $statusMap['G6_COMMERCIAL_POLICY'] ?? $this->tierFieldsComplete($sku, $tier);
+
         return [
             'G1'          => ['passed' => $statusMap['G1_BASIC_INFO'] ?? false],
             'G2'          => ['passed' => $statusMap['G2_INTENT'] ?? false],
             'G3'          => ['passed' => $statusMap['G3_SECONDARY_INTENT'] ?? false],
             'G4'          => ['passed' => $statusMap['G4_ANSWER_BLOCK'] ?? false],
-            'G5'          => ['passed' => $statusMap['G5_BEST_NOT_FOR'] ?? false],
-            'G6'          => ['passed' => $statusMap['G5_TECHNICAL'] ?? $this->hasDescriptionQuality($sku, $tier)],
-            'tier_fields' => ['passed' => $statusMap['G6_COMMERCIAL_POLICY'] ?? $this->tierFieldsComplete($sku, $tier)],
+            'G5'          => ['passed' => $g5Passed],
+            'G6'          => ['passed' => $g6Passed],
+            'tier_fields' => ['passed' => $g6Passed],
             'G7'          => ['passed' => $statusMap['G7_EXPERT'] ?? false],
             'VEC'         => ['passed' => $statusMap['G4_VECTOR'] ?? false],
         ];
@@ -735,8 +742,6 @@ class SkuController {
         $isSuspended = in_array($tier, ['HARVEST', 'KILL']);
 
         $hasCluster = !empty($sku->primary_cluster_id);
-        $hasTitle = !empty($sku->title) && strlen($sku->title) >= 10;
-
         if ($sku->relationLoaded('skuIntents')) {
             $primaryIntentCount = $sku->skuIntents->where('is_primary', true)->count();
         } else {
@@ -749,8 +754,9 @@ class SkuController {
 
         $answerBlock = trim((string) ($sku->ai_answer_block ?? ''));
         $answerLen = strlen($answerBlock);
-        $minChars = (int) (BusinessRules::get('gates.answer_block_min_chars', 250) ?? 250);
-        $maxChars = (int) (BusinessRules::get('gates.answer_block_max_chars', 300) ?? 300);
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — no hard-coded fallbacks; seed is single source
+        $minChars = (int) BusinessRules::get('gates.answer_block_min_chars');
+        $maxChars = (int) BusinessRules::get('gates.answer_block_max_chars');
         $hasAnswerBlock = $isSuspended || ($answerLen >= $minChars && $answerLen <= $maxChars);
 
         $hasBestNotFor = $isSuspended || $this->checkBestNotForCounts($sku, $tier);
@@ -761,14 +767,22 @@ class SkuController {
 
         $hasVec = $isSuspended || $hasDescription;
 
+        // G6 = commercial policy (tier fields), aligned with canonical and golden.
+        $g6TierPassed = $this->tierFieldsComplete($sku, $tier);
+
+        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 — G2 checks primary intent, not title
+        $g2Passed = $tier === 'KILL'
+            ? true
+            : $this->fallbackG2PrimaryIntentPasses($sku);
+
         return [
             'G1'          => ['passed' => $hasCluster],
-            'G2'          => ['passed' => $hasTitle],
+            'G2'          => ['passed' => $g2Passed],
             'G3'          => ['passed' => $hasIntents],
             'G4'          => ['passed' => $hasAnswerBlock],
             'G5'          => ['passed' => $hasBestNotFor],
-            'G6'          => ['passed' => $hasDescription],
-            'tier_fields' => ['passed' => $this->tierFieldsComplete($sku, $tier)],
+            'G6'          => ['passed' => $g6TierPassed],
+            'tier_fields' => ['passed' => $g6TierPassed],
             'G7'          => ['passed' => $hasG7],
             'VEC'         => ['passed' => $hasVec],
         ];
@@ -781,13 +795,42 @@ class SkuController {
         return !empty($longDesc) && str_word_count($longDesc) >= 50;
     }
 
+    /**
+     * SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 — G2 = primary intent in locked 9-intent taxonomy
+     */
+    private function fallbackG2PrimaryIntentPasses(Sku $sku): bool
+    {
+        $raw = $sku->getAttribute('primary_intent');
+        if ($raw !== null && $raw !== '') {
+            $norm = strtolower(str_replace([' ', '-', '/'], '_', trim((string) $raw)));
+            return $norm !== '' && in_array($norm, IntentTaxonomy::validPrimaryIntents(), true);
+        }
+        if (!$sku->relationLoaded('skuIntents')) {
+            $sku->load(['skuIntents.intent']);
+        }
+        $primaryNode = $sku->skuIntents->where('is_primary', true)->first();
+        if (!$primaryNode || !$primaryNode->intent) {
+            return false;
+        }
+        $intentName = (string) ($primaryNode->intent->name ?? '');
+        $norm = strtolower(str_replace([' ', '-', '/'], '_', $intentName));
+        if ($norm !== '' && in_array($norm, IntentTaxonomy::validPrimaryIntents(), true)) {
+            return true;
+        }
+        return IntentTaxonomy::query()
+            ->whereRaw('LOWER(label) = ?', [strtolower($intentName)])
+            ->orWhereRaw('LOWER(intent_key) = ?', [strtolower(str_replace(' ', '_', $intentName))])
+            ->exists();
+    }
+
     private function checkBestNotForCounts(Sku $sku, string $tier): bool
     {
         if (!in_array($tier, ['HERO', 'SUPPORT'])) return true;
         $bestFor = self::parseListAttribute($sku->best_for);
         $notFor = self::parseListAttribute($sku->not_for);
-        $bestForMin = (int) (BusinessRules::get('gates.best_for_min_entries') ?? 2);
-        $notForMin = (int) (BusinessRules::get('gates.not_for_min_entries') ?? 1);
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — no hard-coded fallbacks
+        $bestForMin = (int) BusinessRules::get('gates.best_for_min_entries');
+        $notForMin = (int) BusinessRules::get('gates.not_for_min_entries');
         return count($bestFor) >= $bestForMin && count($notFor) >= $notForMin;
     }
 

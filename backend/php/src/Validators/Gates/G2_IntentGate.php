@@ -17,13 +17,14 @@ class G2_IntentGate implements GateInterface
     {
         // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3
         // Kill tier: zero content effort. All gates suspended.
+        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 — Kill tier G2 is not_applicable
         if ($sku->tier === TierType::KILL) {
             return new GateResult(
                 gate: GateType::G2_INTENT,
                 passed: true,
-                reason: 'suspended',
+                reason: 'not_applicable',
                 blocking: false,
-                metadata: ['suspended_for_tier' => 'kill']
+                metadata: ['not_applicable_for_tier' => 'kill', 'status' => 'not_applicable', 'user_message' => null]
             );
         }
 
@@ -34,9 +35,13 @@ class G2_IntentGate implements GateInterface
             return new GateResult(
                 gate: GateType::G2_INTENT,
                 passed: false,
-                reason: 'You must select exactly one primary intent for this product. Choose the intent that best describes what a customer is trying to accomplish when they find this product.',
+                reason: 'Primary intent not in locked 9-intent enum',
                 blocking: true,
-                metadata: ['user_message' => 'You must select exactly one primary intent for this product. Choose the intent that best describes what a customer is trying to accomplish when they find this product.']
+                metadata: [
+                    'error_code' => 'CIE_G2_INVALID_INTENT',
+                    'detail' => 'Primary intent not in locked 9-intent enum',
+                    'user_message' => 'Main search intent is not recognised. Select from the approved list.'
+                ]
             );
         }
 
@@ -44,9 +49,13 @@ class G2_IntentGate implements GateInterface
             return new GateResult(
                 gate: GateType::G2_INTENT,
                 passed: false,
-                reason: 'Only one primary intent is allowed. Remove the extra selection and keep the one that best fits this product.',
+                reason: 'Primary intent not in locked 9-intent enum',
                 blocking: true,
-                metadata: ['user_message' => 'Only one primary intent is allowed. Remove the extra selection and keep the one that best fits this product.']
+                metadata: [
+                    'error_code' => 'CIE_G2_INVALID_INTENT',
+                    'detail' => 'Primary intent not in locked 9-intent enum',
+                    'user_message' => 'Main search intent is not recognised. Select from the approved list.'
+                ]
             );
         }
 
@@ -63,24 +72,17 @@ class G2_IntentGate implements GateInterface
             return new GateResult(
                 gate: GateType::G2_INTENT,
                 passed: false,
-                reason: 'The intent you selected is not in the approved list. Choose from the available options in the dropdown.',
+                reason: 'Primary intent not in locked 9-intent enum',
                 blocking: true,
-                metadata: ['user_message' => 'The intent you selected is not in the approved list. Choose from the available options in the dropdown.']
+                metadata: [
+                    'error_code' => 'CIE_G2_INVALID_INTENT',
+                    'detail' => 'Primary intent not in locked 9-intent enum',
+                    'user_message' => 'Main search intent is not recognised. Select from the approved list.'
+                ]
             );
         }
 
-        // G2: Primary intent must appear in the title (stemmed/keyword match).
-        $title = strtolower(trim((string) ($sku->title ?? '')));
-        $keyword = $this->intentTitleKeyword($intentName, $taxonomyMatch->intent_key ?? '');
-        if ($keyword !== '' && $title !== '' && strpos($title, $keyword) === false) {
-            return new GateResult(
-                gate: GateType::G2_INTENT,
-                passed: false,
-                reason: 'Main search intent must appear in the title. Add the intent keyword to match what customers search for.',
-                blocking: true,
-                metadata: ['user_message' => 'Main search intent must appear in the title. Add the intent keyword to match what customers search for.', 'terms' => $keyword]
-            );
-        }
+        // SOURCE: MASTER§7 — G2 validates primary intent from 9-intent taxonomy ONLY. No title keyword check per spec.
 
         return new GateResult(
             gate: GateType::G2_INTENT,

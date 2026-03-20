@@ -1,144 +1,75 @@
 <?php
-// SOURCE: CIE_Master_Developer_Build_Spec Section 5 (Business Rules Config Layer); CIE_v231_Developer_Build_Pack G7 spec; CLAUDE.md — zero hard-coded thresholds
-// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 6.1
-// GAP_LOG (RESOLVED): $sku->target_channel may not exist; defaults to 'shopify' (own_website)
-// when absent or empty, as Shopify is the primary channel per spec Section 6.5.
+// SOURCE: MASTER§7, ENF§2.1 — G7 = non-empty expert_authority for Hero/Support
+// SOURCE: ENF§Page18 — error code CIE_G7_AUTHORITY_MISSING
 
 namespace App\Validators\Gates;
 
 use App\Models\Sku;
 use App\Enums\GateType;
 use App\Enums\TierType;
-use App\Support\BusinessRules;
 use App\Validators\GateResult;
 use App\Validators\GateInterface;
-use Illuminate\Support\Facades\DB;
 
 class G7_ExpertGate implements GateInterface
 {
-    private const ALLOWED_CHANNELS = ['google_sge', 'own_website'];
-
-    private const CHANNEL_TO_STORED = [
-        'own_website' => 'shopify',
-        'shopify'    => 'shopify',
-        'google_sge' => 'gmc',
-        'gmc'        => 'gmc',
-        'google'     => 'gmc',
-    ];
-
-    private const CHANNEL_MAP = [
-        'shopify'     => 'own_website',
-        'own_website' => 'own_website',
-        'website'     => 'own_website',
-        'gmc'         => 'google_sge',
-        'google_sge'  => 'google_sge',
-        'google'      => 'google_sge',
-    ];
-
-    /** Threshold from business_rules (GATE-09) — keys channel.shopify_readiness_threshold, channel.gmc_readiness_threshold. */
-    private static function thresholdForChannel(string $storedChannel): int
+    // SOURCE: MASTER§7, ENF§2.1 — G7 = non-empty expert_authority for Hero/Support
+    // SOURCE: ENF§Page18 — error code CIE_G7_AUTHORITY_MISSING
+    public function validate(Sku $sku): GateResult
     {
-        $key = 'channel.' . $storedChannel . '_readiness_threshold';
-        $v = BusinessRules::get($key);
-        return $v !== null && $v !== '' ? (int) $v : 85;
-    }
-
-    public function validate(Sku $sku): GateResult|array
-    {
-        $tier = $sku->tier;
-
-        if ($tier === TierType::HARVEST || $tier === TierType::KILL) {
+        // SOURCE: ENF§2.2 — G7 SUSPENDED for Harvest, N/A for Kill → not_applicable
+        if ($sku->tier === TierType::HARVEST || $sku->tier === TierType::KILL) {
             return new GateResult(
                 gate: GateType::G7_EXPERT,
                 passed: true,
-                reason: "Readiness check is not required for {$tier->displayName()} products.",
+                reason: 'not_applicable',
                 blocking: false,
-                metadata: ['status' => 'suspended']
+                metadata: ['status' => 'not_applicable', 'user_message' => null]
             );
         }
 
-        $rawChannel = strtolower(trim((string) ($sku->target_channel ?? '')));
-        if ($rawChannel === '') {
-            $rawChannel = 'shopify';
-        }
-        $channel = self::CHANNEL_MAP[$rawChannel] ?? null;
+        // Hero and Support: expert_authority must be non-empty
+        $expertAuthority = trim($sku->expert_authority ?? '');
 
-        if ($channel === null || !in_array($channel, self::ALLOWED_CHANNELS, true)) {
+        if (empty($expertAuthority)) {
             return new GateResult(
                 gate: GateType::G7_EXPERT,
                 passed: false,
-                reason: "Unknown or unsupported target channel: '{$rawChannel}'.",
+                reason: 'Expert authority block is empty',
                 blocking: true,
                 metadata: [
-                    'user_message' => "Target channel '{$rawChannel}' is not recognised. Supported channels: Shopify (own_website), GMC (google_sge).",
+                    'error_code' => 'CIE_G7_AUTHORITY_MISSING',
+                    'user_message' => 'Add an Expert Authority statement referencing a specific standard, certification, or technical specification.',
+                    'detail' => 'expert_authority field is empty for ' . $sku->tier->value . '-tier SKU.'
                 ]
             );
         }
 
-        $skuCode = $sku->sku_code;
-        $storedChannel = self::CHANNEL_TO_STORED[$channel] ?? $channel;
-
-        $readinessRow = DB::table('channel_readiness')
-            ->where('sku_id', $skuCode)
-            ->where('channel', $storedChannel)
-            ->first();
-
-        $score = $readinessRow ? (int) $readinessRow->score : 0;
-
-        $failures = [];
-
-        if ($tier === TierType::HERO) {
-            $primaryThreshold = self::thresholdForChannel($storedChannel);
-            if ($score < $primaryThreshold) {
-                $failures[] = $this->buildFailure($score, $primaryThreshold, $channel);
-            }
-
-            $otherRows = DB::table('channel_readiness')
-                ->where('sku_id', $skuCode)
-                ->whereIn('channel', array_values(self::CHANNEL_TO_STORED))
-                ->where('channel', '!=', $storedChannel)
-                ->get();
-
-            foreach ($otherRows as $row) {
-                $rowScore = (int) $row->score;
-                $otherThreshold = self::thresholdForChannel($row->channel);
-                if ($rowScore < $otherThreshold) {
-                    $failures[] = $this->buildFailure($rowScore, $otherThreshold, $row->channel);
-                }
-            }
-        } elseif ($tier === TierType::SUPPORT) {
-            $supportThreshold = self::thresholdForChannel($storedChannel);
-            if ($score < $supportThreshold) {
-                $failures[] = $this->buildFailure($score, $supportThreshold, $channel);
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §7 — G7 server-side specificity guard; full AI Agent check is supplementary
+        $genericPhrases = ['high quality', 'premium quality', 'best in class', 'top quality', 'industry leading'];
+        $lowerAuth = strtolower($expertAuthority);
+        foreach ($genericPhrases as $phrase) {
+            if (str_contains($lowerAuth, $phrase) && !preg_match('/\b(BS|EN|ISO|IEC|CE|UKCA|UL|CSA)\s*\d/i', $expertAuthority)) {
+                return new GateResult(
+                    gate: GateType::G7_EXPERT,
+                    passed: false,
+                    reason: 'Expert authority lacks specific standard or certification reference',
+                    blocking: true,
+                    metadata: [
+                        'error_code' => 'CIE_G7_AUTHORITY_MISSING',
+                        'user_message' => 'Your Expert Authority statement must reference a specific standard, certification, or rated specification.',
+                        'detail' => 'Generic marketing phrasing without standard/certification reference.',
+                    ]
+                );
             }
         }
 
-        if (!empty($failures)) {
-            return $failures;
-        }
-
+        // Non-empty and passed basic specificity — pass (AI Agent specificity check is supplementary)
         return new GateResult(
             gate: GateType::G7_EXPERT,
             passed: true,
-            reason: "Channel readiness score meets threshold for {$channel}.",
-            blocking: false
-        );
-    }
-
-    private function buildFailure(int $score, int $threshold, string $channel): GateResult
-    {
-        return new GateResult(
-            gate: GateType::G7_EXPERT,
-            passed: false,
-            reason: "Readiness score {$score} is below required threshold {$threshold} for channel {$channel}.",
-            blocking: true,
-            metadata: [
-                'error_code'   => 'CHANNEL_READINESS_BELOW_THRESHOLD',
-                'detail'       => "Readiness score {$score} is below required threshold {$threshold} for channel {$channel}.",
-                'user_message' => "This SKU's readiness score for {$channel} is {$score}/100. "
-                    . "It must reach {$threshold} before publish. "
-                    . 'Complete the missing fields shown in the readiness panel.',
-            ]
+            reason: 'Expert authority present',
+            blocking: false,
+            metadata: ['user_message' => null, 'detail' => 'Non-empty for ' . $sku->tier->value . ' tier']
         );
     }
 }

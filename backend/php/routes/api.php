@@ -115,6 +115,7 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     Route::get('/admin/bulk-ops/export', [BulkOpsController::class, 'export'])->middleware('rbac:ADMIN');
 
     Route::get('/audit-logs', [AuditLogController::class, 'index']);
+    Route::get('/audit-logs/filters', [AuditLogController::class, 'filters']);
 
     // Suggestion status proxy to Python Engine — SOURCE: openapi.yaml
     Route::post('/sku/{sku_id}/suggestions/{suggestion_id}/status', function (\Illuminate\Http\Request $request, string $sku_id, string $suggestion_id) {

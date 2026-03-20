@@ -13,8 +13,18 @@ def validate_cluster_match(request_vector, cluster_id, threshold=None):
     threshold: from request (BusinessRules.get('gates.vector_similarity_min') in PHP). If missing, use env VECTOR_SIMILARITY_THRESHOLD (default 0.72).
     Below threshold = WARNING only (valid=False, status='warn'); score never returned to writer-facing API.
     """
+    # SOURCE: MASTER§5, CLAUDE.md §11 — threshold from config (BusinessRules), env as override
     if threshold is None:
-        threshold = float(os.environ.get('VECTOR_SIMILARITY_THRESHOLD', '0.72'))
+        try:
+            from api.gates_validate import BusinessRules
+            db_value = BusinessRules.get('gates.vector_similarity_min')
+            if db_value is not None:
+                threshold = float(db_value)
+        except Exception:
+            pass
+        if threshold is None:
+            # SOURCE: CLAUDE.md §11, CIE_Master_Developer_Build_Spec.docx §5 — env VECTOR_SIMILARITY_THRESHOLD overrides only when DB BusinessRules unavailable above
+            threshold = float(os.environ.get("VECTOR_SIMILARITY_THRESHOLD", "0.72"))
     # Check if cluster vector exists
     cluster_vec = cluster_cache.get_cluster_vector(cluster_id)
     if not cluster_vec:

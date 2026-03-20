@@ -58,13 +58,24 @@ components:
 
     SkuValidateResponsePass:
       type: object
+      description: SOURCE Hardening Addendum §1.4
       properties:
-        status: { type: string, enum: [pass] }
-        message: { type: string }
+        status: { type: string, enum: [pass, fail, pending] }
+        gates: { type: object, additionalProperties: true, description: Gate results keyed by gate id }
+        vector_check: { type: object, properties: { status: { type: string }, user_message: { type: string, nullable: true } } }
+        degraded_mode: { type: boolean }
+        save_allowed: { type: boolean }
+        publish_allowed: { type: boolean }
+        message: { type: string, nullable: true }
 
     SkuValidateResponseFail:
       type: object
       properties:
-        status: { type: string, enum: [fail] }
+        status: { type: string, enum: [pass, fail, pending] }
         failures: { type: array, items: { $ref: '#/components/schemas/FailureItem' } }
-        message: { type: string }
+        gates: { type: object, additionalProperties: true }
+        vector_check: { type: object, nullable: true }
+        degraded_mode: { type: boolean }
+        save_allowed: { type: boolean }
+        publish_allowed: { type: boolean }
+        message: { type: string, nullable: true }

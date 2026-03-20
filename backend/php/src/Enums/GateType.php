@@ -11,6 +11,8 @@ enum GateType: string
     case G5_BEST_NOT_FOR = 'G5_BEST_NOT_FOR';
     case G5_TECHNICAL = 'G5_TECHNICAL';
     case G6_COMMERCIAL_POLICY = 'G6_COMMERCIAL_POLICY';
+    case G6_TIER_TAG = 'G6_TIER_TAG';
+    case G6_1_TIER_LOCK = 'G6_1_TIER_LOCK';
     case G7_EXPERT = 'G7_EXPERT';
 
     public function displayName(): string
@@ -24,12 +26,17 @@ enum GateType: string
             self::G5_BEST_NOT_FOR => 'Best-For / Not-For',
             self::G5_TECHNICAL => 'Technical Specifications',
             self::G6_COMMERCIAL_POLICY => 'Tier Tag / Commercial Policy',
+            self::G6_TIER_TAG => 'Tier Tag',
+            self::G6_1_TIER_LOCK => 'Tier Lock',
             self::G7_EXPERT => 'Expert Authority',
         };
     }
 
     public function isBlockingForTier(TierType $tier): bool
     {
+        if (in_array($this, [self::G6_TIER_TAG, self::G6_1_TIER_LOCK], true)) {
+            return true;
+        }
         if ($this !== self::G7_EXPERT) {
             return true;
         }

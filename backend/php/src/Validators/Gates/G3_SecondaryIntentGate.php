@@ -15,15 +15,67 @@ class G3_SecondaryIntentGate implements GateInterface
 {
     public function validate(Sku $sku): GateResult
     {
-        // Harvest tier: G3 suspended per Hardening_Addendum Patch 6
-        if ($sku->tier === TierType::HARVEST) {
+        // SOURCE: ENF§2.2 — Kill: G3 = N/A. Do not validate secondaries for Kill.
+        if ($sku->tier === TierType::KILL) {
             return new GateResult(
                 gate: GateType::G3_SECONDARY_INTENT,
                 passed: true,
-                reason: 'N/A',
+                reason: 'not_applicable',
                 blocking: false,
-                metadata: ['status' => 'N/A']
+                metadata: ['status' => 'not_applicable', 'user_message' => null]
             );
+        }
+
+        // SOURCE: ENF§2.2, ENF§8.3 — Harvest G3 optional; if secondaries present, max 1 from [problem_solving, compatibility, specification]
+        if ($sku->tier === TierType::HARVEST) {
+            $secondaries = $sku->skuIntents->where('is_primary', false)->map(fn ($si) => strtolower(str_replace(' ', '_', $si->intent->name ?? '')))->values()->all();
+            if (empty($secondaries)) {
+                return new GateResult(gate: GateType::G3_SECONDARY_INTENT, passed: true, reason: 'N/A', blocking: false, metadata: ['user_message' => null]);
+            }
+            if (count($secondaries) > 1) {
+                return new GateResult(
+                    gate: GateType::G3_SECONDARY_INTENT,
+                    passed: false,
+                    reason: 'Too many secondary intents for Harvest',
+                    blocking: true,
+                    metadata: [
+                        'error_code' => 'CIE_G3_SECONDARY_COUNT',
+                        'user_message' => 'Harvest products allow a maximum of 1 supporting intent.',
+                        'detail' => 'Harvest tier allows max 1 secondary intent'
+                    ]
+                );
+            }
+            $allowedKeys = ['problem_solving', 'compatibility', 'specification'];
+            if (!in_array($secondaries[0], $allowedKeys, true)) {
+                return new GateResult(
+                    gate: GateType::G3_SECONDARY_INTENT,
+                    passed: false,
+                    reason: 'Secondary not in Harvest allowed set',
+                    blocking: true,
+                    metadata: [
+                        'error_code' => 'CIE_G3_SECONDARY_COUNT',
+                        'user_message' => 'Harvest products only allow Problem-Solving, Compatibility, or Specification as a supporting intent.',
+                        'detail' => 'Harvest secondary not in allowed_intents [1,3,4]'
+                    ]
+                );
+            }
+            $primaryIntentNode = $sku->skuIntents->where('is_primary', true)->first();
+            $primaryIntentName = $primaryIntentNode ? ($primaryIntentNode->intent->name ?? '') : '';
+            $primaryKey = strtolower(str_replace(' ', '_', $primaryIntentName));
+            if ($secondaries[0] === $primaryKey) {
+                return new GateResult(
+                    gate: GateType::G3_SECONDARY_INTENT,
+                    passed: false,
+                    reason: 'Secondary same as primary',
+                    blocking: true,
+                    metadata: [
+                        'error_code' => 'CIE_G3_SECONDARY_DUPLICATE',
+                        'user_message' => 'Your supporting intent cannot be the same as the main intent.',
+                        'detail' => 'Secondary intent same as primary'
+                    ]
+                );
+            }
+            return new GateResult(gate: GateType::G3_SECONDARY_INTENT, passed: true, reason: 'Harvest secondary valid', blocking: false, metadata: ['user_message' => null]);
         }
 
         $primaryIntentNode = $sku->skuIntents->where('is_primary', true)->first();
@@ -38,9 +90,13 @@ class G3_SecondaryIntentGate implements GateInterface
                 return new GateResult(
                     gate: GateType::G3_SECONDARY_INTENT,
                     passed: false,
-                    reason: 'A secondary intent cannot be the same as your primary intent. Choose a different secondary intent.',
+                    reason: 'Secondary intent same as primary',
                     blocking: true,
-                    metadata: ['user_message' => 'A secondary intent cannot be the same as your primary intent. Choose a different secondary intent.']
+                    metadata: [
+                        'error_code' => 'CIE_G3_SECONDARY_DUPLICATE',
+                        'detail' => 'Secondary intent same as primary',
+                        'user_message' => 'Your supporting intent cannot be the same as the main intent.'
+                    ]
                 );
             }
         }
@@ -50,9 +106,13 @@ class G3_SecondaryIntentGate implements GateInterface
             return new GateResult(
                 gate: GateType::G3_SECONDARY_INTENT,
                 passed: false,
-                reason: 'You must add at least one secondary intent. Secondary intents help the system understand the full range of what this product can do.',
+                reason: 'Too few secondary intents',
                 blocking: true,
-                metadata: ['user_message' => 'You must add at least one secondary intent. Secondary intents help the system understand the full range of what this product can do.']
+                metadata: [
+                    'error_code' => 'CIE_G3_SECONDARY_COUNT',
+                    'detail' => 'At least one secondary intent required',
+                    'user_message' => 'You must add at least one secondary intent. Secondary intents help the system understand the full range of what this product can do.'
+                ]
             );
         }
 
@@ -65,9 +125,13 @@ class G3_SecondaryIntentGate implements GateInterface
             return new GateResult(
                 gate: GateType::G3_SECONDARY_INTENT,
                 passed: false,
-                reason: $msg,
+                reason: 'Too many secondary intents',
                 blocking: true,
-                metadata: ['user_message' => $msg]
+                metadata: [
+                    'error_code' => 'CIE_G3_SECONDARY_COUNT',
+                    'detail' => 'Max secondary intents exceeded',
+                    'user_message' => $msg
+                ]
             );
         }
 
@@ -82,21 +146,15 @@ class G3_SecondaryIntentGate implements GateInterface
                 return new GateResult(
                     gate: GateType::G3_SECONDARY_INTENT,
                     passed: false,
-                    reason: 'One or more of your secondary intents is not in the approved list. Use only the options available in the dropdown.',
+                    reason: 'Secondary intent not in approved list',
                     blocking: true,
-                    metadata: ['user_message' => 'One or more of your secondary intents is not in the approved list. Use only the options available in the dropdown.']
+                    metadata: [
+                        'error_code' => 'CIE_G3_SECONDARY_COUNT',
+                        'detail' => 'Secondary intent not in locked 9-intent taxonomy',
+                        'user_message' => 'One or more of your secondary intents is not in the approved list. Use only the options available in the dropdown.'
+                    ]
                 );
             }
-        }
-
-        if ($sku->tier === TierType::KILL && $count > 0) {
-            return new GateResult(
-                gate: GateType::G3_SECONDARY_INTENT,
-                passed: false,
-                reason: 'This product has been marked for removal and cannot have secondary intents.',
-                blocking: true,
-                metadata: ['user_message' => 'This product has been marked for removal and cannot have secondary intents.']
-            );
         }
 
         return new GateResult(

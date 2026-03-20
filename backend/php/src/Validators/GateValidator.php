@@ -5,6 +5,7 @@ use App\Models\Sku;
 use App\Models\SkuGateStatus;
 use App\Models\AuditLog;
 use App\Enums\ValidationStatus;
+use App\Enums\TierType;
 use App\Validators\Gates\G1_BasicInfoGate;
 use App\Validators\Gates\G2_IntentGate;
 use App\Validators\Gates\G3_SecondaryIntentGate;
@@ -158,7 +159,10 @@ class GateValidator
             $updateData['validation_status'] = $status;
         }
 
-        $sku->update($updateData);
+        // Kill-tier SKUs are locked from updates by DB trigger; skip update to avoid SQLSTATE 45000.
+        if ($sku->tier !== TierType::KILL) {
+            $sku->update($updateData);
+        }
 
         $sanitisedReason = 'Your content may not align with the intent. Consider revising.';
 
@@ -187,14 +191,56 @@ class GateValidator
 
         $saveAllowed = true;
 
+        // SOURCE: openapi.yaml ValidationResponse, ENF§7.2 — gates keyed by gate id. ENF§2.1 — G5 is Best-For/Not-For only; G5_TECHNICAL removed per FIX 6.
+        $gateIdMap = [
+            'G1_BASIC_INFO'       => 'G1_cluster_id',
+            'G2_INTENT'           => 'G2_primary_intent',
+            'G3_SECONDARY_INTENT' => 'G3_secondary_intents',
+            'G4_ANSWER_BLOCK'     => 'G4_answer_block',
+            'G4_VECTOR'           => 'vector_check',
+            'G5_BEST_NOT_FOR'     => 'G5_best_not_for',
+            'G6_COMMERCIAL_POLICY'=> 'G6_tier_tag',
+            'G6_TIER_TAG'        => 'G6_tier_tag',
+            'G6_1_TIER_LOCK'      => 'G6_1_tier_lock',
+            'G7_EXPERT'           => 'G7_expert_authority',
+        ];
+        $gatesKeyed = [];
+        $vectorCheck = ['status' => 'pass', 'user_message' => null];
+        foreach ($gatePayload as $g) {
+            $enumVal = $g['gate'] ?? '';
+            $key = $gateIdMap[$enumVal] ?? $enumVal;
+            // SOURCE: openapi.yaml — gate status enum includes not_applicable
+            $reason = $g['reason'] ?? '';
+            $gateStatus = ($reason === 'not_applicable') ? 'not_applicable' : (($g['passed'] ?? false) ? 'pass' : 'fail');
+            if (isset($g['metadata']['degraded']) && $g['metadata']['degraded'] && !$g['passed']) {
+                $gateStatus = 'pending';
+            }
+            $g['status'] = $gateStatus;
+            if ($key === 'vector_check') {
+                $vcStatus = 'pass';
+                if ($reason === 'not_applicable') {
+                    $vcStatus = 'not_applicable';
+                } elseif (!($g['passed'] ?? false)) {
+                    $vcStatus = ($g['metadata']['degraded'] ?? false) ? 'pending' : 'fail';
+                } elseif (!empty($g['metadata']['warn_only'])) {
+                    $vcStatus = 'warn';
+                }
+                $vectorCheck = ['status' => $vcStatus, 'user_message' => $g['user_message'] ?? null];
+            }
+            $gatesKeyed[$key] = $g;
+        }
+
         return [
             'sku_id'          => $sku->id,
+            'status'          => strtolower($status->value),
             'overall_status'  => $status->value,
             'can_publish'     => $canPublish,
             'degraded_mode'   => $isDegraded,
             'save_allowed'    => $saveAllowed,
             'publish_allowed' => $canPublish,
-            'gates'           => $gatePayload,
+            'gates'           => $gatesKeyed,
+            'vector_check'     => $vectorCheck,
+            'results'         => $gatePayload,
             'next_action'     => $nextAction,
         ];
     }

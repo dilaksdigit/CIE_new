@@ -160,6 +160,7 @@ export const auditResultApi = {
 // ====== Audit Log (immutable trail) ======
 export const auditLogApi = {
     getLogs: (params) => api.get('/v1/audit-logs', { params }),
+    getFilters: () => api.get('/v1/audit-logs/filters'),
 };
 
 // ====== Shopify product pull (admin) ======

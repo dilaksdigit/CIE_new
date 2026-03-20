@@ -14,8 +14,17 @@ export const TierBadge = ({ tier, size = 'sm' }) => (
 );
 
 // ─── GATE CHIP ──────────────────────────────────────
-export const GateChip = ({ id, pass, compact }) => (
-    <span className={`gate-chip ${pass ? 'pass' : 'fail'} ${compact ? 'compact' : ''}`}>
+// label = plain English field name (no gate codes in UI per CLAUDE.md §6 / UI restructure §6)
+export const GateChip = ({ id, pass, compact, label }) => (
+    <span
+        className={`gate-chip ${pass ? 'pass' : 'fail'} ${compact ? 'compact' : ''}`}
+        data-field-label={label || undefined}
+    >
+        {label ? (
+            <span className="gate-chip-label" style={{ marginRight: 6, fontWeight: 600, fontSize: compact ? '0.65rem' : '0.7rem' }}>
+                {label}
+            </span>
+        ) : null}
         <span className="check">{pass ? 'Pass' : 'Fail'}</span>
     </span>
 );
@@ -181,24 +190,26 @@ export const ChannelBadge = ({ channel }) => {
 
 export const GATES = [
     { id: 'G1', label: 'Cluster ID', desc: 'Semantic cluster assigned' },
-    { id: 'G2', label: 'Title', desc: 'Intent-led title format' },
+    // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §6, ENF§2.1 — G2 = Primary Intent
+    { id: 'G2', label: 'Primary Intent', desc: 'Valid primary intent from taxonomy' },
     { id: 'G3', label: 'Intents', desc: 'Primary + secondary intents' },
-    { id: 'G4', label: 'Answer Block', desc: '250-300 char answer' },
+    // SOURCE: UI§6 — no hard-coded thresholds in UI labels
+    { id: 'G4', label: 'Answer Block', desc: 'Answer block length and intent keyword' },
     { id: 'G5', label: 'Best/Not-For', desc: 'Use case guidance' },
-    { id: 'G6', label: 'Description', desc: 'Full product description' },
+    { id: 'G6', label: 'Tier / Commercial', desc: 'Tier tag and commercial policy' },
     { id: 'tier_fields', label: 'Tier Fields', desc: 'Tier-gated content' },
     { id: 'G7', label: 'Authority', desc: 'Expert authority block' },
     { id: 'VEC', label: 'Vector', desc: 'Description must align with product cluster intent.' },
 ];
 
 // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3
-// Kill = no gates active. Harvest = G1, G2, G6 only.
-// Hero/Support = all gates.
+// SOURCE: ENF§2.2 — Harvest: G1 REQUIRED, G2 REQUIRED (Spec only), G6 REQUIRED
+// Kill = no gates active. Hero/Support = all gates.
 export const getGatesForTier = (tier) => {
     if (!tier || tier.toLowerCase() === 'kill') return [];
     if (tier.toLowerCase() === 'harvest') {
         return GATES.filter(g =>
-            ['G1', 'G2', 'tier_fields'].includes(g.id)
+            ['G1', 'G2', 'G6', 'tier_fields'].includes(g.id)
         );
     }
     return GATES;

@@ -23,54 +23,43 @@ class PythonWorkerClient
     }
 
     /**
-     * Validate SKU against cluster vectors
+     * Call existing Python similarity endpoint. SOURCE: openapi.yaml POST /api/v1/sku/similarity — returns { status, message }.
      */
     public function validateVector(string $description, string $clusterId, ?string $skuId = null): array
     {
         try {
-            $response = $this->client->post('/validate-vector', [
+            $response = $this->client->post('/api/v1/sku/similarity', [
                 'json' => [
                     'description' => $description,
-                    'cluster_id' => $clusterId,
-                    'sku_id' => $skuId ?? 'unknown',
+                    'cluster_id'  => $clusterId,
                 ]
             ]);
 
             if ($response->getStatusCode() >= 500) {
-                Log::warning("Python validation returned {$response->getStatusCode()} (fail-soft → pending)", [
+                Log::warning("Python similarity returned {$response->getStatusCode()} (fail-soft → pending)", [
                     'body' => $response->getBody()->getContents()
                 ]);
-                return [
-                    'status' => 'pending',
-                    'degraded' => true,
-                ];
+                return ['status' => 'pending', 'message' => null];
             }
 
             if ($response->getStatusCode() >= 400) {
-                Log::warning("Python validation returned {$response->getStatusCode()}", [
+                Log::warning("Python similarity returned {$response->getStatusCode()}", [
                     'body' => $response->getBody()->getContents()
                 ]);
-                return [
-                    'valid' => false,
-                    'similarity' => 0.0,
-                    'reason' => 'Validation service error'
-                ];
+                return ['status' => 'fail', 'message' => 'Validation service error'];
             }
 
-            return json_decode($response->getBody()->getContents(), true) ?? [
-                'valid' => false,
-                'similarity' => 0.0,
-                'reason' => 'Invalid response'
+            $body = json_decode($response->getBody()->getContents(), true) ?? [];
+            return [
+                'status'  => $body['status'] ?? 'fail',
+                'message' => $body['message'] ?? null,
             ];
         } catch (RequestException $e) {
-            Log::error("Python API request failed (fail-soft → pending): {$e->getMessage()}", [
+            Log::error("Python similarity request failed (fail-soft → pending): {$e->getMessage()}", [
                 'cluster_id' => $clusterId,
                 'sku_id' => $skuId
             ]);
-            return [
-                'status' => 'pending',
-                'degraded' => true,
-            ];
+            return ['status' => 'pending', 'message' => null];
         }
     }
 
