@@ -5,6 +5,8 @@
 namespace App\Services;
 
 use App\Exceptions\ShopifyRateLimitException;
+use App\Models\AuditLog;
+use Illuminate\Support\Facades\Log;
 
 class ShopifyRateLimiter
 {
@@ -66,7 +68,35 @@ class ShopifyRateLimiter
                     'status_code' => $statusCode,
                     'severity'    => 'critical',
                 ]);
-                return ['status' => 'failed', 'reason' => "Shopify auth error: {$statusCode}"];
+                // SOURCE: CIE_Integration_Specification.pdf §2.5
+                // FIX: N8N-02 — immediate admin-visible alert; do not retry auth failures.
+                Log::critical("Shopify auth failure ({$statusCode}): credential rotation required", [
+                    'sku_id' => $skuId,
+                    'status_code' => $statusCode,
+                ]);
+                try {
+                    AuditLog::create([
+                        'entity_type' => 'channel_deploy',
+                        'entity_id'   => $skuId,
+                        'action'      => 'auth_failure',
+                        'field_name'  => 'shopify',
+                        'old_value'   => null,
+                        'new_value'   => json_encode([
+                            'channel' => 'shopify',
+                            'status' => $statusCode,
+                            'message' => 'Credential rotation required. Do NOT retry.',
+                        ]),
+                        'actor_id'    => 'SYSTEM',
+                        'actor_role'  => 'system',
+                        'timestamp'   => now(),
+                        'user_id'     => 'SYSTEM',
+                        'ip_address'  => null,
+                        'user_agent'  => null,
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::warning('ShopifyRateLimiter: auth_failure audit_log insert failed: '.$e->getMessage());
+                }
+                return ['status' => 'failed', 'reason' => "Shopify auth failure: {$statusCode}. Do not retry."];
             }
 
             // ── 500 / 503: queue for next cron, log, do NOT throw ────
@@ -89,7 +119,9 @@ class ShopifyRateLimiter
                     );
                 }
 
-                $waitSeconds = self::BACKOFF_SECONDS[$attempts];
+                // SOURCE: CIE_Integration_Specification.pdf §2.5
+                // FIX: N8N-03 — respect Retry-After header on 429; fallback to configured backoff.
+                $waitSeconds = $this->retryAfterSeconds($result, self::BACKOFF_SECONDS[$attempts]);
 
                 $auditLogger('shopify_retry', [
                     'attempt'      => $attempts + 1,
@@ -122,5 +154,22 @@ class ShopifyRateLimiter
         }
 
         self::$lastCallTime = microtime(true);
+    }
+
+    /**
+     * SOURCE: CIE_Integration_Specification.pdf §2.5
+     * Parse Retry-After from response headers and return seconds.
+     */
+    private function retryAfterSeconds(array $result, int $fallback): int
+    {
+        $headers = $result['headers'] ?? [];
+        $raw = $headers['Retry-After'] ?? $headers['retry-after'] ?? null;
+        if (is_array($raw)) {
+            $raw = $raw[0] ?? null;
+        }
+        if (is_string($raw) && is_numeric(trim($raw))) {
+            return max(1, (int) trim($raw));
+        }
+        return max(1, $fallback);
     }
 }

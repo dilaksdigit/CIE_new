@@ -17,6 +17,8 @@ from urllib.parse import urlparse
 
 import pymysql
 
+from utils.business_rules import get_business_rule
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -118,7 +120,12 @@ def get_due_baselines(target_date: datetime) -> List[BaselineRow]:
 
 
 def pull_current_gsc(url: str) -> Optional[GscSnapshot]:
-    """Pull current GSC metrics for the URL (14-day window ending today)."""
+    """
+    Pull current GSC metrics for the URL (baseline lookback window ending today).
+
+    SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3 sync.baseline_lookback_weeks
+    FIX: CIS-02 — lookback from business_rules, not hardcoded 14 days
+    """
     try:
         from utils.config import Config
         from integrations.gsc_client import pull_gsc_for_page
@@ -126,7 +133,8 @@ def pull_current_gsc(url: str) -> Optional[GscSnapshot]:
         if not site_url:
             return None
         end = date.today()
-        start = end - timedelta(days=14)
+        lookback_weeks = int(get_business_rule("sync.baseline_lookback_weeks", 2))
+        start = end - timedelta(days=lookback_weeks * 7)
         return pull_gsc_for_page(site_url, url, start, end)
     except Exception as exc:
         logger.warning("pull_current_gsc failed for url=%s: %s", url, exc)
@@ -134,7 +142,12 @@ def pull_current_gsc(url: str) -> Optional[GscSnapshot]:
 
 
 def pull_current_ga4(url: str) -> Optional[Ga4Snapshot]:
-    """Pull current GA4 metrics for the landing page URL."""
+    """
+    Pull current GA4 metrics for the landing page URL.
+
+    SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3 sync.baseline_lookback_weeks
+    FIX: CIS-02 — lookback from business_rules, not hardcoded 14 days
+    """
     try:
         from utils.config import Config
         from integrations.ga4_client import pull_ga4_for_landing_page
@@ -142,7 +155,8 @@ def pull_current_ga4(url: str) -> Optional[Ga4Snapshot]:
         if not property_id:
             return None
         end = date.today()
-        start = end - timedelta(days=14)
+        lookback_weeks = int(get_business_rule("sync.baseline_lookback_weeks", 2))
+        start = end - timedelta(days=lookback_weeks * 7)
         return pull_ga4_for_landing_page(property_id, url, start, end)
     except Exception as exc:
         logger.warning("pull_current_ga4 failed for url=%s: %s", url, exc)
@@ -267,12 +281,17 @@ def run() -> None:
     For each baseline whose baseline_captured_at is 30 days ago and whose
     D+30 columns are NULL, pulls fresh GSC + GA4 metrics, writes d30_*, and
     computes cis_score.
+
+    SOURCE: CIE_Master_Developer_Build_Spec.docx §11 step 7; §5.3 cis.measurement_window_d30
+    FIX: CIS-01 — D+30 offset from business_rules (not hardcoded 30)
+    NOTE: cis_status column vs spec measurement_status — see GAP_LOG GAP-P6-2
     """
     now = datetime.now(timezone.utc)
-    target_date = (now - timedelta(days=30)).date()
-    logger.info("Starting CIS D+30 job for baseline date=%s", target_date)
+    d30_days = int(get_business_rule("cis.measurement_window_d30", 30))
+    target_date = (now - timedelta(days=d30_days)).date()
+    logger.info("Starting CIS D+30 job for baseline date=%s (cis.measurement_window_d30=%s)", target_date, d30_days)
 
-    baselines = get_due_baselines(now - timedelta(days=30))
+    baselines = get_due_baselines(now - timedelta(days=d30_days))
     if not baselines:
         logger.info("No baselines due for D+30 measurement.")
         return

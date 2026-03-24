@@ -21,6 +21,9 @@ class ChannelDeployService
 {
     /** Exponential backoff delays (seconds) on N8N 429. SOURCE: Task A2 spec. */
     private const BACKOFF_SECONDS = [30, 120, 600]; // 30s → 2m → 10m
+    // SOURCE: CLAUDE.md §10 — GMC Content API 50 calls/min.
+    private static int $gmcWindowStartedAt = 0;
+    private static int $gmcCallsInWindow = 0;
 
     /**
      * Deploy to Shopify via N8N webhook. HMAC-signed payload. On 429: retry with backoff, log each retry to audit_log.
@@ -171,6 +174,7 @@ class ChannelDeployService
         $attempt = 0;
 
         while (true) {
+            $this->enforceGmcRateLimit();
             $response = $this->postWithHmac($url, $payload, $secret);
             $statusCode = $response['status_code'] ?? 0;
 
@@ -184,11 +188,33 @@ class ChannelDeployService
             }
 
             if ($statusCode === 429 && $attempt < count(self::BACKOFF_SECONDS)) {
-                $delay = self::BACKOFF_SECONDS[$attempt];
+                // SOURCE: CIE_Integration_Specification.pdf §2.5
+                // FIX: N8N-03 — respect Retry-After header, queue/retry after delay.
+                $headers = $response['headers'] ?? [];
+                $retryAfterRaw = $headers['Retry-After'] ?? $headers['retry-after'] ?? null;
+                if (is_array($retryAfterRaw)) {
+                    $retryAfterRaw = $retryAfterRaw[0] ?? null;
+                }
+                $delay = (is_string($retryAfterRaw) && is_numeric(trim($retryAfterRaw)))
+                    ? max(1, (int) trim($retryAfterRaw))
+                    : self::BACKOFF_SECONDS[$attempt];
                 $this->logRetryToAudit($skuId, 'gmc', 429, $attempt + 1, $delay);
                 sleep($delay);
                 $attempt++;
                 continue;
+            }
+
+            if ($statusCode === 429) {
+                $headers = $response['headers'] ?? [];
+                $retryAfterRaw = $headers['Retry-After'] ?? $headers['retry-after'] ?? null;
+                if (is_array($retryAfterRaw)) {
+                    $retryAfterRaw = $retryAfterRaw[0] ?? null;
+                }
+                $retryAfter = (is_string($retryAfterRaw) && is_numeric(trim($retryAfterRaw)))
+                    ? max(1, (int) trim($retryAfterRaw))
+                    : 60;
+                Log::info("GMC 429: queuing for retry after {$retryAfter}s", ['sku_id' => $skuId]);
+                return ['channel' => 'gmc', 'status' => 'queued_for_retry', 'retry_after' => $retryAfter, 'deployed_at' => null];
             }
 
             Log::error('ChannelDeploy: GMC webhook failed', [
@@ -306,11 +332,33 @@ class ChannelDeployService
             return [
                 'status_code' => $response->status(),
                 'body'        => $response->json() ?? [],
+                'headers'     => $response->headers(),
             ];
         } catch (\Throwable $e) {
             Log::warning('ChannelDeploy: N8N request failed: ' . $e->getMessage());
             return ['status_code' => 0, 'body' => []];
         }
+    }
+
+    /**
+     * SOURCE: CLAUDE.md §10 — GMC max 50 calls per rolling minute.
+     */
+    private function enforceGmcRateLimit(): void
+    {
+        $now = time();
+        if (self::$gmcWindowStartedAt === 0 || ($now - self::$gmcWindowStartedAt) >= 60) {
+            self::$gmcWindowStartedAt = $now;
+            self::$gmcCallsInWindow = 0;
+        }
+        if (self::$gmcCallsInWindow >= 50) {
+            $sleepSeconds = 60 - ($now - self::$gmcWindowStartedAt);
+            if ($sleepSeconds > 0) {
+                sleep($sleepSeconds);
+            }
+            self::$gmcWindowStartedAt = time();
+            self::$gmcCallsInWindow = 0;
+        }
+        self::$gmcCallsInWindow++;
     }
 
     /** Log each 429 retry to audit_log (INSERT only). */

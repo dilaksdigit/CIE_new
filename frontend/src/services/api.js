@@ -1,6 +1,16 @@
 // SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx Sections 4.2 & 5; openapi validate + content flow
 import axios from 'axios';
 
+/** OpenAPI list responses use { items: [] }; some handlers use { data: [] } or a bare array. */
+export function extractApiArray(response, keys = ['items', 'data']) {
+    const body = response?.data;
+    if (Array.isArray(body)) return body;
+    for (const k of keys) {
+        if (Array.isArray(body?.[k])) return body[k];
+    }
+    return [];
+}
+
 const api = axios.create({
     baseURL: import.meta.env.VITE_API_URL || '/api',
     headers: {
@@ -33,7 +43,8 @@ api.interceptors.response.use(
 
 // ====== Auth ======
 export const authApi = {
-    login: (email, password) => api.post('/v1/auth/login', { email: email.trim(), password }),
+    /** OpenAPI / auth/login uses `username` (email is sent as username). */
+    login: (username, password) => api.post('/v1/auth/login', { username: username.trim(), password }),
     register: (name, email, password, password_confirmation, role) => api.post('/v1/auth/register', {
         name,
         email,
@@ -53,6 +64,8 @@ export const writerEditApi = {
     get: (skuId) => api.get(`/v1/sku/${skuId}`),
     validate: (skuId, data) => api.post(`/v1/sku/${skuId}/validate`, data),
     publish: (skuId, data) => api.put(`/v1/sku/${skuId}/content`, data),
+    // SOURCE: CIE_Master_Developer_Build_Spec.docx §4.4 — AI content pre-fill
+    suggest: (skuId) => api.post(`/v1/sku/${skuId}/suggest`),
 };
 
 /**
@@ -93,6 +106,18 @@ export const clusterApi = {
 // ====== Tiers ======
 export const tierApi = {
     recalculate: () => api.post('/v1/tiers/recalculate'),
+};
+
+// ====== Tier Change Requests (Dual approval flow) ======
+export const tierChangeApi = {
+    createRequest: (skuId, requestedTier) =>
+        api.post(`/v1/sku/${skuId}/tier-change-request`, { requested_tier: requestedTier }),
+    approvePortfolio: (requestId) =>
+        api.post(`/v1/tier-change-requests/${requestId}/approve-portfolio`),
+    approveFinance: (skuId) =>
+        api.post(`/v1/sku/${skuId}/tier-change-approve`),
+    getStatus: (skuId) =>
+        api.get(`/v1/sku/${skuId}/tier-change-status`),
 };
 
 // ====== Audit ======

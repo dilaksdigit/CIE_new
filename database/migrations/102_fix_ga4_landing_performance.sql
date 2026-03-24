@@ -1,0 +1,12 @@
+-- SOURCE: Master Spec §6.4.
+
+SET NAMES utf8mb4;
+
+ALTER TABLE ga4_landing_performance
+  ADD COLUMN IF NOT EXISTS sku_id CHAR(36) NULL,
+  ADD COLUMN IF NOT EXISTS week_ending DATE NULL,
+  ADD COLUMN IF NOT EXISTS organic_sessions INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS organic_conversions INT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS organic_conversion_rate DECIMAL(8,6) NULL,
+  ADD COLUMN IF NOT EXISTS bounce_rate DECIMAL(6,4) NULL,
+  ADD COLUMN IF NOT EXISTS revenue_organic DECIMAL(12,2) NULL;

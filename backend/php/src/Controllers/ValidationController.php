@@ -2,7 +2,6 @@
 namespace App\Controllers;
 
 use App\Services\ValidationService;
-use App\Utils\ResponseFormatter;
 use Illuminate\Http\Request;
 use App\Models\AuditLog;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -29,20 +28,37 @@ class ValidationController {
         if (!$id) {
             return response()->json(['error' => 'sku_id or id required in body'], 400);
         }
-        return $this->validate($id);
+        return $this->validate($request, $id);
     }
 
-    public function validate($id) {
+    // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.2, openapi.yaml SkuValidateRequest — merge JSON body over persisted SKU for live draft validation
+    public function validate(Request $request, string $sku_id) {
         try {
-            $result = $this->service->validateSku($id);
+            $payload = $request->validate([
+                'cluster_id' => 'sometimes|nullable|string',
+                'tier' => 'sometimes|nullable|string',
+                'primary_intent' => 'sometimes|nullable',
+                'secondary_intents' => 'sometimes|array',
+                'secondary_intents.*' => 'sometimes|nullable|string',
+                'title' => 'sometimes|nullable|string',
+                'description' => 'sometimes|nullable|string',
+                'answer_block' => 'sometimes|nullable|string',
+                'best_for' => 'sometimes|array',
+                'best_for.*' => 'sometimes|nullable|string',
+                'not_for' => 'sometimes|array',
+                'not_for.*' => 'sometimes|nullable|string',
+                'expert_authority' => 'sometimes|nullable|string',
+                'action' => 'sometimes|nullable|string|in:save,publish',
+            ]);
+            $result = $this->service->validateSku($sku_id, $payload);
         } catch (ModelNotFoundException $e) {
-            return response()->json(['error' => 'SKU not found', 'sku_id' => $id], 404);
+            return response()->json(['error' => 'SKU not found', 'sku_id' => $sku_id], 404);
         }
 
         // Log validation action
         AuditLog::create([
             'entity_type' => 'sku',
-            'entity_id'   => $id,
+            'entity_id'   => $sku_id,
             'action'      => 'validate',
             'field_name'  => null,
             'old_value'   => null,
@@ -59,6 +75,10 @@ class ValidationController {
 
         $httpStatus = $result['http_status'] ?? 200;
         unset($result['http_status']);
-        return ResponseFormatter::format($result, $result['valid'] ? 'Success' : 'Validation failed', $httpStatus);
+        // SOURCE: openapi.yaml ValidationResponse, ENF§7.2 — validate returns unwrapped body at JSON root (not ResponseFormatter envelope)
+        $body = $result['openapi_validation_body'] ?? [];
+        unset($result['openapi_validation_body']);
+
+        return response()->json($body, $httpStatus);
     }
 }

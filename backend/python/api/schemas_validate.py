@@ -6,27 +6,57 @@ from typing import Literal, Optional, Dict
 from pydantic import BaseModel, Field
 
 
-# Exactly 9 valid intents (locked taxonomy). SOURCE: CLAUDE.md §6 — 9-intent taxonomy includes Safety/Compliance and Bulk/Trade
+# SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 — locked 9-intent taxonomy keys
 VALID_PRIMARY_INTENTS = frozenset({
-    "Compatibility",
-    "Comparison",
-    "Problem-Solving",
-    "Inspiration",
-    "Specification",
-    "Installation",
-    "Safety/Compliance",
-    "Replacement",
-    "Bulk/Trade",
+    'problem_solving',
+    'comparison',
+    'compatibility',
+    'specification',
+    'installation',
+    'troubleshooting',
+    'inspiration',
+    'regulatory',
+    'replacement',
 })
 
 
-def _norm_intent(value: str) -> str:
-    # SOURCE: CLAUDE.md §6 — taxonomy includes Safety/Compliance and Bulk/Trade; normalization must accept both label form and API key form
-    return value.strip().lower().replace(" ", "_").replace("-", "_").replace("/", "_")
+def _base_norm(value: str) -> str:
+    # SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 — normalize label or API key to snake_case stem
+    if not value or not str(value).strip():
+        return ''
+    s = str(value).strip().lower().replace(' ', '_').replace('-', '_').replace('/', '_')
+    while '__' in s:
+        s = s.replace('__', '_')
+    return s.strip('_')
 
 
-# Normalized set: Safety/Compliance → safety_compliance, Bulk/Trade → bulk_trade, etc.
-VALID_PRIMARY_INTENTS_NORM = frozenset(_norm_intent(s) for s in VALID_PRIMARY_INTENTS)
+# SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 — legacy API keys from pre-§8.3 seeds map to canonical keys
+# FIX: G2-01 — bulk_trade is not in the locked 9-intent taxonomy; do not alias to another intent.
+_LEGACY_INTENT_KEY_ALIASES = {
+    'safety_compliance': 'regulatory',
+}
+
+# SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 — collapse normalized labels to canonical keys
+_LABEL_COLLAPSE_TO_KEY = {
+    'regulatory_safety': 'regulatory',
+    'inspiration_style': 'inspiration',
+    'installation_how_to': 'installation',
+    'replacement_refill': 'replacement',
+}
+
+
+def resolve_canonical_intent_key(value: str | None) -> str:
+    # SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 + §2.1 G2 — single canonical key for enum check
+    s = _base_norm(str(value) if value is not None else '')
+    if not s:
+        return ''
+    s = _LEGACY_INTENT_KEY_ALIASES.get(s, s)
+    s = _LABEL_COLLAPSE_TO_KEY.get(s, s)
+    return s
+
+
+# SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 — normalized allow-list (same as keys; used by G2/G3)
+VALID_PRIMARY_INTENTS_NORM = frozenset(VALID_PRIMARY_INTENTS)
 
 
 class SkuValidateRequest(BaseModel):
@@ -41,25 +71,26 @@ class SkuValidateRequest(BaseModel):
     best_for: list[str] = Field(default_factory=list)
     not_for: list[str] = Field(default_factory=list)
     expert_authority: str | None = None
-    action: Literal["save", "publish"] = "save"
+    action: Literal['save', 'publish'] = 'save'
 
 
 class FailureItem(BaseModel):
-    error_code: str
+    # SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §7.3 — error_code is from closed Page 18 set or null when omitted by gate bug
+    error_code: str | None = None
     detail: str
     user_message: str
     gate: Optional[str] = None  # SOURCE: ENF§7.2 — gate key for response (e.g. G1_cluster_id)
 
 
 class SkuValidateResponsePass(BaseModel):
-    status: Literal["pass"] = "pass"
-    message: str = "All gates passed."
+    status: Literal['pass'] = 'pass'
+    message: str = 'All gates passed.'
 
 
 class SkuValidateResponseFail(BaseModel):
-    status: Literal["fail"] = "fail"
+    status: Literal['fail'] = 'fail'
     failures: list[FailureItem]
-    message: str = "One or more gates failed."
+    message: str = 'One or more gates failed.'
 
 
 # SOURCE: openapi.yaml ValidationResponse, Hardening Addendum §1.4

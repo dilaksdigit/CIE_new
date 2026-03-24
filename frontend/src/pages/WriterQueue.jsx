@@ -7,7 +7,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import api from '../services/api';
+import api, { extractApiArray } from '../services/api';
 import THEME from '../theme';
 
 const C = THEME;
@@ -62,6 +62,10 @@ const normalizeQueueItem = (item) => {
         totalFields,
         doneFields,
         aiSuggestions: Number(item?.ai_suggestion_count ?? item?.ai_suggestions_count ?? item?.suggestions_count ?? 0) || 0,
+        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §1
+        // FIX: UI-14 — show informational queue badges from Semrush-derived flags.
+        hasQuickWin: Boolean(item?.has_quick_win ?? item?.quick_win ?? false),
+        hasCompetitorGap: Boolean(item?.has_competitor_gap ?? item?.competitor_gap ?? false),
         urgency: String(item?.urgency || item?.priority || '').toLowerCase(),
         reason: String(item?.reason || item?.why || item?.context || 'Prioritized by AI queue engine'),
     };
@@ -180,8 +184,8 @@ const WriterQueue = () => {
                     return;
                 }
                 if (cancelled) return;
-                const rawList = queueRes?.data?.data ?? queueRes?.data ?? [];
-                const normalized = (Array.isArray(rawList) ? rawList : [])
+                const rawList = extractApiArray(queueRes);
+                const normalized = rawList
                     .map(normalizeQueueItem)
                     .sort((a, b) => {
                         const tierCmp = (tierOrder[a.tier] ?? 99) - (tierOrder[b.tier] ?? 99);
@@ -419,9 +423,43 @@ const WriterQueue = () => {
                                         <div style={{ color: C.textMid, fontSize: '0.68rem', marginTop: 5 }}>{item.reason}</div>
                                         {item.aiSuggestions > 0 && (
                                             <div style={{ marginTop: 5, color: C.accent, fontSize: '0.68rem', fontWeight: 600 }}>
-                                                💡 {item.aiSuggestions} suggestion{item.aiSuggestions > 1 ? 's' : ''} from Semrush & Analytics
+                                                {/* SOURCE: CLAUDE.md §8
+                                                   FIX: UI-05 — remove emoji from production UI. */}
+                                                {item.aiSuggestions} suggestion{item.aiSuggestions > 1 ? 's' : ''} from Semrush & Analytics
                                             </div>
                                         )}
+                                        <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                            {item.hasQuickWin && (
+                                                <span
+                                                    style={{
+                                                        backgroundColor: C.greenBg,
+                                                        color: C.green,
+                                                        border: `1px solid ${C.greenBorder}`,
+                                                        padding: '2px 8px',
+                                                        borderRadius: 4,
+                                                        fontSize: '0.62rem',
+                                                        fontWeight: 700,
+                                                    }}
+                                                >
+                                                    Quick Win
+                                                </span>
+                                            )}
+                                            {item.hasCompetitorGap && (
+                                                <span
+                                                    style={{
+                                                        backgroundColor: C.amberBg,
+                                                        color: C.amber,
+                                                        border: `1px solid ${C.amberBorder}`,
+                                                        padding: '2px 8px',
+                                                        borderRadius: 4,
+                                                        fontSize: '0.62rem',
+                                                        fontWeight: 700,
+                                                    }}
+                                                >
+                                                    Competitor Gap
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
 
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>

@@ -1,5 +1,5 @@
 -- CIE v2.3.2 — Business Rules seed (Section 5.3 of CIE_Master_Developer_Build_Spec.docx).
--- Exactly 52 rules. Phase 0 checklist: SELECT COUNT(*) = 52 FROM business_rules.
+-- Exactly 52 rules in this file; migration 117_seed_business_rules_channel_harvest_and_cache_ttl.sql adds 2 rows (54 total).
 -- All former "extra" keys are now hard-coded or aliased in application code.
 -- SOURCE: MASTER§5.3 C2 — spec-defined gate rules: gates.answer_block_min_chars, gates.answer_block_max_chars,
 --   gates.best_for_min_entries, gates.not_for_min_entries, gates.vector_similarity_min.
@@ -15,6 +15,12 @@ INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 (UUID(), 'tier.velocity_weight', '0.20', 'float', '90-day velocity weighting'),
 (UUID(), 'tier.returns_weight', '0.15', 'float', 'Return rate weighting'),
 (UUID(), 'tier.manual_override_expiry_days', '90', 'integer', 'Days before manual tier override auto-expires'),
+-- SOURCE: CIE_Master_Developer_Build_Spec.docx Section 5 — zero hard-coded values
+-- SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 9.2 — auto-promotion = 30% velocity increase
+(UUID(), 'tier.auto_promotion_velocity_threshold', '0.30', 'float', 'Harvest-to-Support auto-promotion threshold (fractional velocity growth, e.g. 0.30 = 30%)'),
+(UUID(), 'tier.kill_margin_floor', '5.0', 'float', 'SKUs with margin below this threshold are candidates for Kill tier assignment'),
+(UUID(), 'tier.kill_no_sale_days', '90', 'integer', 'SKUs with no sales for this many days are candidates for Kill tier assignment'),
+(UUID(), 'tier.kill_zero_velocity_threshold', '0', 'integer', 'SKUs at or below this 90-day velocity are candidates for Kill tier assignment'),
 -- chs — Content Health Score (7)
 (UUID(), 'chs.intent_alignment_weight', '0.25', 'float', 'CHS weight: conversion / intent match signal'),
 (UUID(), 'chs.semantic_coverage_weight', '0.20', 'float', 'CHS weight: topic cluster coverage'),
@@ -36,6 +42,9 @@ INSERT INTO business_rules (id, rule_key, value, value_type, description) VALUES
 -- decay — Citation Decay & Refresh Briefs (8)
 (UUID(), 'decay.yellow_flag_weeks', '1', 'integer', 'Consecutive zero-score weeks before yellow_flag status'),
 (UUID(), 'decay.alert_weeks', '2', 'integer', 'Consecutive zeros before Content Writer alert'),
+-- SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3
+-- FIX: DEC-01/DEC-06 — spec key alias for brief threshold
+(UUID(), 'decay.zero_weeks_before_brief', '3', 'integer', 'Consecutive zeros before AI auto-generates refresh brief (spec key)'),
 (UUID(), 'decay.auto_brief_weeks', '3', 'integer', 'Consecutive zeros before AI auto-generates refresh brief'),
 (UUID(), 'decay.escalate_weeks', '4', 'integer', 'Weeks after brief with no recovery before escalation'),
 (UUID(), 'decay.auto_brief_deadline_days', '7', 'integer', 'Days Content Writer has to complete a refresh brief'),

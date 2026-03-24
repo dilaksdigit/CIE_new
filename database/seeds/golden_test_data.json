@@ -50,7 +50,7 @@
     "expected_outputs": {
       "gate_results": {"G1": "PASS", "G2": "PASS", "G3": "PASS", "G4": "PASS", "G5": "PASS", "G6": "PASS", "G7": "PASS", "overall": "ALL_PASS", "submit_enabled": true},
       "channel_decisions": {"google_sge": {"decision": "COMPETE", "readiness": 92}, "amazon": {"decision": "COMPETE", "readiness": 78}, "ai_assistants": {"decision": "COMPETE", "readiness": 85}, "own_website": {"decision": "COMPETE", "readiness": 95}, "active_channels": 4},
-      "maturity": {"core_fields": 40, "authority": 20, "channel_readiness": 22, "ai_visibility": 11, "total": 93, "level": "Gold"},
+      "maturity": {"core_fields": 40, "authority": 20, "channel_readiness": 22, "ai_visibility": 12, "total": 94, "level": "Gold"},
       "title_validation": {"starts_with_intent": true, "attribute_stacking": false, "shopify_length_valid": true, "feed_length_valid": true}
     }
   },

@@ -31,7 +31,7 @@ class ValidatePortfolioGatesCommand extends Command
         $request->setUserResolver(fn () => null);
         $response = $controller->index($request);
         $data = $response->getData(true);
-        $skus = $data['data'] ?? $data ?? [];
+        $skus = $data['items'] ?? $data['data'] ?? $data ?? [];
         if (!is_array($skus)) {
             $this->error('List response is not an array.');
             return 1;

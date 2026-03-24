@@ -1,1 +1,6 @@
--- Seed test users (removed per CIE_v232_Developer_Amendment_Pack_v2 §3.1 - no unsanctioned test accounts)
+-- SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §3.1
+-- SOURCE: CIE_v232_UI_Restructure_Instructions.docx §5 Step 2
+-- Standalone test users were removed per Amendment Pack §3.1 (no unsanctioned test accounts in this file).
+-- Canonical writer + KPI reviewer (+ admin) seeds: migration 044_seed_v232_writer_reviewer_users.sql
+-- Idempotent repair / re-apply: migration 122_seed_writer_reviewer_users.sql
+-- Emails: writer@cie.internal.com (CONTENT_EDITOR + PRODUCT_SPECIALIST), kpi_reviewer@cie.internal.com (CONTENT_LEAD + SEO_GOVERNOR).

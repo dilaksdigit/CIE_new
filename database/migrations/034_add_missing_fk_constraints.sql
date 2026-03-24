@@ -39,14 +39,11 @@ ALTER TABLE clusters
 -- SOURCE: Validation report, RELATIONSHIP 3
 -- DEFECT IN: 023_create_ai_audit_tables.sql
 -- -----------------------------------------------------------------
--- TODO: FK for ai_golden_queries.intent_type_id is BLOCKED.
--- TYPE MISMATCH: intent_type_id is SMALLINT (023), intents.id is CHAR(36).
--- This ALTER would fail at the database level.
--- Additionally, migration 028 attempted to rename this column to
--- intent_type and add FK to intent_taxonomy(intent_id) (SMALLINT).
--- Migration 036 still references intent_type_id, making schema
--- state ambiguous. Architect must resolve before applying.
--- SOURCE: CLAUDE.md §9 | Validation report RELATIONSHIP 3
+-- RESOLVED: FK for ai_golden_queries.intent_type added in
+-- 092_add_ai_golden_queries_intent_fk.sql.
+-- Original block was due to targeting legacy intents(id CHAR(36))
+-- instead of canonical intent_taxonomy(intent_id SMALLINT).
+-- SOURCE: CIE_v231_Developer_Build_Pack §ai_golden_queries table definition
 --
 -- ALTER TABLE ai_golden_queries
 --   ADD CONSTRAINT fk_ai_golden_queries_intent_type

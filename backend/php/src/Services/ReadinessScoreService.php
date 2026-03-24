@@ -13,12 +13,11 @@ use App\Enums\TierType;
  */
 class ReadinessScoreService
 {
-    /** Channels for dashboard (v2.3.2: shopify + gmc only per CLAUDE.md Section 4 — DECISION-001). */
-    private const CHANNELS = ['shopify', 'gmc'];
+    /** SOURCE: CIE_v2.3_Enforcement_Edition.pdf §7.1 — 4-channel readiness surface. */
+    private const CHANNELS = ['google_sge', 'amazon', 'ai_assistants', 'own_website'];
 
-    public function __construct(
-        private ContentHealthScoreService $contentHealthScoreService
-    ) {
+    public function __construct(private ChannelGovernorService $channelGovernorService)
+    {
     }
 
     /**
@@ -30,48 +29,44 @@ class ReadinessScoreService
     public function computeReadiness(Sku $sku): array
     {
         $tier = $this->normalizeTier($sku->tier);
-        $chsResult = $this->contentHealthScoreService->calculateCHS($sku);
-        $chs = (int) round($chsResult['chs']);
-        $chs = min(100, max(0, $chs));
-
+        $assessment = $this->channelGovernorService->assess($sku);
         $channels = [];
+        $scores = [];
         foreach (self::CHANNELS as $channel) {
-            $channels[] = ['channel' => $channel, 'score' => $chs];
+            $row = $assessment[$channel] ?? ['score' => 0, 'decision' => 'SKIP', 'component_scores' => []];
+            $score = (int) ($row['score'] ?? 0);
+            $scores[] = $score;
+            $channels[] = [
+                'channel' => $channel,
+                'score' => $score,
+                'decision' => $row['decision'] ?? 'SKIP',
+                'components' => $row['component_scores'] ?? [],
+            ];
         }
-
-        // Map CHS components to legacy component shape for compatibility; sub-scores derived from CHS components
-        $comp = $chsResult['components'];
-        $contentScore = (int) round(($comp['intent_alignment'] + $comp['semantic_coverage']) / 2);
-        $schemaScore = (int) round($comp['technical_seo']);
-        $competitiveNum = is_numeric($comp['competitive_gap']) ? (float) $comp['competitive_gap'] : 0.0;
-        $commercialScore = (int) round(($competitiveNum + $comp['ai_readiness']) / 2);
+        $overall = count($scores) > 0 ? (int) round(array_sum($scores) / count($scores)) : 0;
+        $componentScores = $assessment['own_website']['component_scores'] ?? [];
 
         return [
             'sku_id'           => (string) $sku->id,
             'tier'             => $tier,
-            'overall'          => $chs,
+            'overall'          => $overall,
             'max_possible'     => 100,
-            'content_score'    => $contentScore,
-            'schema_score'     => $schemaScore,
-            'commercial_score' => $commercialScore,
-            'components'       => $this->chsToLegacyComponents($comp),
+            'content_score'    => $overall,
+            'schema_score'     => $overall,
+            'commercial_score' => $overall,
+            'components'       => [],
             'channels'         => $channels,
-            'chs_components'   => $comp,
-            'competitive_gap_no_data' => $chsResult['competitive_gap_no_data'],
-        ];
-    }
-
-    /**
-     * Map CHS component breakdown to legacy components array shape (for API/dashboard compatibility).
-     */
-    private function chsToLegacyComponents(array $comp): array
-    {
-        return [
-            'intent_alignment'     => ['points_earned' => (int) round($comp['intent_alignment']), 'points_max' => 100, 'applies' => true],
-            'semantic_coverage'    => ['points_earned' => (int) round($comp['semantic_coverage']), 'points_max' => 100, 'applies' => true],
-            'technical_seo'        => ['points_earned' => (int) round($comp['technical_seo']), 'points_max' => 100, 'applies' => true],
-            'competitive_gap'      => ['points_earned' => is_numeric($comp['competitive_gap']) ? (int) round($comp['competitive_gap']) : 0, 'points_max' => 100, 'applies' => true, 'no_data' => $comp['competitive_gap'] === ContentHealthScoreService::COMPETITIVE_GAP_NO_DATA],
-            'ai_readiness'         => ['points_earned' => (int) round($comp['ai_readiness']), 'points_max' => 100, 'applies' => true],
+            'component_scores' => [
+                // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 3 — OpenAPI schema fields.
+                'answer_block_score' => (int) ($componentScores['answer_block'] ?? 0),
+                'faq_coverage_score' => (int) ($componentScores['faq_coverage'] ?? 0),
+                'safety_depth_score' => (int) ($componentScores['safety_depth'] ?? 0),
+                'cross_sku_comparison_score' => (int) ($componentScores['comparison_data'] ?? 0),
+                'structured_data_score' => (int) ($componentScores['structured_data'] ?? 0),
+                'citation_score' => (int) (($componentScores['citation_score'] ?? 0) * 10),
+            ],
+            'active_channels' => (int) ($assessment['active_channels'] ?? 0),
+            'deadline' => $assessment['deadline'] ?? ['breached' => false, 'days_since_publish' => null],
         ];
     }
 

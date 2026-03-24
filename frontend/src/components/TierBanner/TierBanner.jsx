@@ -1,28 +1,15 @@
-// SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 6
+// SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 6 (banner colours); CIE_v232_UI_Restructure_Instructions.docx §2.1 (copy via tierFieldMap)
 
 import React from 'react';
+import { TIER_BANNER_COPY } from '../../lib/tierFieldMap';
 
-/** §6.1 Banner background colours (Hardening Addendum exactly — not badge colours). */
-const BANNER_BG = {
-    hero: '#E8F5E9',
-    support: '#FFF8E1',
-    harvest: '#FFF3E0',
-    kill: '#FFEBEE',
-};
-
-/** §6.1 Exact banner copy per tier. */
-const BANNER_TEXT = {
-    hero: 'HERO SKU — Full CIE Coverage. This product is a top-revenue performer. All 9 intent types, full Answer Block, FAQ, JSON-LD, and channel feeds are enabled. Target: ≥85 readiness on all active channels within 30 days.',
-    support: 'SUPPORT SKU — Focused Coverage. This product supports revenue but does not lead. Primary intent + max 2 secondary intents enabled. Answer Block and Best-For/Not-For required. Max 2 hours per quarter.',
-    harvest: 'HARVEST SKU — Maintenance Mode. This product has low margin and limited growth potential. Only Specification + 1 optional intent are available. Answer Block, Best-For/Not-For, and Expert Authority are suspended. Max 30 minutes per quarter. Focus your time on Hero SKUs instead.',
-    kill: 'KILL SKU — Editing Disabled. This product has negative margin or is flagged for delisting. All content fields are read-only. No time investment permitted. If you believe this classification is wrong, contact your Portfolio Holder to request a tier review (requires Finance co-approval).',
-};
-
-const TIER_LABELS = {
-    hero: 'HERO',
-    support: 'SUPPORT',
-    harvest: 'HARVEST',
-    kill: 'KILL',
+// SOURCE: CLAUDE.md §8; CIE_v232_UI_Restructure_Instructions.docx §5
+// FIX: UI-17 — tier banner palette aligned to tier colors.
+const BANNER_STYLES = {
+    hero: { bg: '#8B691410', border: '#8B6914', text: '#8B6914' },
+    support: { bg: '#3D6B8E10', border: '#3D6B8E', text: '#3D6B8E' },
+    harvest: { bg: '#9E7C1A10', border: '#9E7C1A', text: '#9E7C1A' },
+    kill: { bg: '#A63D2F10', border: '#A63D2F', text: '#A63D2F' },
 };
 
 /**
@@ -32,26 +19,25 @@ const TIER_LABELS = {
  */
 function TierBanner({ tier }) {
     const key = String(tier || '').trim().toLowerCase();
-    const bg = BANNER_BG[key] || BANNER_BG.support;
-    const text = BANNER_TEXT[key] || BANNER_TEXT.support;
-    const label = TIER_LABELS[key] || key.toUpperCase();
+    const style = BANNER_STYLES[key] || BANNER_STYLES.support;
+    // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2.1 — single canonical copy from TIER_BANNER_COPY
+    const text = TIER_BANNER_COPY[key] || TIER_BANNER_COPY.support;
 
     return (
         <div
             className="tier-banner"
             style={{
                 width: '100%',
-                background: bg,
+                background: style.bg,
+                border: `1px solid ${style.border}`,
                 padding: '10px 12px',
                 marginBottom: 12,
                 fontSize: '0.78rem',
                 lineHeight: 1.4,
-                color: '#1a1a1a',
+                color: style.text,
             }}
         >
-            <strong style={{ textTransform: 'uppercase', fontWeight: 700 }}>{label} SKU</strong>
-            {' — '}
-            {text.substring((label + ' SKU — ').length)}
+            {text}
         </div>
     );
 }

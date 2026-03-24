@@ -1,9 +1,28 @@
 // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 1
 import React, { useState, useEffect, useContext } from 'react';
-import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { AppContext } from '../../App';
 import { authApi } from '../../services/api';
 import { getHomeForRole } from '../../lib/authRouting';
+
+/** Singular `user.role` for rbac.js; prefer higher-privilege role when user has many (matches backend role list). */
+function pickPrimaryRoleForSession(roles) {
+    if (!Array.isArray(roles) || roles.length === 0) return '';
+    const priority = [
+        'ADMIN',
+        'SEO_GOVERNOR',
+        'CONTENT_LEAD',
+        'PRODUCT_SPECIALIST',
+        'CONTENT_EDITOR',
+        'CHANNEL_MANAGER',
+        'FINANCE',
+        'AI_OPS',
+    ];
+    for (const p of priority) {
+        if (roles.includes(p)) return p;
+    }
+    return roles[0];
+}
 
 const Login = () => {
     const [username, setUsername] = useState('');
@@ -29,15 +48,25 @@ const Login = () => {
 
         try {
             const response = await authApi.login(username, password);
-            const { user, token } = response.data?.data || {};
-            if (!user || !token) {
+            const data = response.data || {};
+            const token = data.token;
+            const roles = Array.isArray(data.roles) ? data.roles : [];
+            if (!token || !data.user_id) {
                 setError('Invalid credentials. Please try again.');
                 return;
             }
+            const user = {
+                id: data.user_id,
+                email: username.trim(),
+                roles,
+                role: pickPrimaryRoleForSession(roles),
+                name: username.trim().split('@')[0] || 'User',
+            };
             login(user, token);
-            navigate(getHomeForRole(user), { replace: true });
+            navigate(data.redirect_to || getHomeForRole(user), { replace: true });
         } catch (err) {
-            setError('Invalid credentials. Please try again.');
+            const msg = err.response?.data?.message;
+            setError(typeof msg === 'string' ? msg : 'Invalid credentials. Please try again.');
         } finally {
             setLoading(false);
         }

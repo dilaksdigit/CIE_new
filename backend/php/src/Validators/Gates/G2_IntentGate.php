@@ -13,6 +13,12 @@ use App\Validators\GateInterface;
 
 class G2_IntentGate implements GateInterface
 {
+    private function normalizeIntentKey(string $value): string
+    {
+        $raw = strtolower($value);
+        return trim((string) preg_replace('/[^a-z0-9]+/', '_', $raw), '_');
+    }
+
     public function validate(Sku $sku): GateResult
     {
         // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8.3
@@ -60,13 +66,16 @@ class G2_IntentGate implements GateInterface
         }
 
         $primaryIntent = $sku->skuIntents->where('is_primary', true)->first();
-        $intentName = $primaryIntent->intent->name ?? '';
+        $intentName = (string) ($primaryIntent->intent->name ?? '');
+        $normalizedIntentKey = $this->normalizeIntentKey($intentName);
 
-        // Look up in canonical intent_taxonomy (label + intent_key) — locked 9-intent set
-        $taxonomyMatch = IntentTaxonomy::query()
-            ->whereRaw('LOWER(label) = ?', [strtolower($intentName)])
-            ->orWhereRaw('LOWER(intent_key) = ?', [strtolower(str_replace(' ', '_', $intentName))])
-            ->first();
+        // Look up in canonical intent_taxonomy using normalized keys/labels
+        // so slash/hyphen spacing variants remain equivalent.
+        $taxonomyMatch = IntentTaxonomy::query()->get()->first(function ($row) use ($normalizedIntentKey) {
+            $rowKey = $this->normalizeIntentKey((string) ($row->intent_key ?? ''));
+            $rowLabel = $this->normalizeIntentKey((string) ($row->label ?? ''));
+            return $rowKey === $normalizedIntentKey || $rowLabel === $normalizedIntentKey;
+        });
 
         if (!$taxonomyMatch) {
             return new GateResult(

@@ -76,13 +76,14 @@ class G4_AnswerBlockGate implements GateInterface
         }
 
         // SOURCE: ENF§Page18 — G4 only has CIE_G4_CHAR_LIMIT and CIE_G4_KEYWORD_MISSING. Brand/marketing checks NOT part of G4 publish gate. GAP_LOG: Architect to decide — move to AI Agent advisory or remove.
+        // SOURCE: openapi.yaml SkuValidateRequest, CIE_Master_Developer_Build_Spec.docx §7 G4 — primary intent keyword(s) in answer block
         // Keyword check (stemmed)
         $primaryIntentNode = $sku->skuIntents->where('is_primary', true)->first();
         if ($primaryIntentNode) {
-            $intent = strtolower($primaryIntentNode->intent->name ?? '');
-            $keyword = $this->getStemmedKeyword($intent);
-            
-            if ($keyword && strpos(strtolower($answer), $keyword) === false) {
+            $raw = strtolower(str_replace([' ', '-', '/'], '_', $primaryIntentNode->intent->name ?? ''));
+            $intent = preg_replace('/_+/', '_', trim($raw, '_'));
+            $answerLower = strtolower($answer);
+            if (! $this->answerContainsIntentKeyword($intent, $answerLower)) {
                 return new GateResult(
                     gate: GateType::G4_ANSWER_BLOCK,
                     passed: false,
@@ -105,19 +106,50 @@ class G4_AnswerBlockGate implements GateInterface
         );
     }
 
-    private function getStemmedKeyword(string $intent): string
+    /**
+     * SOURCE: openapi.yaml SkuValidateRequest primary_intent enum — all nine intents must map to a keyword check (mirrors backend/python/api/gates_validate.py INTENT_KEYWORDS).
+     */
+    private function answerContainsIntentKeyword(string $intentNorm, string $answerLower): bool
     {
-        $intent = strtolower(str_replace([' ', '-'], '_', $intent));
+        $kw = $this->getStemmedKeywordOrList($intentNorm);
+        if ($kw === [] || $kw === '') {
+            return true;
+        }
+        if (is_string($kw)) {
+            return str_contains($answerLower, $kw);
+        }
+        foreach ($kw as $fragment) {
+            if ($fragment !== '' && str_contains($answerLower, $fragment)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return string|list<string> */
+    private function getStemmedKeywordOrList(string $intent): array|string
+    {
         switch ($intent) {
             case 'compatibility': return 'compat';
             case 'inspiration': return 'inspir';
-            case 'problem_solving': case 'problem-solving': return 'solut';
+            case 'inspiration_style': return 'inspir';
+            case 'problem_solving': return 'solut';
             case 'specification': return 'spec';
             case 'comparison': return 'compar';
-            case 'installation': return 'install';
-            case 'troubleshooting': return 'shoot';
-            case 'regulatory': case 'safety_compliance': return 'safe';
-            case 'replacement': return 'replac';
+            case 'installation':
+            case 'installation_how_to': return 'install';
+            // SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 — troubleshooting keyword stems (aligned with Python INTENT_KEYWORDS)
+            case 'troubleshooting': return ['troubleshoot', 'trouble', 'fix', 'issue', 'problem', 'repair', 'diagnose'];
+            // SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 — regulatory keyword stems
+            case 'regulatory':
+            case 'regulatory_safety':
+            case 'safety_compliance':
+            case 'safety/compliance': return ['regulation', 'safety', 'compliance', 'standard', 'certified', 'bs 7671', 'ce', 'ip rating'];
+            case 'replacement':
+            case 'replacement_refill': return 'replac';
+            case 'bulk_trade':
+            case 'bulk/trade': return ['bulk', 'trade', 'wholesale', 'quantity', 'pack'];
             default: return '';
         }
     }

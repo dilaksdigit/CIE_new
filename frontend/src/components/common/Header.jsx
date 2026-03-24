@@ -25,7 +25,9 @@ const Header = () => {
                 {/* SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 4 (top nav help icon); Section 1.5 (light palette) */}
                 {isAuthenticated && (
                     <Link
-                        to="/help"
+                        // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §5 Step 6
+                        // FIX: UI-11 — help icon links to /help/flow.
+                        to="/help/flow"
                         title="How the system works"
                         style={{
                             display: 'inline-flex',
@@ -66,7 +68,9 @@ const Header = () => {
                                 </div>
                                 <div className="dropdown-divider"></div>
                                 <button className="dropdown-item logout-btn" onClick={handleLogout}>
-                                    🚪 Logout
+                                    {/* SOURCE: CLAUDE.md §8
+                                       FIX: UI-05 — no emojis in production UI. */}
+                                    Logout
                                 </button>
                             </div>
                         )}

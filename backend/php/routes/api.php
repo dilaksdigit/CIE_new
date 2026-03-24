@@ -19,13 +19,21 @@ use App\Controllers\FAQController;
 use App\Controllers\GscController;
 use App\Controllers\BulkOpsController;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Http;
 
 // Semrush import — spec path POST /api/admin/semrush-import (no /v1/); CLAUDE.md §3 Rule R1
 Route::post('admin/semrush-import', [SemrushImportController::class, 'import'])->middleware(['auth', 'rbac:ADMIN']);
 
 // ERP sync — spec alias at POST /api/admin/erp-sync (openapi.yaml ERP Integration tag)
 Route::post('admin/erp-sync', [TierController::class, 'erpSync'])->middleware(['auth', 'rbac:ADMIN']);
+
+// SOURCE: Phase 7 fix request — external ERP failure callback route.
+// FIX: P7-ROUTES-01
+Route::post('admin/sync-failed', [TierController::class, 'syncFailed'])->middleware(['auth', 'rbac:ADMIN']);
+
+// SOURCE: Phase 7 fix request — channel deployment/failure callbacks from worker.
+// FIX: P7-ROUTES-02
+Route::post('skus/{skuCode}/channel-deployed', [SkuController::class, 'channelDeployed'])->middleware(['auth']);
+Route::post('skus/{skuCode}/channel-failed', [SkuController::class, 'channelFailed'])->middleware(['auth']);
 
 // Unified API v1 — all spec-compliant routes live under /api/v1
 // SOURCE: CLAUDE.md Section 3 R1; cie_v231_openapi.yaml (locked contract)
@@ -39,10 +47,10 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     Route::post('/sku', [SkuController::class, 'store']);
     Route::get('/sku/stats', [SkuController::class, 'stats']);
     Route::get('/sku/{sku_id}', [SkuController::class, 'show']);
-    // SOURCE: CIE_Master_Developer_Build_Spec.docx §17 Phase 1.1
-    Route::post('/sku/validate', [ValidationController::class, 'validateByPayload'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
-    Route::post('/sku/{sku_id}/validate', [ValidationController::class, 'validate'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
-    Route::put('/sku/{sku_id}/content', [SkuController::class, 'updateContent'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CHANNEL_MANAGER,SEO_GOVERNOR,CONTENT_LEAD,ADMIN');
+    // SOURCE: CLAUDE.md §3 R1 — validate only at openapi path POST /sku/{sku_id}/validate (docs/api/openapi.yaml)
+    Route::post('/sku/{sku_id}/validate', [ValidationController::class, 'validate'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,ADMIN');
+    // SOURCE: CIE_Master_Developer_Build_Spec.docx §3.2 — content editing restricted to writer roles.
+    Route::put('/sku/{sku_id}/content', [SkuController::class, 'updateContent'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST');
     Route::post('/sku/{sku_id}/publish', [SkuController::class, 'publish']);
     Route::get('/sku/{sku_id}/readiness', [SkuController::class, 'readiness']);
     // Tier change requests — RBAC-05 (CLAUDE.md Section 7 + Hardening Addendum); SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx
@@ -50,6 +58,10 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     Route::post('/sku/{sku_id}/tier-change-approve', [TierChangeController::class, 'approveForSku'])->middleware('rbac:FINANCE,ADMIN');
     Route::get('/sku/{sku_id}/tier-change-status', [TierChangeController::class, 'getStatus'])->middleware('rbac:CONTENT_LEAD,FINANCE,ADMIN');
     Route::post('/tier-change-requests/{id}/approve-portfolio', [TierChangeController::class, 'approvePortfolio'])->middleware('rbac:CONTENT_LEAD,ADMIN');
+    // SOURCE: CIE_Master_Developer_Build_Spec.docx §15 — AI Agent content pre-fill
+    // FIX: AI-08
+    Route::post('/sku/{sku_id}/suggest', [SkuController::class, 'suggest'])
+        ->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST');
     Route::get('/sku/{sku_id}/faq-suggestions', [SkuController::class, 'faqSuggestions']);
     Route::get('/faq/templates', [FAQController::class, 'getTemplates']);
     Route::post('/sku/{id}/faq', [FAQController::class, 'saveResponses']);
@@ -117,14 +129,7 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     Route::get('/audit-logs', [AuditLogController::class, 'index']);
     Route::get('/audit-logs/filters', [AuditLogController::class, 'filters']);
 
-    // Suggestion status proxy to Python Engine — SOURCE: openapi.yaml
-    Route::post('/sku/{sku_id}/suggestions/{suggestion_id}/status', function (\Illuminate\Http\Request $request, string $sku_id, string $suggestion_id) {
-        $engineBase = rtrim(env('CIE_ENGINE_BASE_URL', 'http://localhost:8000/api/v1'), '/');
-        $url = $engineBase . '/sku/' . urlencode($sku_id) . '/suggestions/' . urlencode($suggestion_id) . '/status';
-        $client = Http::acceptJson();
-        $token = env('CIE_ENGINE_TOKEN');
-        if (!empty($token)) { $client = $client->withToken($token); }
-        $response = $client->post($url, $request->all());
-        return response()->json($response->json(), $response->status());
-    })->name('sku.suggestions.status');
+    // SOURCE: openapi.yaml — suggestion status + AI-14 ai_agent_logs update
+    Route::post('/sku/{sku_id}/suggestions/{suggestion_id}/status', [SkuController::class, 'suggestionStatus'])
+        ->name('sku.suggestions.status');
 });

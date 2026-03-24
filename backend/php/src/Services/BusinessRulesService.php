@@ -39,7 +39,8 @@ class BusinessRulesService
      */
     public function all(): array
     {
-        $ttl = 300; // §5.3: business_rules.cache_ttl_seconds not in 52 rules; hard-coded
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5
+        $ttl = (int) config('cie.business_rules_cache_ttl', 300);
         return Cache::remember(self::CACHE_KEY, $ttl, function () {
             return $this->loadFromDb();
         });

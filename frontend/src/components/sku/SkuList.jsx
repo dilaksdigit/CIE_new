@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { skuApi } from '../../services/api';
+import { skuApi, extractApiArray } from '../../services/api';
 
 const SkuList = () => {
     const [skus, setSkus] = useState([]);
@@ -19,8 +19,7 @@ const SkuList = () => {
                 setError('');
                 const res = await skuApi.list();
                 if (!cancelled) {
-                    const data = res.data?.data ?? res.data ?? [];
-                    setSkus(Array.isArray(data) ? data : []);
+                    setSkus(extractApiArray(res));
                 }
             } catch (err) {
                 if (!cancelled) setError('Failed to load SKUs.');

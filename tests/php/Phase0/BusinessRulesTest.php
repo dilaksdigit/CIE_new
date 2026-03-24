@@ -12,18 +12,18 @@ use PHPUnit\Framework\TestCase;
  */
 class BusinessRulesTest extends TestCase
 {
-    /** @test Phase 0.1 — SELECT COUNT(*) FROM business_rules must equal 52 */
-    public function test_business_rules_count_is_52(): void
+    /** @test Phase 0.1 — SELECT COUNT(*) FROM business_rules must equal 54 after migration 117 */
+    public function test_business_rules_count_is_54(): void
     {
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §17 Phase 0.1
-        // "QA: SELECT COUNT(*) = 52"
+        // Base seed 040 (52) + migration 117 (channel.harvest_threshold, system.business_rules_cache_ttl)
         $pdo = new \PDO(
             sprintf('mysql:host=%s;dbname=%s', getenv('DB_HOST'), getenv('DB_DATABASE')),
             getenv('DB_USERNAME'),
             getenv('DB_PASSWORD')
         );
         $count = (int) $pdo->query('SELECT COUNT(*) FROM business_rules')->fetchColumn();
-        $this->assertSame(52, $count, 'business_rules must contain exactly 52 seed rows per §5.3');
+        $this->assertSame(54, $count, 'business_rules must contain 54 rows (040 + 117) per Phase 1 DB alignment');
     }
 
     /** @test Phase 0.2 — BusinessRules::get() returns correct typed value for a known key */

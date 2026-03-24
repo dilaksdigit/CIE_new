@@ -3,8 +3,11 @@ import { MiniBarChart, RoleBadge, TrendLine } from '../components/common/UICompo
 import { auditResultApi, dashboardApi, configApi } from '../services/api';
 
 const StaffKpis = () => {
+    // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx Phase 5.4
+    // FIX: UI-21 — render 8 KPI tiles from existing dashboard summary payload.
     const [staffKpis, setStaffKpis] = useState([]);
     const [weeklyScores, setWeeklyScores] = useState([]);
+    const [dashboardData, setDashboardData] = useState({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [thresholds, setThresholds] = useState(null);
@@ -20,6 +23,7 @@ const StaffKpis = () => {
             setError(null);
             const res = await dashboardApi.getSummary();
             const data = res.data?.data ?? {};
+            setDashboardData(data || {});
             const weeklyRes = await auditResultApi.getWeeklyScores().catch(() => ({ data: { data: [] } }));
             setStaffKpis(data.staff_kpis ?? []);
             setWeeklyScores(Array.isArray(weeklyRes.data?.data) ? weeklyRes.data.data : []);
@@ -82,12 +86,40 @@ const StaffKpis = () => {
         color: Number(row.score || 0) >= (thresholds?.staff?.weekly_score_green ?? 8) ? 'var(--green)' : Number(row.score || 0) >= (thresholds?.staff?.weekly_score_amber ?? 6) ? 'var(--amber)' : 'var(--red)',
     }));
     // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §7 Step 5
+    const KPI_DEFINITIONS = [
+        { key: 'products_completed_this_week', label: 'Products Completed This Week' },
+        { key: 'hero_time_pct', label: 'Hero Time %', suffix: '%' },
+        { key: 'first_submit_pass_rate', label: 'First-Submit Pass Rate', suffix: '%' },
+        { key: 'avg_readiness_hero', label: 'Avg Hero Readiness' },
+        { key: 'skus_published_this_week', label: 'Published This Week' },
+        { key: 'open_briefs_count', label: 'Open Briefs' },
+        { key: 'hero_skus_at_risk', label: 'Hero SKUs at Risk' },
+        { key: 'avg_citation_rate_pct', label: 'Avg Citation Rate', suffix: '%' },
+    ];
 
     return (
         <div>
             <div className="mb-20">
                 <h1 className="page-title">Staff Performance</h1>
                 <div className="page-subtitle">KPI tracking per staff member plus weekly score trend</div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                {KPI_DEFINITIONS.map((kpi) => (
+                    <div
+                        key={kpi.key}
+                        style={{
+                            backgroundColor: '#FFFFFF',
+                            border: '1px solid var(--border)',
+                            borderRadius: '8px',
+                            padding: '16px',
+                        }}
+                    >
+                        <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '4px' }}>{kpi.label}</div>
+                        <div style={{ color: 'var(--text)', fontSize: '24px', fontFamily: "var(--mono)", fontWeight: 600 }}>
+                            {dashboardData?.[kpi.key] ?? '—'}{kpi.suffix || ''}
+                        </div>
+                    </div>
+                ))}
             </div>
 
             <div className="data-table mb-16">

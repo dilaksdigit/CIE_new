@@ -22,35 +22,69 @@ class MaturityScoreService
      */
     public function calculate(Sku $sku): array
     {
-        $core = $this->calculateCoreScore($sku);           // max 40
-        $authority = $this->calculateAuthorityScore($sku); // max 20
-        $channel = $this->calculateChannelScore($sku);     // max 25
-        $aiVisibilityMax = 15; // §5.3: not in 52 rules; hard-coded
-        $aiVisibility = ($sku->ai_citation_rate / 100) * $aiVisibilityMax;
+        return $this->computeMaturity($sku);
+    }
 
-        $total = round($core + $authority + $channel + $aiVisibility);
-
-        $goldThreshold   = (int) BusinessRules::get('readiness.gold_threshold');
-        $silverThreshold = (int) BusinessRules::get('readiness.silver_threshold');
-        $level = 'Bronze';
-        if ($total >= $goldThreshold) $level = 'Gold';
-        elseif ($total >= $silverThreshold) $level = 'Silver';
+    // SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf §1 fixture 1
+    // FIX: TS-15 — Short keys aligned with golden expected_outputs.maturity (level, core_fields, total, …).
+    public function compute(Sku $sku): array
+    {
+        $m = $this->computeMaturity($sku);
 
         return [
-            'total' => (int)$total,
-            'level' => $level,
-            'breakdown' => [
-                'core' => round($core, 1),
-                'authority' => round($authority, 1),
-                'channel' => round($channel, 1),
-                'ai_visibility' => round($aiVisibility, 1)
-            ]
+            'level' => $m['maturity_level'],
+            'core_fields' => $m['core_fields_score'],
+            'authority' => $m['authority_score'],
+            'channel_readiness' => $m['channel_readiness_score'],
+            'ai_visibility' => $m['ai_visibility_score'],
+            'total' => $m['total_maturity'],
+        ];
+    }
+
+    // SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf §3.3 — maturity scoring components and kill exclusion.
+    // FIX: TS-16 — Maturity labels use title case (Bronze, Silver, Gold, Excluded) per golden pack convention.
+    public function computeMaturity(Sku $sku): array
+    {
+        $tier = $sku->tier instanceof \App\Enums\TierType ? $sku->tier->value : strtolower((string) ($sku->tier ?? ''));
+        if ($tier === 'kill') {
+            return [
+                'core_fields_score' => null,
+                'authority_score' => null,
+                'channel_readiness_score' => null,
+                'ai_visibility_score' => null,
+                'total_maturity' => null,
+                'maturity_level' => 'Excluded',
+            ];
+        }
+
+        $core = (int) round($this->calculateCoreScore($sku));
+        $authority = (int) round($this->calculateAuthorityScore($sku));
+        $channel = (int) round($this->calculateChannelScore($sku));
+        $aiVisibility = (int) round($this->calculateAiVisibilityScore($sku));
+        $total = $core + $authority + $channel + $aiVisibility;
+
+        $goldThreshold = (int) BusinessRules::get('readiness.gold_threshold');
+        $silverThreshold = (int) BusinessRules::get('readiness.silver_threshold');
+        $level = match (true) {
+            $total >= $goldThreshold => 'Gold',
+            $total >= $silverThreshold => 'Silver',
+            default => 'Bronze',
+        };
+
+        return [
+            'core_fields_score' => $core,
+            'authority_score' => $authority,
+            'channel_readiness_score' => $channel,
+            'ai_visibility_score' => $aiVisibility,
+            'total_maturity' => $total,
+            'maturity_level' => $level,
         ];
     }
 
     private function calculateCoreScore(Sku $sku): float
     {
-        $pillarPts = 10; // §5.3: maturity.core_score_pillar_pts not in 52 rules; hard-coded
+        // SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf §3.3 — Core pillar points from business_rules.
+        $pillarPts = (int) BusinessRules::get('maturity.core_pillar_points');
         $points = 0;
         if ($sku->primary_cluster_id) $points += $pillarPts;
         if ($sku->primary_intent) $points += $pillarPts;
@@ -62,16 +96,29 @@ class MaturityScoreService
 
     private function calculateAuthorityScore(Sku $sku): float
     {
+        // SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf §3.3 — Authority component scoring from business_rules.
+        $expertPts = (int) BusinessRules::get('maturity.authority_expert_points');
+        $wikidataPts = (int) BusinessRules::get('maturity.authority_wikidata_points');
+        $certPts = (int) BusinessRules::get('maturity.authority_cert_points');
         $points = 0;
-        if ($sku->expert_statement) $points += 10;
-        if ($sku->certifications_detail) $points += 5;
-        if ($sku->wikidata_entities) $points += 5;
+        if ($sku->expert_statement) $points += $expertPts;
+        if ($sku->certifications_detail) $points += $certPts;
+        if ($sku->wikidata_entities) $points += $wikidataPts;
         return $points;
     }
 
     private function calculateChannelScore(Sku $sku): float
     {
-        $channelMax = 25; // §5.3: maturity.channel_max_pts not in 52 rules; hard-coded
+        // SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf §3.3 — Channel component max points from business_rules.
+        $channelMax = (int) BusinessRules::get('maturity.channel_max');
         return ($sku->readiness_score / 100) * $channelMax;
+    }
+
+    private function calculateAiVisibilityScore(Sku $sku): float
+    {
+        // SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf §3.3 — AI visibility max points from business_rules.
+        $aiVisibilityMax = (int) BusinessRules::get('maturity.ai_visibility_max');
+        $citationRate = (float) ($sku->ai_citation_rate ?? $sku->score_citation ?? 0);
+        return (max(0, min(100, $citationRate)) / 100.0) * $aiVisibilityMax;
     }
 }

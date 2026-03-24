@@ -2,27 +2,27 @@
 namespace App\Controllers;
 
 use Illuminate\Http\Request;
-use App\Utils\ResponseFormatter;
 use App\Models\Sku;
 use App\Models\TierHistory;
 use App\Models\AuditLog;
 use App\Enums\TierType;
 use App\Services\ValidationService;
 use App\Services\ChannelGovernorService;
+use App\Services\TierCalculationService;
 use App\Support\BusinessRules;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class TierController {
     /**
      * POST /api/v1/erp/sync — receive ERP data push; recompute tiers. Unified API 7.1.
      * Re-validates SKUs after tier change and logs tier_change to audit_log for traceability.
      *
-     * Tier formula (spec-aligned): commercial_score per SKU from payload:
-     *   score = (contribution_margin_pct/100)*0.40 + (1/max(cppc,0.01))*0.25
-     *         + (velocity_90d/cohort_max_velocity)*0.20 + (1 - return_rate_pct/100)*0.15
-     * Cohort percentiles: p80, p30, p10 from sorted scores. Thresholds:
-     *   score >= p80 → HERO; >= p30 → SUPPORT; >= p10 → HARVEST; < p10 → KILL
+     * Commercial score: TierCalculationService::commercialPriorityScore (BusinessRules weights + scales).
+     * SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §9.2; CIE_Master_Developer_Build_Spec.docx §8.2
+     * FIX: TS-02 — Percentiles from ALL active SKUs after payload ERP field updates; scores recomputed for full catalog.
      * Override: contribution_margin_pct < 0 → KILL (e.g. FLR-ARC-BLK-175 -4.2% → KILL).
      */
     public function erpSync(Request $request) {
@@ -44,87 +44,37 @@ class TierController {
         $autoPromotions = 0;
         $tierChanges = 0;
 
-        // Compute cohort max velocity from payload (normalisation term).
-        $maxVelocity = 0;
-        foreach ($items as $row) {
-            $v = (int) ($row['velocity_90d'] ?? 0);
-            if ($v > $maxVelocity) { $maxVelocity = $v; }
-        }
-        if ($maxVelocity <= 0) { $maxVelocity = 1; }
-
-        // Preload all SKU rows we can match.
+        // Preload all SKU rows we can match from payload (sku_id = sku_code on wire).
         $skuIds = array_values(array_unique(array_map(fn($r) => (string) ($r['sku_id'] ?? ''), $items)));
         $skuMap = Sku::whereIn('sku_code', $skuIds)->get()->keyBy('sku_code');
 
-        // Compute scores for all matched SKUs (based on payload values).
-        $scoresBySkuCode = [];
         foreach ($items as $row) {
             $skuCode = (string) ($row['sku_id'] ?? '');
-            if ($skuCode === '') { continue; }
-            if (!isset($skuMap[$skuCode])) {
-                $errors[] = ['sku_id' => $skuCode, 'error' => 'SKU not found'];
+            if ($skuCode === '') {
                 continue;
             }
-
-            $marginPct = (float) ($row['contribution_margin_pct'] ?? 0);
-            $cppc = (float) ($row['cppc'] ?? 0);
-            $velocity = (float) ($row['velocity_90d'] ?? 0);
-            $returnPct = (float) ($row['return_rate_pct'] ?? 0);
-
-            $wMargin = self::tierWeight('tier.margin_weight', 0.40);
-            $wCppc = self::tierWeight('tier.cppc_weight', 0.25);
-            $wVelocity = self::tierWeight('tier.velocity_weight', 0.20);
-            $wReturns = self::tierWeight('tier.returns_weight', 0.15);
-
-            $safeCppc = max($cppc, 0.001);
-            $safeVelocity = max($velocity, 0.001);
-
-            $score =
-                ($marginPct / 100.0) * $wMargin
-                + ((1.0 / $safeCppc) * 10.0 * $wCppc)
-                + (log10($safeVelocity) * 25.0 * $wVelocity)
-                + ((1.0 - ($returnPct / 100.0)) * $wReturns);
-
-            $scoresBySkuCode[$skuCode] = round((float) $score, 6);
+            if (!isset($skuMap[$skuCode])) {
+                $errors[] = ['sku_id' => $skuCode, 'error' => 'SKU not found'];
+            }
         }
-
-        if (empty($scoresBySkuCode)) {
-            return ResponseFormatter::format([
-                'sync_date' => $syncDate,
-                'skus_processed' => $count,
-                'tier_changes' => 0,
-                'auto_promotions' => 0,
-                'errors' => $errors,
-            ], 'ERP sync received (no matched SKUs)', 200);
-        }
-
-        // Percentile thresholds derived from cohort scores.
-        $sortedScores = collect($scoresBySkuCode)->values()->sort()->values();
-        $n = $sortedScores->count();
-        $p80 = $sortedScores[(int) floor($n * 0.8)] ?? $sortedScores->last();
-        $p30 = $sortedScores[(int) floor($n * 0.3)] ?? $sortedScores->first();
-        $p10 = $sortedScores[(int) floor($n * 0.1)] ?? $sortedScores->first();
 
         DB::beginTransaction();
         try {
+            // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §9.2 — step 5: apply payload ERP rows to matched SKUs
             foreach ($items as $row) {
                 $skuCode = (string) ($row['sku_id'] ?? '');
-                if ($skuCode === '' || !isset($skuMap[$skuCode])) { continue; }
+                if ($skuCode === '' || !isset($skuMap[$skuCode])) {
+                    continue;
+                }
 
                 /** @var Sku $sku */
                 $sku = $skuMap[$skuCode];
-
-                $oldTierRaw = $sku->tier;
-                $oldTier = TierType::tryFrom((string) $oldTierRaw) ?? TierType::SUPPORT;
-
                 $marginPct = (float) ($row['contribution_margin_pct'] ?? 0);
                 $cppc = (float) ($row['cppc'] ?? 0);
                 $velocity = (int) ($row['velocity_90d'] ?? 0);
                 $returnPct = (float) ($row['return_rate_pct'] ?? 0);
-
                 $previousVelocity = (int) ($sku->erp_velocity_90d ?? 0);
 
-                // Update ERP fields + keep previous velocity for QoQ comparison.
                 $updateData = [
                     'margin_percent' => $marginPct,
                     'erp_cppc' => $cppc,
@@ -132,16 +82,72 @@ class TierController {
                     'previous_velocity_90d' => $previousVelocity > 0 ? $previousVelocity : ($sku->previous_velocity_90d ?? null),
                     'erp_velocity_90d' => $velocity,
                     'annual_volume' => $velocity,
-                    'commercial_score' => $scoresBySkuCode[$skuCode] ?? 0,
                 ];
-                if (\Illuminate\Support\Facades\Schema::hasColumn('skus', 'erp_sync_date')) {
+                if (Schema::hasColumn('skus', 'erp_margin_pct')) {
+                    $updateData['erp_margin_pct'] = $marginPct;
+                }
+                if (Schema::hasColumn('skus', 'erp_sync_date')) {
                     $updateData['erp_sync_date'] = $syncDate;
                 }
                 $sku->update($updateData);
+            }
 
-                $score = (float) ($scoresBySkuCode[$skuCode] ?? 0);
+            // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §9.2 — recompute commercial_score for ALL active SKUs
+            // SOURCE: CIE_Master_Developer_Build_Spec.docx §8.2 — assign_tier uses full-catalog score distribution
+            $allSkusQuery = Sku::query();
+            if (Schema::hasColumn('skus', 'is_active')) {
+                $allSkusQuery->where('is_active', true);
+            }
+            $allSkus = $allSkusQuery->get();
 
-                // Base tier from percentile bands; override: negative margin → KILL
+            if ($allSkus->isEmpty()) {
+                DB::commit();
+                return response()->json([
+                    'sync_date' => $syncDate,
+                    'skus_processed' => $count,
+                    'tier_changes' => 0,
+                    'auto_promotions' => 0,
+                    'errors' => collect($errors)->map(function ($e) {
+                        if (is_string($e)) {
+                            return $e;
+                        }
+                        return (string) ($e['error'] ?? $e['detail'] ?? json_encode($e));
+                    })->values()->all(),
+                ], 200);
+            }
+
+            $scoresById = [];
+            foreach ($allSkus as $sku) {
+                $marginPct = (float) ($sku->margin_percent ?? $sku->erp_margin_pct ?? 0);
+                $cppc = (float) ($sku->erp_cppc ?? 0);
+                $velocity = (float) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0);
+                $returnPct = (float) ($sku->erp_return_rate_pct ?? 0);
+                $raw = TierCalculationService::commercialPriorityScore($marginPct, $cppc, $velocity, $returnPct);
+                $rounded = round($raw, 6);
+                $scoresById[$sku->id] = $rounded;
+                $sku->update(['commercial_score' => $rounded]);
+            }
+
+            $sortedScores = collect($scoresById)->values()->sort()->values();
+            $n = max(1, $sortedScores->count());
+            $heroPct = (float) BusinessRules::get('tier.hero_percentile_threshold');
+            $supportPct = (float) BusinessRules::get('tier.support_percentile_threshold');
+            $harvestPct = (float) BusinessRules::get('tier.harvest_percentile_threshold');
+            $p80 = $sortedScores[(int) floor($n * $heroPct)] ?? $sortedScores->last();
+            $p30 = $sortedScores[(int) floor($n * $supportPct)] ?? $sortedScores->first();
+            $p10 = $sortedScores[(int) floor($n * $harvestPct)] ?? $sortedScores->first();
+
+            foreach ($allSkus as $sku) {
+                $sku->refresh();
+
+                $oldTier = $sku->tier instanceof TierType ? $sku->tier : (TierType::tryFrom(strtolower((string) ($sku->tier ?? ''))) ?? TierType::SUPPORT);
+
+                $marginPct = (float) ($sku->margin_percent ?? $sku->erp_margin_pct ?? 0);
+                $cppc = (float) ($sku->erp_cppc ?? 0);
+                $velocity = (int) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0);
+                $returnPct = (float) ($sku->erp_return_rate_pct ?? 0);
+                $score = (float) ($scoresById[$sku->id] ?? 0);
+
                 $newTier = TierType::KILL;
                 if ($marginPct < 0) {
                     $newTier = TierType::KILL;
@@ -166,9 +172,14 @@ class TierController {
                     $returnPct
                 );
 
-                // Auto-promotion: Harvest -> Support if velocity increases >30% vs previous quarter.
+                // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §9.2 — configurable velocity threshold.
                 $prevForGrowth = (int) ($sku->previous_velocity_90d ?? 0);
-                if ($newTier === TierType::HARVEST && $prevForGrowth > 0 && $velocity > (int) floor($prevForGrowth * 1.30)) {
+                $autoPromoteThreshold = (float) BusinessRules::get('tier.auto_promotion_velocity_threshold');
+                if (
+                    $newTier === TierType::HARVEST
+                    && $prevForGrowth > 0
+                    && $velocity > (int) floor($prevForGrowth * (1 + $autoPromoteThreshold))
+                ) {
                     $newTier = TierType::SUPPORT;
                     $autoPromotions++;
                     $reason .= sprintf('; auto_promotion=harvest_to_support (prev=%d curr=%d)', $prevForGrowth, $velocity);
@@ -284,28 +295,63 @@ class TierController {
             DB::commit();
         } catch (\Throwable $e) {
             DB::rollBack();
-            return ResponseFormatter::format([
+            return response()->json([
                 'sync_date' => $syncDate,
                 'skus_processed' => $count,
                 'tier_changes' => 0,
                 'auto_promotions' => 0,
-                'errors' => array_merge($errors, [['error' => 'ERP sync failed', 'detail' => $e->getMessage()]]),
-            ], 'ERP sync failed', 500);
+                'errors' => collect(array_merge($errors, ['ERP sync failed: ' . $e->getMessage()]))
+                    ->map(function ($err) {
+                        if (is_string($err)) return $err;
+                        return (string) ($err['error'] ?? $err['detail'] ?? json_encode($err));
+                    })->values()->all(),
+            ], 500);
         }
 
-        return ResponseFormatter::format([
+        return response()->json([
             'sync_date' => $syncDate,
             'skus_processed' => $count,
             'tier_changes' => $tierChanges,
             'auto_promotions' => $autoPromotions,
-            'errors' => $errors,
-            'percentiles' => [
-                'p80' => (float) $p80,
-                'p30' => (float) $p30,
-                'p10' => (float) $p10,
-                'max_velocity' => (int) $maxVelocity,
-            ],
-        ], 'ERP sync processed', 200);
+            // SOURCE: openapi.yaml /erp/sync response — errors[] must be strings.
+            'errors' => collect($errors)->map(function ($e) {
+                if (is_string($e)) return $e;
+                return (string) ($e['error'] ?? $e['detail'] ?? json_encode($e));
+            })->values()->all(),
+        ], 200);
+    }
+
+    /**
+     * SOURCE: Phase 7 fix request — explicit ERP sync failure audit endpoint.
+     * FIX: P7-TIER-01
+     */
+    public function syncFailed(Request $request): JsonResponse
+    {
+        $payload = $request->validate([
+            'error' => 'required|string',
+            'attempts' => 'required|integer',
+            'last_attempt_at' => 'nullable|string',
+        ]);
+
+        AuditLog::create([
+            'entity_type' => 'erp_sync',
+            'entity_id' => 'system',
+            'action' => 'sync_failed',
+            'field_name' => 'sync',
+            'old_value' => null,
+            'new_value' => json_encode($payload),
+            'actor_id' => 'SYSTEM',
+            'actor_role' => 'system',
+            'timestamp' => now(),
+            'user_id' => 'SYSTEM',
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'created_at' => now(),
+        ]);
+
+        Log::alert('ERP sync failure recorded', $payload);
+
+        return response()->json(['status' => 'failure_logged'], 200);
     }
 
     /**
@@ -315,18 +361,22 @@ class TierController {
     {
         $skus = Sku::whereNotNull('commercial_score')->get();
         if ($skus->isEmpty()) {
-            return ResponseFormatter::format([
+            return response()->json([
                 'skus_processed' => 0,
                 'tier_changes' => 0,
                 'message' => 'No SKUs with commercial scores found. Run ERP sync first.',
-            ]);
+            ], 200);
         }
 
         $scores = $skus->pluck('commercial_score')->sort()->values();
-        $n = $scores->count();
-        $p80 = $scores[(int) floor($n * 0.8)] ?? $scores->last();
-        $p30 = $scores[(int) floor($n * 0.3)] ?? $scores->first();
-        $p10 = $scores[(int) floor($n * 0.1)] ?? $scores->first();
+        $n = max(1, $scores->count());
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3 — percentile indices from BusinessRules (aligned with ERP sync)
+        $heroPct = (float) BusinessRules::get('tier.hero_percentile_threshold');
+        $supportPct = (float) BusinessRules::get('tier.support_percentile_threshold');
+        $harvestPct = (float) BusinessRules::get('tier.harvest_percentile_threshold');
+        $p80 = $scores[(int) floor($n * $heroPct)] ?? $scores->last();
+        $p30 = $scores[(int) floor($n * $supportPct)] ?? $scores->first();
+        $p10 = $scores[(int) floor($n * $harvestPct)] ?? $scores->first();
 
         $tierChanges = 0;
 
@@ -364,26 +414,35 @@ class TierController {
                         'annual_volume' => $sku->erp_velocity_90d ?? 0,
                         'changed_by' => auth()->id(),
                     ]);
+
+                    // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §9.2 — audit_log on tier change
+                    // FIX: TS-04 — recalculate path previously omitted AuditLog
+                    AuditLog::create([
+                        'entity_type' => 'sku',
+                        'entity_id' => $sku->id,
+                        'action' => 'tier_change',
+                        'field_name' => 'tier',
+                        'old_value' => $oldTier->value ?? (string) $oldTier,
+                        'new_value' => $newTier->value ?? (string) $newTier,
+                        'actor_id' => (string) (auth()->id() ?? 'SYSTEM'),
+                        'actor_role' => optional(optional(auth()->user())->role)->name ?? 'system',
+                        'timestamp' => now(),
+                        'user_id' => auth()->id(),
+                        'ip_address' => request()->ip(),
+                        'user_agent' => request()->userAgent(),
+                        'created_at' => now(),
+                    ]);
                 }
             }
             DB::commit();
         } catch (\Throwable $e) {
             DB::rollBack();
-            return ResponseFormatter::format(['error' => $e->getMessage()], 'Recalculation failed', 500);
+            return response()->json(['error' => 'RECALCULATION_FAILED', 'message' => 'Recalculation failed'], 500);
         }
 
-        return ResponseFormatter::format([
+        return response()->json([
             'skus_processed' => $skus->count(),
             'tier_changes' => $tierChanges,
-        ]);
-    }
-
-    private static function tierWeight(string $key, float $default): float
-    {
-        try {
-            return (float) BusinessRules::get($key, $default);
-        } catch (\Throwable $e) {
-            return $default;
-        }
+        ], 200);
     }
 }

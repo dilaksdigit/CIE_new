@@ -25,7 +25,17 @@ class ClusterController {
 
     public function update(Request $request, $id) {
         $cluster = Cluster::findOrFail($id);
-        $cluster->update($request->only(['name', 'category']));
+
+        $validated = $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'category' => 'sometimes|nullable|string|max:255',
+            'intent_statement' => 'sometimes|string|max:2000',
+            'is_locked' => 'sometimes|boolean',
+            'requires_approval' => 'sometimes|boolean',
+            'approval_status' => 'sometimes|string|in:DRAFT,PENDING,APPROVED,REJECTED',
+        ]);
+
+        $cluster->update($validated);
         return ResponseFormatter::format($cluster);
     }
 }

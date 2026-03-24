@@ -14,7 +14,7 @@ import {
     GATES,
     getGatesForTier
 } from '../components/common/UIComponents';
-import { skuApi, dashboardApi, configApi } from '../services/api';
+import { skuApi, dashboardApi, configApi, extractApiArray } from '../services/api';
 import THEME from '../theme';
 
 // SOURCE: CLAUDE.md Section 4 — DECISION-001 (channels: shopify + gmc only)
@@ -76,7 +76,7 @@ const Dashboard = () => {
                 setError(null);
                 const params = {};
                 if (searchTerm) params.search = searchTerm;
-                if (tierFilter !== 'All Tiers') params.tier = tierFilter.toUpperCase();
+                if (tierFilter !== 'All Tiers') params.tier = tierFilter.toLowerCase();
                 if (categoryFilter !== 'All Categories') params.category = categoryFilter;
 
                 const [skuRes] = await Promise.all([
@@ -84,7 +84,7 @@ const Dashboard = () => {
                     fetchSummary(),
                 ]);
                 if (!cancelled) {
-                    const skuData = skuRes.data?.data ?? [];
+                    const skuData = extractApiArray(skuRes);
                     setSkus(skuData);
                 }
             } catch (err) {

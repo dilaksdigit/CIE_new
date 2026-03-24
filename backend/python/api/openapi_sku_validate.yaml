@@ -50,9 +50,9 @@ components:
 
     FailureItem:
       type: object
-      required: [error_code, detail, user_message]
+      required: [detail, user_message]
       properties:
-        error_code: { type: string }
+        error_code: { type: string, nullable: true }
         detail: { type: string }
         user_message: { type: string }
 

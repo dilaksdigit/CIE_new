@@ -263,16 +263,22 @@ class TestSampleWorkflowCommand extends Command
         $primaryName = $uc['primary_intent'] ?? 'Compatibility';
         $secondaryNames = $uc['secondary_intents'] ?? [];
 
+        // SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 — canonical intent keys
         $map = [
-            'Compatibility'     => 'compatibility',
-            'Comparison'        => 'comparison',
-            'Problem-Solving'    => 'problem_solving',
-            'Inspiration'       => 'inspiration',
-            'Specification'     => 'specification',
-            'Installation'      => 'installation',
-            'Safety/Compliance' => 'safety_compliance',
-            'Replacement'      => 'replacement',
-            'Bulk/Trade'       => 'bulk_trade',
+            'Compatibility'          => 'compatibility',
+            'Comparison'             => 'comparison',
+            'Problem-Solving'        => 'problem_solving',
+            'Specification'          => 'specification',
+            'Installation'           => 'installation',
+            'Installation/How-To'    => 'installation',
+            'Troubleshooting'        => 'troubleshooting',
+            'Inspiration'            => 'inspiration',
+            'Inspiration/Style'      => 'inspiration',
+            'Regulatory/Safety'      => 'regulatory',
+            'Safety/Compliance'      => 'regulatory',
+            'Replacement'            => 'replacement',
+            'Replacement/Refill'     => 'replacement',
+            'Bulk/Trade'             => 'comparison',
         ];
 
         $primaryKey = $map[$primaryName] ?? 'compatibility';

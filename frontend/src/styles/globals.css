@@ -2,14 +2,16 @@
 /* SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 4; CLAUDE.md Section 3 R6 — desktop only, no responsive breakpoints */
 
 :root {
-  --bg: #FAFAFA;
+  /* SOURCE: CIE_v232_UI_Restructure_Instructions.docx §5
+     FIX: UI-01 — exact light palette tokens. */
+  --bg: #FAFAF8;
   --surface: #FFFFFF;
-  --surface-alt: #F5F5F4;
-  --border: #E5E5E5;
-  --border-light: #E5E5E5;
-  --text: #2D2D2D;
-  --text-muted: #6B6B6B;
-  --text-dim: #6B6860;
+  --surface-alt: #F5F4F1;
+  --border: #E5E3DE;
+  --border-light: #E5E3DE;
+  --text: #2D2B28;
+  --text-muted: #6B6860;
+  --text-dim: #9B978F;
   --accent: #5B7A3A;
   --accent-dim: #EEF2E8;
   --accent-border: #C5D4B0;
@@ -56,6 +58,9 @@ html,
 body,
 #root {
   height: 100%;
+  /* SOURCE: CLAUDE.md §8
+     FIX: UI-06 — enforce desktop-only minimum width. */
+  min-width: 1280px;
 }
 
 body {

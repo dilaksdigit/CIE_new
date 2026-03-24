@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Models\Sku;
+use App\Models\AiAgentLog;
 use App\Models\IntentTaxonomy;
 use App\Models\SkuIntent;
 use App\Models\ContentBrief;
@@ -17,10 +18,12 @@ use App\Services\BaselineService;
 use App\Services\ChannelDeployService;
 use App\Services\PublishTraceService;
 use App\Support\BusinessRules;
-use App\Utils\ResponseFormatter;
 use App\Enums\ValidationStatus;
+use App\Enums\TierType;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
@@ -79,18 +82,16 @@ class SkuController {
         $skuCodes = $skuCollection->pluck('sku_code')->filter()->values()->toArray();
         $allGateStatuses = $this->batchLoadGateStatuses($skuCodes);
 
-        $skus = $skuCollection->map(function ($sku) use ($allGateStatuses) {
+        // GET /v1/sku — full SKU rows for dashboard, SKU list, bulk ops (envelope { items }).
+        $items = $skuCollection->map(function ($sku) use ($allGateStatuses) {
             $arr = $sku->toArray();
-            // Portfolio list: use canonical sku_gate_status when available (after validation),
-            // so gate chips match expected golden results; otherwise fallback to inline checks.
             $arr['gates'] = $this->buildGateStatuses($sku, $allGateStatuses[$sku->sku_code] ?? null);
             $arr['vector_gate_status'] = $this->deriveVectorGateStatus($sku);
             $arr['ai_citation_rate'] = $sku->score_citation ?? 0;
-            $arr = $this->addCamelCaseAliases($arr);
-            return $arr;
-        });
+            return $this->addCamelCaseAliases($arr);
+        })->values()->all();
 
-        return ResponseFormatter::format($skus);
+        return response()->json(['items' => $items], 200);
     }
 
     public function show($id) {
@@ -102,6 +103,8 @@ class SkuController {
             ? $validation === ValidationStatus::VALID
             : strtoupper((string) ($validation ?? '')) === 'VALID';
 
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §15 — full SKU aggregate (content + commercial + readiness + audit)
+        // FIX: API-06 — extend GET /sku/{sku_id} beyond SkuValidateRequest-only fields
         $meta = [
             'tier_lock_reason' => $isValid ? "Validated {$tierString} products have core fields locked for governance." : null,
             'cms_banner' => $this->getTierBanner($tierString ?: 'SUPPORT'),
@@ -111,23 +114,123 @@ class SkuController {
             ]
         ];
 
-        $skuData = $sku->toArray();
-        $gateStatuses = $this->batchLoadGateStatuses([$sku->sku_code]);
-        $skuData['gates'] = $this->buildGateStatuses($sku, $gateStatuses[$sku->sku_code] ?? null);
-        $skuData['vector_gate_status'] = $this->deriveVectorGateStatus($sku);
-        $skuData['ai_citation_rate'] = $sku->score_citation ?? 0;
-        $skuData['faqs'] = $this->decodeFaqs($sku);
-        $skuData['history'] = $this->loadHistory($sku);
-        $skuData['rollback_candidate'] = $this->baselineService->isRollbackCandidate($sku->id);
-        $skuData['semrush_imports'] = $this->loadSemrushImportsForSku($sku);
-        $skuData = $this->addCamelCaseAliases($skuData);
+        // SOURCE: openapi.yaml /sku/{sku_id} — SkuValidateRequest-compatible fields at root (backward compatible).
+        $primaryIntent = null;
+        $secondary = [];
+        foreach ($sku->skuIntents as $si) {
+            $name = strtolower(str_replace([' ', '-', '/'], '_', (string) ($si->intent->name ?? '')));
+            $name = preg_replace('/_+/', '_', trim($name, '_'));
+            if ($si->is_primary) {
+                $primaryIntent = $name;
+            } else {
+                $secondary[] = $name;
+            }
+        }
 
-        return ResponseFormatter::format(['sku' => $skuData, 'instructions' => $meta]);
+        $readiness = $this->readinessScoreService->computeReadiness($sku);
+        $commercial = $this->buildCommercialSnapshot($sku);
+        $gateStatuses = $this->loadGateStatusRowsForSku($sku);
+        $auditStatus = $this->buildAuditStatusSnapshot($sku);
+
+        return response()->json([
+            'sku_id' => (string) $sku->id,
+            'sku_code' => (string) ($sku->sku_code ?? ''),
+            'product_name' => (string) ($sku->title ?? ''),
+            'cluster_id' => $sku->primary_cluster_id,
+            'tier' => strtolower((string) ($sku->tier instanceof \App\Enums\TierType ? $sku->tier->value : $sku->tier)),
+            'primary_intent' => $primaryIntent,
+            'secondary_intents' => array_values($secondary),
+            'title' => (string) ($sku->title ?? ''),
+            'description' => (string) ($sku->long_description ?? ''),
+            'answer_block' => (string) ($sku->ai_answer_block ?? ''),
+            'best_for' => self::parseListAttribute($sku->best_for),
+            'not_for' => self::parseListAttribute($sku->not_for),
+            'expert_authority' => (string) ($sku->expert_authority ?? ''),
+            'decay_status' => (string) ($sku->decay_status ?? 'none'),
+            'meta' => $meta,
+            'commercial' => $commercial,
+            'readiness' => $readiness,
+            'audit_status' => $auditStatus,
+            'gates' => $gateStatuses,
+        ], 200);
+    }
+
+    /**
+     * SOURCE: CIE_Master_Developer_Build_Spec.docx §15 — ERP snapshot fields on SKU
+     */
+    private function buildCommercialSnapshot(Sku $sku): array
+    {
+        return [
+            'margin_percent' => $sku->margin_percent !== null ? (float) $sku->margin_percent : null,
+            'erp_cppc' => $sku->erp_cppc !== null ? (float) $sku->erp_cppc : null,
+            'erp_velocity_90d' => $sku->erp_velocity_90d !== null ? (int) $sku->erp_velocity_90d : null,
+            'erp_return_rate_pct' => $sku->erp_return_rate_pct !== null ? (float) $sku->erp_return_rate_pct : null,
+            'commercial_score' => $sku->commercial_score !== null ? (float) $sku->commercial_score : null,
+            'annual_volume' => $sku->annual_volume !== null ? (int) $sku->annual_volume : null,
+        ];
+    }
+
+    /**
+     * SOURCE: GateValidator + sku_gate_status — latest gate audit snapshot
+     */
+    private function loadGateStatusRowsForSku(Sku $sku): array
+    {
+        if (!Schema::hasTable('sku_gate_status')) {
+            return [];
+        }
+        $key = (string) ($sku->sku_code ?? '');
+        if ($key === '') {
+            return [];
+        }
+        try {
+            $rows = DB::table('sku_gate_status')->where('sku_id', $key)->get();
+            $out = [];
+            foreach ($rows as $row) {
+                $out[$row->gate_code] = [
+                    'status' => $row->status,
+                    'error_code' => $row->error_code ?? null,
+                    'checked_at' => $row->checked_at ?? null,
+                ];
+            }
+            return $out;
+        } catch (\Throwable $e) {
+            Log::warning('loadGateStatusRowsForSku: ' . $e->getMessage(), ['sku_id' => $sku->id]);
+            return [];
+        }
+    }
+
+    /**
+     * SOURCE: CLAUDE.md §10 — audit trail; validation_logs for last run
+     */
+    private function buildAuditStatusSnapshot(Sku $sku): array
+    {
+        $validationStatus = $sku->validation_status instanceof ValidationStatus
+            ? $sku->validation_status->value
+            : (string) ($sku->validation_status ?? '');
+
+        $last = null;
+        if (Schema::hasTable('validation_logs')) {
+            try {
+                $last = ValidationLog::where('sku_id', $sku->id)->orderByDesc('id')->first();
+            } catch (\Throwable $e) {
+                $last = null;
+            }
+        }
+
+        return [
+            'validation_status' => $validationStatus,
+            'last_validation_passed' => $last ? (bool) $last->passed : null,
+            'last_validation_at' => $last && isset($last->created_at) && $last->created_at
+                ? $last->created_at->toIso8601String()
+                : null,
+        ];
     }
 
     /**
      * Load semrush_imports rows for this SKU (by sku_code) for Writer Edit keyword/competitor cards.
      * Returns [] if table or sku_code column missing (e.g. pre-migration 064).
+     *
+     * SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §3.2 — latest import_batch only (FIX SEM-07)
      */
     private function loadSemrushImportsForSku(Sku $sku): array
     {
@@ -142,9 +245,14 @@ class SkuController {
             return [];
         }
         try {
+            $latestBatch = DB::table('semrush_imports')->max('import_batch');
+            if ($latestBatch === null) {
+                return [];
+            }
             $rows = DB::table('semrush_imports')
                 ->where('sku_code', $skuCode)
-                ->orderByDesc('import_batch')
+                ->where('import_batch', $latestBatch)
+                ->orderByDesc('search_volume')
                 ->limit(100)
                 ->get();
             return $rows->map(fn ($row) => (array) $row)->all();
@@ -177,8 +285,14 @@ class SkuController {
             $sku = Sku::lockForUpdate()->findOrFail($id);
             if ($sku->tier === \App\Enums\TierType::KILL) {
                 return response()->json([
-                    'error' => 'KILL_TIER_LOCKED',
-                    'message' => 'Kill-tier SKUs cannot be modified. Contact Portfolio Holder for tier review.',
+                    // SOURCE: CIE_v231_Developer_Build_Pack.pdf §1.2 — gate error code format.
+                    'status' => 'fail',
+                    'gates_failed' => [[
+                        'gate' => 'G6.1',
+                        'error_code' => 'CIE_G6_1_KILL_EDIT_BLOCKED',
+                        'detail' => 'Kill-tier SKU: all content fields are read-only.',
+                        'user_message' => 'This product is flagged for delisting. All editing is disabled. Contact your Portfolio Holder for a tier review.',
+                    ]],
                 ], 403);
             }
 
@@ -204,7 +318,8 @@ class SkuController {
                 }
 
                 if ($request->has('secondary_intents')) {
-                    $allowed  = ['problem_solving', 'compatibility'];
+                    // Harvest allows one optional secondary from the tier-locked set.
+                    $allowed  = ['problem_solving', 'compatibility', 'specification'];
                     $provided = (array) $request->input('secondary_intents');
 
                     if (count($provided) > 1) {
@@ -220,7 +335,7 @@ class SkuController {
                             return response()->json([
                                 'status'     => 'fail',
                                 'error_code' => 'HARVEST_SECONDARY_INTENT_INVALID',
-                                'detail'     => "Harvest-tier SKU secondary intent must be 'problem_solving' or 'compatibility'. Got: '{$intent}'.",
+                                'detail'     => "Harvest-tier SKU secondary intent must be one of 'problem_solving', 'compatibility', or 'specification'. Got: '{$intent}'.",
                             ], 422);
                         }
                     }
@@ -231,7 +346,8 @@ class SkuController {
             $clientVersion = $request->input('lock_version');
             if ($clientVersion !== null && $clientVersion != $sku->lock_version) {
                 return response()->json([
-                    'error' => "VERSION CONFLICT: This SKU was modified by another user. Please merge or discard your changes (v{$clientVersion} != server v{$sku->lock_version})."
+                    'error' => 'VERSION_CONFLICT',
+                    'message' => "This SKU was modified by another user. Please merge or discard your changes (v{$clientVersion} != server v{$sku->lock_version}).",
                 ], 409);
             }
 
@@ -246,15 +362,12 @@ class SkuController {
             }
             $updateData['lock_version'] = ($sku->lock_version ?? 1) + 1;
 
-            // GATE-01: Run gate pipeline before every save (draft or publish). Spec: no SKU can be published without passing every applicable gate; Save AND Publish both call validate.
-            $validationResult = $this->validationService->validate($sku->fresh(), false);
-            $blockingFailures = array_values(collect($validationResult['results'] ?? [])->where('blocking', true)->where('passed', false)->all());
-            if (!empty($blockingFailures)) {
-                return response()->json([
-                    'error' => 'BLOCKING_GATE_FAILURE',
-                    'message' => 'Save rejected: One or more blocking gates failed.',
-                    'failures' => $blockingFailures,
-                ], 400);
+            // SOURCE: openapi.yaml /sku/{sku_id}/validate — validate incoming payload before persist.
+            $draftValidation = $this->validationService->validateSku((string) $id, $request->all());
+            $draftHttp = (int) ($draftValidation['http_status'] ?? 200);
+            $draftBody = $draftValidation['openapi_validation_body'] ?? null;
+            if ($draftHttp >= 400 && is_array($draftBody)) {
+                return response()->json($draftBody, 400);
             }
 
             // Gate enforcement: do not allow setting validation_status to VALID/PENDING without passing gates
@@ -267,8 +380,7 @@ class SkuController {
                 if (!$valid || !empty($blockingFailures)) {
                     return response()->json([
                         'error' => 'BLOCKING_GATE_FAILURE',
-                        'message' => 'Cannot publish: One or more blocking gates failed',
-                        'failures' => $blockingFailures,
+                        'message' => 'Cannot publish: one or more blocking gates failed.',
                     ], 403);
                 }
             }
@@ -283,7 +395,10 @@ class SkuController {
             $sku->update($updateData);
 
             // Log each changed field to audit_log (old/new diff)
+            // SOURCE: CLAUDE.md §10 — every save attempt traceable
+            // FIX: API-18 — log content_save_no_change when no field values changed
             $userId = auth()->id();
+            $fieldAuditCount = 0;
             foreach ($auditFields as $field => $newVal) {
                 $oldVal = $oldValues[$field] ?? null;
                 if ($oldVal === $newVal) continue;
@@ -299,21 +414,36 @@ class SkuController {
                     'timestamp'  => now(),
                     'user_id'    => $userId,
                 ]);
+                $fieldAuditCount++;
+            }
+            if ($fieldAuditCount === 0) {
+                AuditLog::create([
+                    'entity_type' => 'sku',
+                    'entity_id'   => (string) $sku->id,
+                    'action'      => 'content_save_no_change',
+                    'field_name'  => null,
+                    'old_value'   => null,
+                    'new_value'   => null,
+                    'actor_id'    => (string) ($userId ?? 'SYSTEM'),
+                    'actor_role'  => optional(optional(auth()->user())->role)->name ?? 'system',
+                    'timestamp'   => now(),
+                    'user_id'     => $userId,
+                ]);
             }
 
             // Run validation after update
             $manualStatusUpdate = isset($updateData['validation_status']);
             $validationResult = $this->validationService->validate($sku->fresh(), $manualStatusUpdate);
 
-            return ResponseFormatter::format([
-                'sku' => $sku->fresh(['primaryCluster', 'skuIntents.intent']),
-                'validation' => $validationResult
-            ]);
+            return response()->json([
+                'status' => 'updated',
+                'validation' => $validationResult['openapi_validation_body'] ?? null,
+            ], 200);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json(['error' => 'SKU not found'], 404);
+            return response()->json(['error' => 'SKU_NOT_FOUND', 'message' => 'SKU not found'], 404);
         } catch (\Exception $e) {
             Log::error('SKU update failed: ' . $e->getMessage());
-            return response()->json(['error' => 'Update failed: ' . $e->getMessage()], 500);
+            return response()->json(['error' => 'UPDATE_FAILED', 'message' => 'Update failed'], 500);
         }
     }
 
@@ -342,10 +472,10 @@ class SkuController {
         // Run validation after creation
         $validationResult = $this->validationService->validate($sku->fresh());
 
-        return ResponseFormatter::format([
+        return response()->json([
             'sku' => $sku->fresh(['primaryCluster', 'skuIntents.intent']),
             'validation' => $validationResult
-        ], "SKU created successfully", 201);
+        ], 201);
     }
 
     /**
@@ -367,16 +497,22 @@ class SkuController {
         $user = auth()->user();
 
         // Step 1: Re-validate all gates (defence in depth).
+        // SOURCE: openapi.yaml ValidationResponse — publish 400 must return full gate contract
+        // FIX: API-08 — use openapi_validation_body from ValidationService
         $validation = $this->validationService->validate($sku);
         $canPublish = $validation['can_publish'] ?? false;
         if (!$canPublish) {
-            $status = ($validation['ai_validation_pending'] ?? false) ? 'pending' : 'fail';
-            return response()->json([
-                'status' => $status,
-                'gates' => $validation['gates'] ?? [],
-                'failures' => $validation['failures'] ?? [],
+            $http = (int) ($validation['http_status'] ?? 400);
+            $body = $validation['openapi_validation_body'] ?? [
+                'status' => ($validation['ai_validation_pending'] ?? false) ? 'pending' : 'fail',
+                'gates' => [],
+                'vector_check' => ['status' => 'pass', 'user_message' => null],
+                'degraded_mode' => (bool) ($validation['ai_validation_pending'] ?? false),
+                'save_allowed' => true,
                 'publish_allowed' => false,
-            ], 400);
+            ];
+            $statusCode = ($http >= 400 && $http < 600) ? $http : 400;
+            return response()->json($body, $statusCode);
         }
 
         // RBAC: role must be permitted to publish.
@@ -451,12 +587,96 @@ class SkuController {
     }
 
     /**
+     * SOURCE: Phase 7 fix request — channel deploy callback for readiness refresh.
+     * FIX: P7-SKU-01
+     */
+    public function channelDeployed(string $skuCode, Request $request): JsonResponse
+    {
+        $payload = $request->validate([
+            'channel' => 'required|string',
+            'status' => 'required|string',
+            'timestamp' => 'required|string',
+        ]);
+
+        $sku = Sku::where('sku_code', $skuCode)->first();
+        if (!$sku) {
+            return response()->json(['error' => 'SKU_NOT_FOUND', 'message' => 'SKU not found'], 404);
+        }
+
+        $readiness = $this->readinessScoreService->computeReadiness($sku->fresh());
+
+        AuditLog::create([
+            'entity_type' => 'channel_deploy',
+            'entity_id' => (string) $sku->id,
+            'action' => 'channel_deployed',
+            'field_name' => (string) $payload['channel'],
+            'old_value' => null,
+            'new_value' => json_encode($payload),
+            'actor_id' => 'SYSTEM',
+            'actor_role' => 'system',
+            'timestamp' => now(),
+            'user_id' => 'SYSTEM',
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'created_at' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'recorded',
+            'readiness' => $readiness,
+        ], 200);
+    }
+
+    /**
+     * SOURCE: Phase 7 fix request — channel deploy failure callback audit.
+     * FIX: P7-SKU-02
+     */
+    public function channelFailed(string $skuCode, Request $request): JsonResponse
+    {
+        $payload = $request->validate([
+            'channel' => 'required|string',
+            'error' => 'required|string',
+            'retry_scheduled' => 'required|boolean',
+        ]);
+
+        $sku = Sku::where('sku_code', $skuCode)->first();
+        if (!$sku) {
+            return response()->json(['error' => 'SKU_NOT_FOUND', 'message' => 'SKU not found'], 404);
+        }
+
+        AuditLog::create([
+            'entity_type' => 'channel_deploy',
+            'entity_id' => (string) $sku->id,
+            'action' => 'channel_failed',
+            'field_name' => (string) $payload['channel'],
+            'old_value' => null,
+            'new_value' => json_encode($payload),
+            'actor_id' => 'SYSTEM',
+            'actor_role' => 'system',
+            'timestamp' => now(),
+            'user_id' => 'SYSTEM',
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'created_at' => now(),
+        ]);
+
+        Log::warning('Channel deployment failure recorded', [
+            'sku_code' => $skuCode,
+            'channel' => $payload['channel'],
+            'error' => $payload['error'],
+            'retry_scheduled' => (bool) $payload['retry_scheduled'],
+        ]);
+
+        return response()->json(['status' => 'failure_recorded'], 200);
+    }
+
+    /**
      * GET /api/v1/sku/{id}/readiness — per-channel readiness scores (0-100). Unified API 7.1 / 11.3.
      */
     public function readiness($id) {
         $sku = Sku::findOrFail($id);
         $result = $this->readinessScoreService->computeReadiness($sku);
-        return ResponseFormatter::format($result);
+        return response()->json($result, 200);
     }
 
     public function stats() {
@@ -467,17 +687,17 @@ class SkuController {
 
         $validated = Sku::where('validation_status', 'VALID')->count();
 
-        return ResponseFormatter::format([
+        return response()->json([
             'total' => $total,
             'by_tier' => $byTier,
             'validated' => $validated,
-        ]);
+        ], 200);
     }
 
     public function faqSuggestions($id) {
         $sku = Sku::findOrFail($id);
         $suggestions = $this->faqSuggestionService->getSuggestions($sku);
-        return ResponseFormatter::format($suggestions);
+        return response()->json($suggestions, 200);
     }
 
     public function auditResults($id) {
@@ -493,7 +713,7 @@ class SkuController {
                 ->toArray();
         }
 
-        return ResponseFormatter::format($results);
+        return response()->json($results, 200);
     }
 
     /**
@@ -519,25 +739,184 @@ class SkuController {
         $snapshot = is_string($row->baseline_content_snapshot)
             ? json_decode($row->baseline_content_snapshot, true)
             : $row->baseline_content_snapshot;
-        return ResponseFormatter::format(['content' => $snapshot ?? []]);
+        return response()->json(['content' => $snapshot ?? []], 200);
+    }
+
+    /**
+     * SOURCE: CIE_Master_Developer_Build_Spec.docx §4.4 / §15
+     * FIX: AI-08 — Content pre-fill via Python AI Agent (POST /api/v1/sku/{sku_id}/suggest)
+     */
+    public function suggest(string $skuId): JsonResponse
+    {
+        $sku = Sku::with(['primaryCluster', 'skuIntents.intent'])->findOrFail($skuId);
+
+        if ($sku->tier === TierType::KILL) {
+            return response()->json([
+                'error' => 'AI suggestions unavailable — enter manually.',
+                'fields_editable' => false,
+            ], 200);
+        }
+
+        $primaryIntent = null;
+        foreach ($sku->skuIntents as $si) {
+            if ($si->is_primary && $si->intent) {
+                $primaryIntent = (string) ($si->intent->name ?? '');
+                break;
+            }
+        }
+
+        $cluster = $sku->primaryCluster;
+        $skuData = [
+            'sku_id' => (string) $sku->id,
+            'sku_code' => (string) ($sku->sku_code ?? ''),
+            'product_name' => (string) ($sku->title ?? ''),
+            'category' => $cluster ? (string) ($cluster->category ?? '') : '',
+            'cluster_id' => $sku->primary_cluster_id,
+            'cluster_intent' => $cluster ? (string) ($cluster->intent_statement ?? '') : '',
+            'primary_intent' => $primaryIntent,
+            'tier' => strtolower((string) ($sku->tier instanceof TierType ? $sku->tier->value : $sku->tier)),
+            'certifications' => [],
+        ];
+
+        $baseUrl = rtrim((string) config('services.python_worker.url', ''), '/');
+        if ($baseUrl === '') {
+            $baseUrl = 'http://localhost:8000';
+        }
+        $url = $baseUrl . '/api/v1/sku/suggest';
+
+        try {
+            $response = Http::timeout(120)->acceptJson()->post($url, $skuData);
+
+            if ($response->successful()) {
+                $suggestion = $response->json();
+                if (!is_array($suggestion)) {
+                    $suggestion = [];
+                }
+
+                // Fail-soft envelope from Python (200 + error field)
+                if (isset($suggestion['error'])) {
+                    if (Schema::hasTable('ai_agent_logs')) {
+                        try {
+                            AiAgentLog::create([
+                                'sku_id' => (string) $sku->id,
+                                'function_called' => 'content_suggest',
+                                'prompt_hash' => hash('sha256', (string) json_encode($skuData)),
+                                'response_received' => false,
+                                'confidence_score' => null,
+                                'status' => 'pending',
+                            ]);
+                        } catch (\Throwable $e) {
+                            Log::warning('AiAgentLog create failed: ' . $e->getMessage(), ['sku_id' => $sku->id]);
+                        }
+                    }
+
+                    return response()->json($suggestion, 200);
+                }
+
+                if (Schema::hasTable('ai_agent_logs')) {
+                    try {
+                        AiAgentLog::create([
+                            'sku_id' => (string) $sku->id,
+                            'function_called' => 'content_suggest',
+                            'prompt_hash' => hash('sha256', (string) json_encode($skuData)),
+                            'response_received' => true,
+                            'confidence_score' => isset($suggestion['confidence_score'])
+                                ? (float) $suggestion['confidence_score']
+                                : null,
+                            'status' => 'pending',
+                        ]);
+                    } catch (\Throwable $e) {
+                        Log::warning('AiAgentLog create failed: ' . $e->getMessage(), ['sku_id' => $sku->id]);
+                    }
+                }
+
+                return response()->json($suggestion, 200);
+            }
+
+            if (Schema::hasTable('ai_agent_logs')) {
+                try {
+                    AiAgentLog::create([
+                        'sku_id' => (string) $sku->id,
+                        'function_called' => 'content_suggest',
+                        'prompt_hash' => hash('sha256', (string) json_encode($skuData)),
+                        'response_received' => false,
+                        'confidence_score' => null,
+                        'status' => 'pending',
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::warning('AiAgentLog create failed: ' . $e->getMessage(), ['sku_id' => $sku->id]);
+                }
+            }
+
+            return response()->json([
+                'error' => 'AI suggestions unavailable — enter manually.',
+                'fields_editable' => true,
+            ], 200);
+        } catch (\Exception $e) {
+            Log::warning('suggest Python call failed: ' . $e->getMessage(), ['sku_id' => $sku->id]);
+
+            return response()->json([
+                'error' => 'AI suggestions unavailable — enter manually.',
+                'fields_editable' => true,
+            ], 200);
+        }
+    }
+
+    /**
+     * SOURCE: openapi.yaml /sku/{sku_id}/suggestions/{suggestion_id}/status
+     * FIX: AI-14 — Log accepted/edited/rejected; proxy to Python engine when configured
+     */
+    public function suggestionStatus(Request $request, string $sku_id, string $suggestion_id): JsonResponse
+    {
+        $status = (string) $request->input('status', 'seen');
+        if (Schema::hasTable('ai_agent_logs')) {
+            try {
+                $mapped = in_array((string) $status, ['accepted', 'edited'], true)
+                    ? (string) $status
+                    : 'rejected';
+                AiAgentLog::where('sku_id', $sku_id)
+                    ->where('function_called', 'content_suggest')
+                    ->orderByDesc('id')
+                    ->limit(1)
+                    ->update(['status' => $mapped]);
+            } catch (\Throwable $e) {
+                Log::warning('suggestionStatus ai_agent_logs: ' . $e->getMessage());
+            }
+        }
+
+        $engineBase = rtrim((string) env('CIE_ENGINE_BASE_URL', 'http://localhost:8000/api/v1'), '/');
+        $url = $engineBase . '/sku/' . urlencode($sku_id) . '/suggestions/' . urlencode($suggestion_id) . '/status';
+        $client = Http::acceptJson();
+        $token = env('CIE_ENGINE_TOKEN');
+        if (!empty($token)) {
+            $client = $client->withToken($token);
+        }
+        $response = $client->post($url, $request->all());
+
+        return response()->json($response->json(), $response->status());
     }
 
     /**
      * GET /api/v1/queue/today
      * Returns writer queue rows for My Queue page.
-     * SOURCE: CIE_Master_Developer_Build_Spec.docx Section 14.1
-     * build_priority_queue: hero+support only, 6-factor weighted score, top 10
+     * SOURCE: CIE_Master_Developer_Build_Spec.docx Section 14.1; openapi.yaml /queue/today (Kill locked)
+     * FIX: API-05/11 — include all tiers; Hero/Support sorted by weighted score first, then Harvest, then Kill
      * Thresholds via BusinessRules::get() — no hard-coded values
      */
     public function queueToday(Request $request) {
-        $candidates = Sku::query()
-            ->whereIn('tier', ['hero', 'support'])
-            ->select([
-                'id', 'sku_code', 'title', 'tier', 'validation_status', 'updated_at',
-                'short_description', 'long_description', 'best_for', 'not_for', 'margin_percent',
-                'decay_status', 'content_score', 'readiness_score', 'ai_answer_block', 'expert_authority',
-            ])
-            ->get();
+        $tierFilter = $request->query('tier');
+        $q = Sku::query()->select([
+            'id', 'sku_code', 'title', 'tier', 'validation_status', 'updated_at',
+            'short_description', 'long_description', 'best_for', 'not_for', 'margin_percent',
+            'decay_status', 'content_score', 'readiness_score', 'ai_answer_block', 'expert_authority',
+        ]);
+        if (Schema::hasColumn('skus', 'is_active')) {
+            $q->where('is_active', true);
+        }
+        if ($tierFilter !== null && $tierFilter !== '') {
+            $q->where('tier', strtolower((string) $tierFilter));
+        }
+        $candidates = $q->get();
 
         $amberThreshold = (int) BusinessRules::get('chs.amber_threshold');
         $heroReadinessMin = (int) BusinessRules::get('readiness.hero_primary_channel_min');
@@ -556,26 +935,54 @@ class SkuController {
             if ($chs < $amberThreshold) {
                 $score += 40;
             }
-            $tierLower = $sku->tier instanceof \App\Enums\TierType ? $sku->tier->value : strtolower((string) ($sku->tier ?? ''));
-            if ($tierLower === 'hero') {
-                $readiness = (int) ($sku->readiness_score ?? 0);
-                if ($readiness < $heroReadinessMin) {
-                    $score += 35;
-                }
-                $answerBlockEmpty = trim((string) ($sku->ai_answer_block ?? '')) === ''
-                    && trim((string) ($sku->short_description ?? '')) === '';
-                if ($answerBlockEmpty) {
-                    $score += 30;
+            $tierLower = $sku->tier instanceof TierType ? $sku->tier->value : strtolower((string) ($sku->tier ?? ''));
+            if (in_array($tierLower, ['hero', 'support'], true)) {
+                if ($tierLower === 'hero') {
+                    $readiness = (int) ($sku->readiness_score ?? 0);
+                    if ($readiness < $heroReadinessMin) {
+                        $score += 35;
+                    }
+                    // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1
+                    // FIX: AI-11 — Hero + no answer_block only (skus.ai_answer_block)
+                    $answerBlockEmpty = trim((string) ($sku->ai_answer_block ?? '')) === '';
+                    if ($answerBlockEmpty) {
+                        $score += 30;
+                    }
                 }
             }
             if ($this->hasOpenBrief((string) $sku->id)) {
                 $score += 25;
             }
 
+            if ($tierLower === 'kill') {
+                $score = 0;
+            }
+
             $sku->priority_score = $score;
         }
 
-        $sorted = $candidates->sortByDesc('priority_score')->values();
+        $tierGroup = static function (Sku $sku): int {
+            $t = $sku->tier instanceof TierType ? $sku->tier->value : strtolower((string) ($sku->tier ?? ''));
+            if (in_array($t, ['hero', 'support'], true)) {
+                return 0;
+            }
+            if ($t === 'harvest') {
+                return 1;
+            }
+            if ($t === 'kill') {
+                return 2;
+            }
+            return 3;
+        };
+
+        $sorted = $candidates->sort(function (Sku $a, Sku $b) use ($tierGroup) {
+            $ga = $tierGroup($a);
+            $gb = $tierGroup($b);
+            if ($ga !== $gb) {
+                return $ga <=> $gb;
+            }
+            return ($b->priority_score ?? 0) <=> ($a->priority_score ?? 0);
+        })->values();
         $top10 = $sorted->take(10);
 
         $items = $top10->map(function ($sku) {
@@ -592,30 +999,30 @@ class SkuController {
             [$fieldsDone, $fieldsTotal] = $this->computeFieldProgress($sku, $tier);
 
             return [
-                'id' => (string) $sku->id,
-                'sku_id' => (string) ($sku->sku_code ?? $sku->id),
-                'name' => (string) ($sku->title ?? 'Untitled'),
-                'tier' => $tier,
+                'sku_id' => (string) $sku->id,
+                'sku_code' => (string) ($sku->sku_code ?? ''),
+                'product_name' => (string) ($sku->title ?? 'Untitled'),
+                'tier' => strtolower($tier),
+                'validation_status' => strtolower($status),
                 'done' => $isValid,
-                'status' => $status,
-                'fields_done' => $fieldsDone,
-                'fields_total' => $fieldsTotal,
+                'priority_score' => (int) ($sku->priority_score ?? 0),
                 'missing_fields_count' => max(0, $fieldsTotal - $fieldsDone),
                 'ai_suggestion_count' => 0,
-                'urgency' => $tier === 'HERO' ? 'high' : ($tier === 'SUPPORT' ? 'medium' : 'low'),
-                'reason' => 'Prioritized by AI queue engine',
-                'rollback_candidate' => $this->baselineService->isRollbackCandidate($sku->id),
+                'locked' => strtolower($tier) === 'kill',
+                'decay_status' => (string) ($sku->decay_status ?? 'none'),
             ];
         });
 
-        return ResponseFormatter::format($items);
+        return response()->json(['items' => $items->values()->all()], 200);
     }
 
     /**
      * SOURCE: CIE_Master_Developer_Build_Spec.docx Section 14.1 — open content refresh brief
      */
     private function hasOpenBrief(string $skuId): bool {
-        return ContentBrief::where('sku_id', $skuId)->where('status', 'OPEN')->exists();
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §6.5
+        // FIX: DEC-03 — content_briefs status is lowercase; keep legacy uppercase compatibility.
+        return ContentBrief::where('sku_id', $skuId)->whereIn('status', ['open', 'OPEN'])->exists();
     }
 
     private function addCamelCaseAliases(array $arr): array
@@ -792,7 +1199,11 @@ class SkuController {
     {
         if ($tier === 'KILL') return true;
         $longDesc = $sku->long_description ?? '';
-        return !empty($longDesc) && str_word_count($longDesc) >= 50;
+        if (empty($longDesc)) {
+            return false;
+        }
+        $minWords = (int) BusinessRules::get('gates.description_word_count_min');
+        return str_word_count($longDesc) >= $minWords;
     }
 
     /**
@@ -880,7 +1291,7 @@ class SkuController {
             return false;
         }
 
-        $defaultThreshold = 85;
+        $defaultThreshold = (int) BusinessRules::get('readiness.hero_primary_channel_min');
         if ($tier === 'HERO') {
             return $rows->every(function ($row) use ($defaultThreshold) {
                 $channel = strtolower($row->channel ?? 'shopify');
@@ -939,7 +1350,8 @@ class SkuController {
             : strtoupper((string) ($sku->tier ?? ''));
         if (in_array($tier, ['HARVEST', 'KILL'])) return 'pass';
 
-        $hasContent = !empty($sku->long_description) && str_word_count($sku->long_description ?? '') >= 50;
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 + §7 (G6) — configurable minimum description words.
+        $hasContent = !empty($sku->long_description) && str_word_count($sku->long_description ?? '') >= (int) BusinessRules::get('gates.description_min_words');
         return $hasContent ? null : 'fail';
     }
 

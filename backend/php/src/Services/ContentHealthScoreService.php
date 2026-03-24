@@ -21,12 +21,6 @@ use Illuminate\Support\Facades\Schema;
  */
 class ContentHealthScoreService
 {
-    private const WEIGHT_INTENT = 0.25;
-    private const WEIGHT_SEMANTIC = 0.20;
-    private const WEIGHT_TECHNICAL = 0.20;
-    private const WEIGHT_COMPETITIVE = 0.20;
-    private const WEIGHT_AI = 0.15;
-
     /** Sentinel for Competitive Gap when SKU has no Semrush data. */
     public const COMPETITIVE_GAP_NO_DATA = 'No Data';
 
@@ -39,6 +33,14 @@ class ContentHealthScoreService
     {
         $sku->loadMissing(['primaryCluster', 'skuIntents.intent']);
 
+        // SOURCE: CLAUDE.md §15; CIE_Master_Developer_Build_Spec.docx §5.3 — CHS weights from business_rules
+        // FIX: TS-03 addendum — replace hard-coded CHS weights (040_seed: chs.*_weight keys)
+        $wIntent = (float) BusinessRules::get('chs.intent_alignment_weight');
+        $wSemantic = (float) BusinessRules::get('chs.semantic_coverage_weight');
+        $wTechnical = (float) BusinessRules::get('chs.technical_hygiene_weight');
+        $wCompetitive = (float) BusinessRules::get('chs.competitive_gap_weight');
+        $wAi = (float) BusinessRules::get('chs.ai_readiness_weight');
+
         $intent = $this->getIntentAlignmentScore($sku);
         $semantic = $this->getSemanticCoverageScore($sku);
         $technical = $this->getTechnicalSEOScore($sku);
@@ -47,20 +49,20 @@ class ContentHealthScoreService
 
         $noData = $competitive === self::COMPETITIVE_GAP_NO_DATA;
         if ($noData) {
-            // Scale the 4 components (80% total) to 0–100 (CLAUDE.md §15).
-            $weightedSum = $intent * self::WEIGHT_INTENT
-                + $semantic * self::WEIGHT_SEMANTIC
-                + $technical * self::WEIGHT_TECHNICAL
-                + $ai * self::WEIGHT_AI;
-            $chs = $weightedSum / 0.80; // max 80/0.80 = 100
+            // Scale the four scored components to 0–100 when competitive gap is "No Data" (CLAUDE.md §15).
+            $sumFourWeights = $wIntent + $wSemantic + $wTechnical + $wAi;
+            $weightedSum = $intent * $wIntent
+                + $semantic * $wSemantic
+                + $technical * $wTechnical
+                + $ai * $wAi;
+            $chs = $sumFourWeights > 0 ? ($weightedSum / $sumFourWeights) : 0;
             $competitiveValue = self::COMPETITIVE_GAP_NO_DATA;
         } else {
-            // Components 0–100, weights sum to 1 → CHS 0–100
-            $chs = $intent * self::WEIGHT_INTENT
-                + $semantic * self::WEIGHT_SEMANTIC
-                + $technical * self::WEIGHT_TECHNICAL
-                + (float) $competitive * self::WEIGHT_COMPETITIVE
-                + $ai * self::WEIGHT_AI;
+            $chs = $intent * $wIntent
+                + $semantic * $wSemantic
+                + $technical * $wTechnical
+                + (float) $competitive * $wCompetitive
+                + $ai * $wAi;
             $competitiveValue = (float) $competitive;
         }
 
@@ -123,9 +125,10 @@ class ContentHealthScoreService
      */
     private function getTechnicalSEOScore(Sku $sku): float
     {
-        $maxTitle = (int) BusinessRules::get('gates.meta_title_max_chars', 65);
-        $maxDesc = (int) BusinessRules::get('gates.meta_description_max_chars', 160);
-        $minDesc = (int) BusinessRules::get('gates.meta_description_min_chars', 120);
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5.2 — no silent fallback defaults.
+        $maxTitle = (int) BusinessRules::get('gates.meta_title_max_chars');
+        $maxDesc = (int) BusinessRules::get('gates.meta_description_max_chars');
+        $minDesc = (int) BusinessRules::get('gates.meta_description_min_chars');
 
         $score = 0.0;
         $parts = 4;

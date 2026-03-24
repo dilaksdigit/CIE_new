@@ -18,6 +18,10 @@ const ReviewSemrush = () => {
   const [competitorGaps, setCompetitorGaps] = useState({});
   const [quickWins, setQuickWins] = useState([]);
   const [batchLabel, setBatchLabel] = useState('');
+  // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx
+  // FIX: UI-22 — add review filters.
+  const [keywordSearch, setKeywordSearch] = useState('');
+  const [tierFilter, setTierFilter] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +90,11 @@ const ReviewSemrush = () => {
   }
 
   const skuCodes = Object.keys(competitorGaps).sort();
+  const search = keywordSearch.trim().toLowerCase();
+  const tierMatches = (row) => !tierFilter || String(row?.tier || '').toLowerCase() === tierFilter;
+  const keywordMatches = (row) => !search || String(row?.keyword || '').toLowerCase().includes(search);
+  const filteredRankMovement = rankMovement.filter((row) => tierMatches(row) && keywordMatches(row));
+  const filteredQuickWins = quickWins.filter((row) => tierMatches(row) && keywordMatches(row));
 
   return (
     <div style={{ background: PAGE_BG, minHeight: '100%', padding: 24 }}>
@@ -97,6 +106,24 @@ const ReviewSemrush = () => {
         {batchLabel && (
           <div style={{ marginTop: 6, fontSize: '0.78rem', color: 'var(--text-dim)' }}>{batchLabel}</div>
         )}
+      </div>
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+        <select
+          value={tierFilter}
+          onChange={(e) => setTierFilter(e.target.value)}
+          style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: '4px' }}
+        >
+          <option value="">All Tiers</option>
+          <option value="hero">Hero</option>
+          <option value="support">Support</option>
+        </select>
+        <input
+          type="text"
+          placeholder="Search keywords..."
+          value={keywordSearch}
+          onChange={(e) => setKeywordSearch(e.target.value)}
+          style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: '4px', flex: 1 }}
+        />
       </div>
 
       {/* Zone 1: Rank Movement */}
@@ -117,14 +144,14 @@ const ReviewSemrush = () => {
               </tr>
             </thead>
             <tbody>
-              {rankMovement.length === 0 ? (
+              {filteredRankMovement.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ padding: 16, fontSize: '0.8rem', color: 'var(--text-muted)', background: SURFACE }}>
                     No rank movement data for the latest batch.
                   </td>
                 </tr>
               ) : (
-                rankMovement.slice(0, 100).map((row, idx) => {
+                filteredRankMovement.slice(0, 100).map((row, idx) => {
                   const pos = row.position != null ? Number(row.position) : null;
                   const prev = row.prev_position != null ? Number(row.prev_position) : null;
                   const change = prev != null && pos != null ? prev - pos : null;
@@ -159,7 +186,7 @@ const ReviewSemrush = () => {
             </div>
           ) : (
             skuCodes.map((skuCode) => {
-              const keywords = competitorGaps[skuCode] || [];
+              const keywords = (competitorGaps[skuCode] || []).filter((kw) => tierMatches(kw) && keywordMatches(kw));
               return (
                 <div key={skuCode} style={{ borderBottom: '1px solid var(--border)' }}>
                   <div style={{ ...tableHeaderStyle, fontSize: '0.75rem' }}>{skuCode || '—'} ({keywords.length} gap keywords)</div>
@@ -210,14 +237,14 @@ const ReviewSemrush = () => {
               </tr>
             </thead>
             <tbody>
-              {quickWins.length === 0 ? (
+              {filteredQuickWins.length === 0 ? (
                 <tr>
                   <td colSpan={5} style={{ padding: 16, fontSize: '0.8rem', color: 'var(--text-muted)', background: SURFACE }}>
                     No quick wins (position 11–30, difficulty &lt; 40, volume &gt; 500, Hero/Support).
                   </td>
                 </tr>
               ) : (
-                quickWins.map((row, idx) => (
+                filteredQuickWins.map((row, idx) => (
                   <tr key={`qw-${idx}-${row.keyword}-${row.sku_code}`}>
                     <td style={tableCellStyle(idx)}>{row.keyword ?? '—'}</td>
                     <td style={tableCellStyle(idx)}>{row.sku_code ?? '—'}</td>

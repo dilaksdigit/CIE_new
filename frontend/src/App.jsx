@@ -111,7 +111,12 @@ const App = () => {
           <Route path="/review/kpis" element={<AuthGuard><AppLayout><StaffKpis /></AppLayout></AuthGuard>} />
           <Route path="/review/semrush" element={<AuthGuard><AppLayout><ReviewSemrush /></AppLayout></AuthGuard>} />
 
+          {/* SOURCE: CIE_v232_UI_Restructure_Instructions.docx §4
+              FIX: UI-11 — explicit help sub-routes. */}
           <Route path="/help" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
+          <Route path="/help/flow" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
+          <Route path="/help/gates" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
+          <Route path="/help/roles" element={<AuthGuard><AppLayout><Help /></AppLayout></AuthGuard>} />
 
           <Route path="/admin/clusters" element={<AuthGuard><AppLayout><Clusters /></AppLayout></AuthGuard>} />
           <Route path="/admin/config" element={<AuthGuard><AppLayout><Config /></AppLayout></AuthGuard>} />

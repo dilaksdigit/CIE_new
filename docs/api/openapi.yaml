@@ -103,6 +103,19 @@ paths:
         '404':
           description: Suggestion not found
 
+  /sku/{sku_id}/suggest:
+    # SOURCE: CIE_Master_Developer_Build_Spec.docx §4.4 / §15 — AI Agent content pre-fill
+    post:
+      summary: AI Agent content suggestions (full pre-fill JSON schema)
+      tags: [CMS Queue]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Pre-fill fields or fail-soft error envelope (fields_editable)
 
   /sku/{sku_id}/validate:
     # SOURCE: cie_v231_openapi.yaml /sku/{sku_id}/validate
@@ -280,7 +293,7 @@ paths:
     post:
       summary: Compute cosine similarity vs cluster intent vector
       description: |
-        Threshold: 0.72. Below threshold = description rejected.
+        SOURCE: CLAUDE.md §11, Decision-005 — Below threshold returns WARNING (fail-soft) in the full validation pipeline; content can save with warning. Raw endpoint returns pass|fail|pending without numeric scores to writers.
       tags: [Semantic]
       requestBody:
         required: true
@@ -622,8 +635,9 @@ components:
 
     SkuValidateRequest:
       # SOURCE: cie_v231_openapi.yaml components/schemas/SkuValidateRequest
+      # SOURCE: ENF§2.1 G6.1 — Kill tier sends no content fields; only cluster_id, tier, action are always required
       type: object
-      required: [cluster_id, tier, primary_intent, title, description, action]
+      required: [cluster_id, tier, action]
       properties:
         cluster_id:
           type: string
@@ -633,12 +647,13 @@ components:
           enum: [hero, support, harvest, kill]
         primary_intent:
           type: string
-          enum: [compatibility, comparison, problem_solving, inspiration, specification, installation, safety_compliance, replacement, bulk_trade]
+          # SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 — locked 9-intent taxonomy keys
+          enum: [problem_solving, comparison, compatibility, specification, installation, troubleshooting, inspiration, regulatory, replacement]
         secondary_intents:
           type: array
           items:
             type: string
-            enum: [compatibility, comparison, problem_solving, inspiration, specification, installation, safety_compliance, replacement, bulk_trade]
+            enum: [problem_solving, comparison, compatibility, specification, installation, troubleshooting, inspiration, regulatory, replacement]
           maxItems: 3
         title:
           type: string
@@ -686,7 +701,8 @@ components:
             properties:
               status:
                 type: string
-                enum: [pass, fail, not_applicable, pending]
+                enum: [pass, fail, warn, not_applicable, pending]
+                description: 'warn = fail-soft vector pre-check or advisory gate surface (CLAUDE.md §11)'
               error_code:
                 type: string
                 nullable: true
@@ -721,11 +737,12 @@ components:
     SimilarityResponse:
       # SOURCE: CLAUDE.md §11 — cosine_similarity and threshold are INTERNAL ONLY.
       # Removed from wire response. PHP caller (G4_VectorGate.php) uses status + message only.
+      # SOURCE: CIE_v232_Hardening_Addendum.pdf §1.1 — pending for fail-soft when embedding unavailable
       type: object
       properties:
         status:
           type: string
-          enum: [pass, fail]
+          enum: [pass, fail, pending]
         message:
           type: string
           nullable: true

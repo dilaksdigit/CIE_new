@@ -35,13 +35,15 @@ class BriefController {
         $sku = Sku::findOrFail($request->input('sku_id'));
         $title = 'Decay Refresh: ' . ($sku->title ?: $sku->sku_code ?: $sku->id);
 
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §6.5
+        // FIX: DEC-03 — status enum is lowercase.
         $brief = ContentBrief::create([
             'sku_id'            => $sku->id,
             'brief_type'        => 'DECAY_REFRESH',
             'priority'          => 'HIGH',
             'title'             => $title,
             'suggested_actions' => $request->input('failing_questions'),
-            'status'            => 'OPEN',
+            'status'            => 'open',
             'deadline'          => now()->addDays((int) BusinessRules::get('decay.auto_brief_deadline_days'))->toDateString(),
         ]);
 

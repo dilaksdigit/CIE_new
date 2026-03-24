@@ -181,9 +181,15 @@ def process_vector_retry_queue():
                     )
                     conn.commit()
 
-                logger.info(
+                # SOURCE: CLAUDE.md §11 — numeric similarity is server-side only; avoid INFO exposure paths.
+                # FIX: VEC-03 — Similarity detail at DEBUG only (operational trace, not client-facing).
+                logger.debug(
                     "vector_retry: sku_id=%s resolved gate_status=%s similarity=%.4f",
                     sku_id, gate_status, similarity,
+                )
+                logger.info(
+                    "vector_retry: sku_id=%s resolved gate_status=%s",
+                    sku_id, gate_status,
                 )
 
                 if gate_status == "fail":

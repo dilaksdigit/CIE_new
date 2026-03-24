@@ -63,6 +63,14 @@ const PRIORITY_META = {
 };
 
 const PRIORITY_ORDER = ['high', 'medium', 'low'];
+const CARD_ICONS = {
+    // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2; CLAUDE.md §8
+    // FIX: UI-25 — text icon indicators (no emojis).
+    keyword: { symbol: 'KW', color: '#2E7D32' },
+    citation: { symbol: 'AI', color: '#C62828' },
+    trend: { symbol: 'TR', color: '#1565C0' },
+    competitor: { symbol: 'CG', color: '#E65100' },
+};
 
 const ALLOWED_SUGGESTION_TYPES = ['keyword', 'citation', 'trend', 'competitor'];
 
@@ -159,6 +167,8 @@ const normalizeGateKey = (value) => {
     if (v.startsWith('g3')) return 'g3';
     if (v.startsWith('g4')) return 'g4';
     if (v.startsWith('g5')) return 'g5';
+    // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 — G6 and G6.1 are distinct
+    if (v.startsWith('g6_1') || v === 'g6.1') return 'g6_1';
     if (v.startsWith('g6')) return 'g6';
     if (v.startsWith('g7')) return 'g7';
     return v;
@@ -166,7 +176,8 @@ const normalizeGateKey = (value) => {
 
 const gateKeysForField = (field) => {
     if (field === 'title') return ['g1', 'g2', 'g3'];
-    if (field === 'description' || field === 'specification') return ['g6', 'vector_similarity'];
+    if (field === 'description' || field === 'specification') return ['g6', 'g6_1', 'vector_similarity'];
+    if (field === 'problem_solving' || field === 'compatibility') return ['g2', 'g3', 'g6', 'g6_1'];
     if (field === 'answer_block') return ['g4'];
     if (field === 'best_for' || field === 'not_for') return ['g5'];
     if (field === 'expert_authority') return ['g7'];
@@ -179,14 +190,18 @@ const normalizeGates = (rawGates) => {
         rawGates.forEach((g) => {
             const key = normalizeGateKey(g?.gate ?? g?.code ?? g?.id);
             const rawStatus = (g && (g.status || g.state)) || (g?.passed === true ? 'pass' : g?.passed === false ? 'fail' : null);
+            // SOURCE: openapi.yaml ValidationResponse.gates.status, CIE_v232_Hardening_Addendum.pdf §1.1 — not_applicable is non-blocking for Submit visibility
+            // SOURCE: openapi.yaml — vector_check.status enum includes 'warn'
+            // SOURCE: CIE_v232_UI_Restructure_Instructions §6 — amber #E65100 for warning states
             const status =
-                rawStatus === 'pass'
+                rawStatus === 'pass' || rawStatus === 'not_applicable'
                     ? 'pass'
-                    : rawStatus === 'warning' || rawStatus === 'pending'
+                    : rawStatus === 'warning' || rawStatus === 'warn' || rawStatus === 'pending'
                     ? 'warning'
                     : 'fail';
             map[key] = {
                 status,
+                rawStatus,
                 reason: g?.reason || '',
                 metadata: g?.metadata || {},
                 user_message: g?.user_message || g?.metadata?.user_message || '',
@@ -198,14 +213,18 @@ const normalizeGates = (rawGates) => {
         Object.entries(rawGates).forEach(([k, v]) => {
             const key = normalizeGateKey(k);
             const rawStatus = (v && (v.status || v.state)) || (v?.passed === true ? 'pass' : v?.passed === false ? 'fail' : null);
+            // SOURCE: openapi.yaml ValidationResponse.gates.status, CIE_v232_Hardening_Addendum.pdf §1.1
+            // SOURCE: openapi.yaml — vector_check.status enum includes 'warn'
+            // SOURCE: CIE_v232_UI_Restructure_Instructions §6 — amber #E65100 for warning states
             const status =
-                rawStatus === 'pass'
+                rawStatus === 'pass' || rawStatus === 'not_applicable'
                     ? 'pass'
-                    : rawStatus === 'warning' || rawStatus === 'pending'
+                    : rawStatus === 'warning' || rawStatus === 'warn' || rawStatus === 'pending'
                     ? 'warning'
                     : 'fail';
             map[key] = {
                 status,
+                rawStatus,
                 reason: v?.reason || '',
                 metadata: v?.metadata || {},
                 user_message: v?.user_message || v?.metadata?.user_message || '',
@@ -213,6 +232,30 @@ const normalizeGates = (rawGates) => {
         });
     }
     return map;
+};
+
+// SOURCE: openapi.yaml — vector_check at root can be warn/pending while gates.vector_check still shows pass (warn_only path)
+const mergeTopLevelVectorCheck = (gateMap, vectorCheck) => {
+    if (!vectorCheck || typeof vectorCheck !== 'object') return gateMap;
+    const rawStatus = String(vectorCheck.status || 'pass').toLowerCase();
+    const uiStatus =
+        rawStatus === 'pass' || rawStatus === 'not_applicable'
+            ? 'pass'
+            : rawStatus === 'warning' || rawStatus === 'warn' || rawStatus === 'pending'
+              ? 'warning'
+              : 'fail';
+    const prev = gateMap.vector_similarity;
+    const um = (vectorCheck.user_message || prev?.user_message || '').trim();
+    return {
+        ...gateMap,
+        vector_similarity: {
+            status: uiStatus,
+            rawStatus,
+            reason: prev?.reason || '',
+            metadata: prev?.metadata || {},
+            user_message: um,
+        },
+    };
 };
 
 const pickList = (...values) => {
@@ -247,6 +290,9 @@ const normalizeSuggestions = (raw) => {
         .filter(Boolean)
         .slice(0, 8);
 };
+
+// SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf §4.4 — default when vector/pending has no user_message
+const PENDING_GATE_HINT = 'Validation pending. Content saved but awaiting AI review.';
 
 /** abMin/abMax = gates.answer_block_min_chars / gates.answer_block_max_chars (§5.3); required for g4 fallback when API omits min/max */
 const gateHintText = (gateKey, gate, values, abMin, abMax) => {
@@ -288,6 +334,7 @@ const gateHintText = (gateKey, gate, values, abMin, abMax) => {
     }
     if (gateKey === 'g5') return 'Technical details incomplete. Add certifications, specs, or standards that prove quality.';
     if (gateKey === 'g6') return 'Missing commercial info. Add pricing context, warranty, or delivery details as needed.';
+    if (gateKey === 'g6_1') return 'Intent selection is not allowed for this product tier. Adjust primary or supporting intents per tier rules.';
     if (gateKey === 'g7') return 'Authority section needs expert credentials. Add industry standards, testing results, or certifications.';
     if (gateKey === 'vector_similarity') {
         if (categoryStr) return `Your content has drifted from the category focus. Rewrite to include more ${categoryStr}.`;
@@ -317,10 +364,24 @@ const fieldStateAndHint = (field, gates, values, abMin, abMax) => {
 
     if (hasWarning) {
         const primaryWarning = related.find((r) => r.gate.status === 'warning') || null;
-        const hint = primaryWarning
-            ? (primaryWarning.gate.user_message || gateHintText(primaryWarning.key, primaryWarning.gate, values, abMin, abMax))
-            : '';
-        return { state: 'warning', hint };
+        // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §6, CLAUDE.md §11 — warn/pending show hint text, not border-only
+        let hint = '';
+        if (primaryWarning) {
+            hint = (primaryWarning.gate.user_message || '').trim();
+            if (!hint && primaryWarning.gate.rawStatus === 'pending') {
+                hint = PENDING_GATE_HINT;
+            }
+            if (!hint) {
+                hint = gateHintText(primaryWarning.key, primaryWarning.gate, values, abMin, abMax);
+            }
+            // SOURCE: CLAUDE.md §11 — vector warn often has scrubbed message; keep canonical copy
+            if (!hint && primaryWarning.key === 'vector_similarity') {
+                hint = 'Your content may not align with the intent. Consider revising.';
+            }
+        } else {
+            hint = PENDING_GATE_HINT;
+        }
+        return { state: 'warning', hint: hint || PENDING_GATE_HINT };
     }
 
     return { state: 'pass', hint: '' };
@@ -387,6 +448,7 @@ const WriterEdit = () => {
     const [validateBusy, setValidateBusy] = useState(false);
     const [publishBusy, setPublishBusy] = useState(false);
     const [publishError, setPublishError] = useState('');
+    const [chsData, setChsData] = useState(null);
 
     // §5.3 gates.answer_block_min_chars / gates.answer_block_max_chars, content.title_max_length, gates.description_word_count_min — no literals
     const [answerBlockMin, setAnswerBlockMin] = useState(null);
@@ -443,6 +505,10 @@ const WriterEdit = () => {
     const [hasSemrushData, setHasSemrushData] = useState(false);
     const [auditUnavailable, setAuditUnavailable] = useState(false);
     const [copiedSuggestionId, setCopiedSuggestionId] = useState(null);
+    // SOURCE: CIE_Master_Developer_Build_Spec.docx §4.4 / §4.5 — AI pre-fill + confidence
+    const [aiSuggestLoading, setAiSuggestLoading] = useState(false);
+    const [aiSuggestResponse, setAiSuggestResponse] = useState(null);
+    const [aiSuggestError, setAiSuggestError] = useState('');
 
     const isReadonly = TIER_FIELD_MAP[tier]?.readonly === true;
     const requiredFields = useMemo(
@@ -478,6 +544,9 @@ const WriterEdit = () => {
                     not_for: item?.not_for || '',
                     expert_authority: item?.expert_authority || item?.expert_authority_name || '',
                 });
+                // SOURCE: CLAUDE.md §15
+                // FIX: UI-23 — CHS weighted component breakdown.
+                setChsData(payload?.chs ?? item?.chs ?? null);
 
                 // SOURCE: README_First_CIE_v232_Developer_README.docx §5
                 // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 2 RIGHT PANEL
@@ -624,7 +693,8 @@ const WriterEdit = () => {
             } catch {
                 // Fail-soft: background poll errors must not break the UI
             }
-        }, 30000);
+        // SOURCE: CLAUDE.md Section 7 — Tier changes propagate to field visibility immediately
+        }, 5000);
 
         return () => {
             cancelled = true;
@@ -651,9 +721,10 @@ const WriterEdit = () => {
                 };
                 const res = await writerEditApi.validate(skuId, body);
                 if (cancelled) return;
-                const data = res?.data?.data ?? res?.data ?? {};
-                const gatePayload = data.gates ?? [];
-                setGates(normalizeGates(gatePayload));
+                // SOURCE: openapi.yaml ValidationResponse at JSON root (PHP validate unwrapped per ENF§7.2)
+                const data = res?.data && typeof res.data === 'object' ? res.data : {};
+                const gatePayload = data.gates ?? {};
+                setGates(mergeTopLevelVectorCheck(normalizeGates(gatePayload), data.vector_check));
                 setDegradedMode(Boolean(data.degraded_mode));
                 setPublishAllowed(data.publish_allowed !== false);
             } catch (e) {
@@ -714,6 +785,27 @@ const WriterEdit = () => {
             return;
         } finally {
             setPublishBusy(false);
+        }
+    };
+
+    const handleAiSuggest = async () => {
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §4.4 / §4.5
+        setAiSuggestLoading(true);
+        setAiSuggestError('');
+        setAiSuggestResponse(null);
+        try {
+            const res = await writerEditApi.suggest(skuId);
+            const data = res?.data ?? {};
+            setAiSuggestResponse(data);
+            if (data.error) {
+                setAiSuggestError(data.error);
+            }
+        } catch {
+            const msg = 'AI suggestions unavailable — enter manually.';
+            setAiSuggestError(msg);
+            setAiSuggestResponse({ error: msg, fields_editable: true });
+        } finally {
+            setAiSuggestLoading(false);
         }
     };
 
@@ -802,9 +894,32 @@ const WriterEdit = () => {
                 </div>
             )}
 
+            {/* SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2
+                FIX: UI-15 — explicit 70/30 split. */}
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ width: '70%', minWidth: 0 }}>
                     <TierBanner tier={tier} />
+                    {chsData && (
+                        <div className="card" style={{ marginBottom: 12 }}>
+                            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: C.text, marginBottom: 10 }}>
+                                Content Health Score: {chsData.total ?? '—'}/100
+                            </div>
+                            {[
+                                ['intent_alignment', 'Intent Alignment', '25%'],
+                                ['semantic_coverage', 'Semantic Coverage', '20%'],
+                                ['technical_seo', 'Technical SEO Hygiene', '20%'],
+                                ['competitive_gap', 'Competitive Gap', '20%'],
+                                ['ai_readiness', 'AI Readiness', '15%'],
+                            ].map(([key, label, weight]) => (
+                                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: `1px solid ${C.muted}` }}>
+                                    <span style={{ color: C.textMid, fontSize: '0.76rem' }}>{label} ({weight})</span>
+                                    <span style={{ fontFamily: 'var(--mono)', color: C.text }}>
+                                        {chsData[key] ?? (key === 'competitive_gap' && chsData.has_semrush === false ? 'No Data' : '—')}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
 
                     <div className="card" style={{ marginBottom: 12 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -818,7 +933,8 @@ const WriterEdit = () => {
                         </div>
                     </div>
 
-                    {isReadonly ? (
+                    {/* SOURCE: ENF§2.1 G6.1, BUILD§Step3, UI_Restructure §2.1 — Kill: zero content field cards in DOM (banner + header identity only) */}
+                    {normalizeTier(tier) === 'kill' ? null : isReadonly ? (
                         <>
                             {Object.keys(FIELD_LABELS).map((field) => (
                                 <div
@@ -842,9 +958,8 @@ const WriterEdit = () => {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                             {requiredFields.map((field) => {
                                 const state = fieldStateAndHint(field, gates, values, answerBlockMin, answerBlockMax);
-                                // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 6 (Rule C)
-                                // FAIL: show hint text. WARNING/PENDING: amber border only, no blocking text.
-                                const showHint = state.state === 'fail';
+                                // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §6, CLAUDE.md §11 — fail + warn/pending show user_message (or PENDING_GATE_HINT)
+                                const showHint = state.state === 'fail' || state.state === 'warning';
                                 const isInput = FIELD_TYPES[field] === 'input';
                                 return (
                                     <div
@@ -945,7 +1060,7 @@ const WriterEdit = () => {
                     )}
                 </div>
 
-                <aside style={{ flex: '0 0 30%', width: '30%' }}>
+                <aside style={{ width: '30%', minWidth: 0 }}>
                     <div className="card">
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: suggestionsOpen ? 10 : 0 }}>
                             <div style={{ fontSize: '0.76rem', fontWeight: 700, color: C.text }}>AI Suggestions</div>
@@ -966,11 +1081,53 @@ const WriterEdit = () => {
 
                         {suggestionsOpen && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {/* SOURCE: CIE_Master_Developer_Build_Spec.docx §4.5 — FIX: AI-10 fail-soft copy */}
                                 {auditUnavailable && (
                                     <p style={{ color: '#6B6860', fontSize: '13px', marginBottom: '12px' }}>
-                                        AI suggestions unavailable — check back after the next Monday audit.
+                                        AI suggestions unavailable — enter manually.
                                     </p>
                                 )}
+                                {!isReadonly && (
+                                    <div style={{ marginBottom: 10 }}>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary btn-sm"
+                                            disabled={aiSuggestLoading}
+                                            onClick={() => handleAiSuggest()}
+                                            onMouseEnter={() => setHoveredId('ai-suggest')}
+                                            onMouseLeave={() => setHoveredId(null)}
+                                            style={{
+                                                background: hoveredId === 'ai-suggest' ? C.muted : undefined,
+                                                borderColor: hoveredId === 'ai-suggest' ? C.accentBorder : undefined,
+                                            }}
+                                        >
+                                            {aiSuggestLoading ? 'Requesting suggestions…' : 'Get AI content suggestions'}
+                                        </button>
+                                    </div>
+                                )}
+                                {aiSuggestError && (
+                                    <p style={{ color: '#6B6860', fontSize: '13px', marginBottom: 8 }}>{aiSuggestError}</p>
+                                )}
+                                {aiSuggestResponse &&
+                                    (() => {
+                                        const c = Number(aiSuggestResponse.confidence_score);
+                                        return !Number.isNaN(c) && c < 0.6;
+                                    })() &&
+                                    !aiSuggestResponse.error && (
+                                        <div
+                                            style={{
+                                                padding: '8px 12px',
+                                                backgroundColor: '#FFF3E0',
+                                                border: '1px solid #E65100',
+                                                borderRadius: '4px',
+                                                color: '#E65100',
+                                                fontSize: '13px',
+                                                marginBottom: '8px',
+                                            }}
+                                        >
+                                            Low confidence suggestion — please review carefully before saving.
+                                        </div>
+                                    )}
                                 {suggestions.length === 0 ? (
                                     <div
                                         style={{
@@ -1028,6 +1185,23 @@ const WriterEdit = () => {
                                                     }}
                                                 >
                                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <div
+                                                            style={{
+                                                                width: '28px',
+                                                                height: '28px',
+                                                                borderRadius: '50%',
+                                                                backgroundColor: `${(CARD_ICONS[s.type] || CARD_ICONS.keyword).color}15`,
+                                                                color: (CARD_ICONS[s.type] || CARD_ICONS.keyword).color,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                fontSize: '11px',
+                                                                fontWeight: 700,
+                                                                flexShrink: 0,
+                                                            }}
+                                                        >
+                                                            {(CARD_ICONS[s.type] || CARD_ICONS.keyword).symbol}
+                                                        </div>
                                                         <span style={{ fontWeight: 700, color: C.text }}>{typeMeta.label}</span>
                                                     </div>
                                                     <div

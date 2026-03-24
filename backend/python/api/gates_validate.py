@@ -13,7 +13,7 @@ from .schemas_validate import (
     SkuValidateRequest,
     FailureItem,
     VALID_PRIMARY_INTENTS,
-    VALID_PRIMARY_INTENTS_NORM,
+    resolve_canonical_intent_key,
 )
 
 _logger = logging.getLogger(__name__)
@@ -61,21 +61,28 @@ class BusinessRules:
         cls._cache = None
 
 
-def get_vector_similarity(description: str, cluster_id: str) -> float:
-    """Call the vector similarity service (same process) and return the cosine score."""
+def get_vector_similarity(description: str, cluster_id: str) -> float | None:
+    """Call vector validation; returns cosine score or None when embedding/degraded pending."""
     from src.vector.embedding import get_embedding
     from src.vector.validation import validate_cluster_match
 
     sku_vector = get_embedding(description)
-    result = validate_cluster_match(sku_vector, cluster_id)
-    return result.get("similarity", 0.0)
+    threshold = float(BusinessRules.get("gates.vector_similarity_min"))
+    result = validate_cluster_match(sku_vector, cluster_id, threshold=threshold)
+    if result.get("status") == "pending":
+        return None
+    return result.get("similarity")
 
 
-def log_audit_event(sku_id=None, event=None, detail=None, actor_id=None, actor_role=None):
+def log_audit_event(
+    sku_id=None, event=None, detail=None, actor_id=None, actor_role=None, entity_type: str | None = None
+) -> bool:
     """SOURCE: MASTER§17 — persist audit event to the audit_log table."""
+    # SOURCE: CIE_Master_Developer_Build_Spec.docx §17 Phase 0.5 — every validation must be auditable; failures must not be silent
     # SOURCE: CIE_v231_Developer_Build_Pack.pdf §7.1 — audit_log requires actor_id, actor_role NOT NULL
     aid = actor_id if actor_id is not None else "SYSTEM"
     role = actor_role if actor_role is not None else "system"
+    etype = entity_type if entity_type is not None else "gate_status"
     _logger.warning("AUDIT %s sku_id=%s %s", event, sku_id, f"detail={detail}" if detail else "")
     try:
         db = _get_db()
@@ -84,47 +91,40 @@ def log_audit_event(sku_id=None, event=None, detail=None, actor_id=None, actor_r
         cur.execute(
             "INSERT INTO audit_log (entity_type, entity_id, action, actor_id, actor_role, timestamp, created_at) "
             "VALUES (%s, %s, %s, %s, %s, NOW(), NOW())",
-            ("gate_status", sku_id, action_val[:255] if action_val else event, str(aid)[:100], str(role)[:30]),
+            (etype, sku_id, action_val[:255] if action_val else event, str(aid)[:100], str(role)[:30]),
         )
         db.commit()
         cur.close()
         db.close()
-    except Exception:
-        pass
+        return True
+    except Exception as e:
+        _logger.error("Audit log insert failed: %s", e, exc_info=True)
+        return False
 
-# Primary intent -> keyword that must appear in answer_block (stemmed)
-# SOURCE: CLAUDE.md §6 — "Safety/Compliance" = intent key safety_compliance. ENF§8.3 uses "regulatory" but CLAUDE.md is highest authority.
+# SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 — keys must be 1:1 with intent taxonomy
 INTENT_KEYWORDS = {
-    "compatibility": "compat",
-    "comparison": "compar",
-    "installation": "install",
-    "inspiration": "inspir",
-    "problem_solving": "solut",
-    "safety_compliance": "safe",
-    "replacement": "replac",
-    "specification": "spec",
-    "bulk_trade": ["bulk", "trade", "wholesale", "quantity", "pack"],
+    "problem_solving": ["solut", "problem", "solve", "solution"],
+    "comparison": ["compar", "compare", "versus", "alternative"],
+    "compatibility": ["compat", "fit", "suitable", "works with"],
+    "specification": ["spec", "technical", "rating", "dimension"],
+    "installation": ["install", "setup", "fitting", "mount", "how to"],
+    "troubleshooting": ["troubleshoot", "trouble", "fix", "issue", "problem", "repair", "diagnose"],
+    "inspiration": ["inspir", "style", "decor", "look", "design", "aesthetic"],
+    "regulatory": ["regulation", "safety", "compliance", "standard", "certified", "bs 7671", "ce", "ip rating"],
+    "replacement": ["replac", "refill", "spare", "consumable"],
 }
 
 
 def _norm_intent(s: str | None) -> str:
-    # SOURCE: CLAUDE.md §6 — Safety/Compliance, Bulk/Trade; normalization must accept both label and API key form
-    if not s or not s.strip():
-        return ""
-    return s.strip().lower().replace(" ", "_").replace("-", "_").replace("/", "_")
+    # SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 — canonical key resolution (incl. legacy aliases)
+    return resolve_canonical_intent_key(s)
 
 
 def _primary_intent_valid(primary: str | None) -> bool:
     if not primary:
         return False
-    n = _norm_intent(primary)
-    if n in VALID_PRIMARY_INTENTS_NORM:
-        return True
-    # Allow label match
-    for v in VALID_PRIMARY_INTENTS:
-        if _norm_intent(v) == n:
-            return True
-    return False
+    # SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §8.3 + §2.1 G2 — enum check against locked nine keys
+    return _norm_intent(str(primary)) in VALID_PRIMARY_INTENTS
 
 
 def _get_db():
@@ -234,14 +234,18 @@ def run_g2(data: SkuValidateRequest) -> FailureItem | None:
             gate="G2_primary_intent",
             error_code="CIE_G2_INVALID_INTENT",
             detail=f"primary_intent '{p}' is not in the locked 9-intent taxonomy.",
-            user_message="Primary intent must be one of: Compatibility, Comparison, Problem-Solving, Inspiration, Specification, Installation, Safety/Compliance, Replacement, Bulk/Trade.",
+            user_message=(
+                "Primary intent must be one of: Problem-Solving, Comparison, Compatibility, Specification, "
+                "Installation / How-To, Troubleshooting, Inspiration / Style, Regulatory / Safety, Replacement / Refill."
+            ),
         )
     return None
 
 
 def run_g3(data: SkuValidateRequest) -> FailureItem | dict | None:
     """G3: 1-3 secondary_intents, all different from primary, all valid enums.
-    SOURCE: ENF§2.2, ENF§8.3 — Harvest G3 OPTIONAL, max 1 from allowed_intents [1,3,4]."""
+    SOURCE: ENF§2.2, ENF§8.3 — Harvest G3 OPTIONAL, max 1 from allowed_intents [1,3,4].
+    SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 G3 — Harvest duplicate check uses normalized secondary vs primary."""
     tier = (data.tier or "").strip().lower()
 
     # SOURCE: ENF§2.2, ENF§8.3 — Harvest G3 OPTIONAL, max 1 from allowed_intents [1,3,4]
@@ -249,12 +253,14 @@ def run_g3(data: SkuValidateRequest) -> FailureItem | dict | None:
         secondaries = [s for s in (data.secondary_intents or []) if s and str(s).strip()]
         if not secondaries or len(secondaries) == 0:
             return {"status": "N/A", "message": None}
-        if len(secondaries) > 1:
+        # SOURCE: CIE_Master_Developer_Build_Spec.docx §5.2 — must throw on missing key.
+        max_harvest = int(BusinessRules.get("gates.harvest_max_secondary"))
+        if len(secondaries) > max_harvest:
             return FailureItem(
                 gate="G3_secondary_intents",
                 error_code="CIE_G3_SECONDARY_COUNT",
-                detail=f"Harvest tier allows max 1 secondary intent, got {len(secondaries)}",
-                user_message="Harvest products allow a maximum of 1 supporting intent.",
+                detail=f"Harvest tier allows max {max_harvest} secondary intent, got {len(secondaries)}",
+                user_message=f"Harvest products allow a maximum of {max_harvest} supporting intent.",
             )
         allowed_keys = ["problem_solving", "compatibility", "specification"]
         sec_norm = _norm_intent(secondaries[0])
@@ -267,7 +273,8 @@ def run_g3(data: SkuValidateRequest) -> FailureItem | dict | None:
                 user_message="This SKU is Harvest tier. Only Specification + 1 other intent allowed.",
             )
         primary = _norm_intent(data.primary_intent)
-        if secondaries[0] == primary:
+        # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 G3 — compare normalized forms (count + uniqueness)
+        if sec_norm == primary:
             return FailureItem(
                 gate="G3_secondary_intents",
                 error_code="CIE_G3_SECONDARY_DUPLICATE",
@@ -288,19 +295,22 @@ def run_g3(data: SkuValidateRequest) -> FailureItem | dict | None:
                 user_message="Secondary intents must all be different from the primary intent.",
             )
         if not _primary_intent_valid(s):
+            # GAP_LOG: No spec code for invalid secondary enum value. SOURCE: ENF Page 18 — keep CIE_G3_SECONDARY_COUNT until architect extends table
             return FailureItem(
                 gate="G3_secondary_intents",
                 error_code="CIE_G3_SECONDARY_COUNT",
-                detail=f"Secondary intent '{s}' is not in the 9-intent taxonomy.",
+                detail=f"Secondary intent '{s}' is not in the locked 9-intent taxonomy.",
                 user_message="Each secondary intent must be from the locked 9-intent taxonomy.",
             )
 
     count = len(secondaries)
     if tier == "kill":
         return {"status": "N/A", "message": None}
-    # SOURCE: ENF§8.3 tier_rules — hero max_secondary: 3, support max_secondary: 2
+    # SOURCE: CIE_Master_Developer_Build_Spec §5 — gates.{tier}_max_secondary from business_rules
     if tier in ("hero", "support"):
-        max_secondary = 3 if tier == "hero" else 2
+        tier_max_key = f"gates.{tier}_max_secondary"
+        # SOURCE: CIE_Master_Developer_Build_Spec.docx §5.2 — no silent fallback defaults.
+        max_secondary = int(BusinessRules.get(tier_max_key))
         if count < 1:
             return FailureItem(
                 gate="G3_secondary_intents",
@@ -343,10 +353,8 @@ def run_g4(data: SkuValidateRequest) -> FailureItem | None:
     keyword = INTENT_KEYWORDS.get(primary_norm)
     if keyword:
         answer_lower = answer.lower()
-        if isinstance(keyword, list):
-            keyword_found = any(k in answer_lower for k in keyword)
-        else:
-            keyword_found = keyword in answer_lower
+        stems = keyword if isinstance(keyword, list) else [keyword]
+        keyword_found = any(k in answer_lower for k in stems)
         if not keyword_found:
             return FailureItem(
                 gate="G4_answer_block",
@@ -362,8 +370,9 @@ def run_g5(data: SkuValidateRequest) -> list[FailureItem]:
     Returns ALL failures simultaneously per §1.2 spec requirement."""
     # SOURCE: CIE_Master_Developer_Build_Spec.docx §5, §7 — G5 thresholds from BusinessRules (seed: 2 / 1)
     failures: list[FailureItem] = []
-    best_for_min = int(BusinessRules.get("gates.best_for_min_entries", 2))
-    not_for_min = int(BusinessRules.get("gates.not_for_min_entries", 1))
+    # SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — gate thresholds from BusinessRules only (no numeric fallbacks)
+    best_for_min = int(BusinessRules.get("gates.best_for_min_entries"))
+    not_for_min = int(BusinessRules.get("gates.not_for_min_entries"))
     best = [x for x in (data.best_for or []) if x and str(x).strip()]
     not_f = [x for x in (data.not_for or []) if x and str(x).strip()]
     # SOURCE: ENF§Page18 — only CIE_G5_BESTFOR_COUNT defined for G5
@@ -399,39 +408,57 @@ def run_g6(data: SkuValidateRequest) -> FailureItem | None:
 
 
 # SOURCE: ENF§2.3, openapi.yaml — vector_check is separate from gates. Hardening Addendum §1.1 fail-soft.
-def run_vector_check(data: SkuValidateRequest) -> tuple[dict, list[FailureItem], bool]:
+def run_vector_check(data: SkuValidateRequest) -> tuple[dict, list[FailureItem], bool, bool]:
     """
-    VEC: Description word count + vector similarity. Returns (vector_result, failures_to_append, degraded).
+    VEC: Description word count + vector similarity. Returns (vector_result, failures_to_append, degraded, audit_log_failed).
     On exception: vector_result.status='pending', degraded=True, save_allowed=True, publish_allowed=False.
+    NOTE (Audit #3 Fix 19): Raw /sku/similarity uses pass|fail|pending for wire; this pipeline maps similarity to warn + publish rules.
     """
     failures: list[FailureItem] = []
     vector_result = {"status": "pass", "user_message": None}
     degraded = False
+    audit_log_failed = False
     tier = (data.tier or "").strip().lower()
     if tier not in ("hero", "support"):
-        return vector_result, failures, degraded
+        return vector_result, failures, degraded, audit_log_failed
 
     description = (data.description or "") or ""
     cluster_id = (data.cluster_id or "") or ""
-    min_words = int(BusinessRules.get("gates.description_word_count_min", 50))
+    # SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — word-count minimum from BusinessRules only
+    min_words = int(BusinessRules.get("gates.description_word_count_min"))
     actual_words = len(description.split())
     if actual_words < min_words:
+        # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Page 18 — CIE_VEC_SIMILARITY_LOW is for cosine similarity only; word count is a pre-check (fail-soft warn)
+        # GAP_LOG: no distinct spec error code for description word-count pre-check vs similarity failure
         vector_result = {
-            "status": "fail",
-            "user_message": "Your content may not align with the intent. Consider revising.",
+            "status": "warn",
+            "user_message": "Description too short for embedding. Add more content.",
         }
-        failures.append(FailureItem(
-            gate="vector_check",
-            error_code="CIE_VEC_SIMILARITY_LOW",
-            detail="Description has too few words for semantic validation.",
-            user_message=f"Your description is {actual_words} words. Add at least {min_words - actual_words} more words.",
-        ))
-        return vector_result, failures, degraded
+        return vector_result, failures, degraded, audit_log_failed
 
     try:
+        from src.vector.embedding import get_embedding
+        from src.vector.validation import validate_cluster_match
+
         threshold = float(BusinessRules.get("gates.vector_similarity_min"))
-        similarity = get_vector_similarity(description, cluster_id)
-        if similarity < threshold:
+        sku_vector = get_embedding(description)
+        vm = validate_cluster_match(sku_vector, cluster_id, threshold=threshold)
+        # SOURCE: CIE_v232_Hardening_Addendum.pdf §1.1 — embedding None → pending + degraded (policy), not pass
+        if vm.get("status") == "pending" or vm.get("degraded"):
+            vector_result = {
+                "status": "pending",
+                "user_message": "Description validation temporarily unavailable. Your changes are saved but publishing is paused until validation completes.",
+            }
+            degraded = True
+            if not log_audit_event(sku_id=data.sku_id, event="VECTOR_FAIL_SOFT", detail=vm.get("reason", "embedding_pending")):
+                audit_log_failed = True
+            try:
+                _queue_vector_retry(data.sku_id, description, cluster_id)
+            except Exception:
+                pass
+        elif vm.get("status") == "warn" or (
+            not vm.get("valid") and vm.get("reason") == "cosine_similarity_below_threshold"
+        ):
             # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Page 18, CLAUDE.md §11 — warn only; FailureItem for audit/error code (no score in user_message)
             vector_result = {
                 "status": "warn",
@@ -443,12 +470,26 @@ def run_vector_check(data: SkuValidateRequest) -> tuple[dict, list[FailureItem],
                 detail="Description semantic similarity below threshold",
                 user_message="Your content may not align with the intent. Consider revising.",
             ))
-            log_audit_event(sku_id=data.sku_id, event="VECTOR_WARN", detail="similarity below threshold")
-        else:
+            if not log_audit_event(sku_id=data.sku_id, event="VECTOR_WARN", detail="similarity below threshold"):
+                audit_log_failed = True
+        elif vm.get("valid"):
             vector_result = {"status": "pass", "user_message": None}
+        else:
+            vector_result = {
+                "status": "pending",
+                "user_message": "Description validation temporarily unavailable. Your changes are saved but publishing is paused until validation completes.",
+            }
+            degraded = True
+            if not log_audit_event(sku_id=data.sku_id, event="VECTOR_FAIL_SOFT", detail=str(vm.get("reason", "vector_check"))):
+                audit_log_failed = True
+            try:
+                _queue_vector_retry(data.sku_id, description, cluster_id)
+            except Exception:
+                pass
     except Exception as e:
         # SOURCE: Hardening Addendum §1.1 — fail-soft: pending, not pass
-        log_audit_event(sku_id=data.sku_id, event="VECTOR_FAIL_SOFT", detail=str(e))
+        if not log_audit_event(sku_id=data.sku_id, event="VECTOR_FAIL_SOFT", detail=str(e)):
+            audit_log_failed = True
         vector_result = {
             "status": "pending",
             "user_message": "Description validation temporarily unavailable. Your changes are saved but publishing is paused until validation completes.",
@@ -458,7 +499,7 @@ def run_vector_check(data: SkuValidateRequest) -> tuple[dict, list[FailureItem],
             _queue_vector_retry(data.sku_id, description, cluster_id)
         except Exception:
             pass
-    return vector_result, failures, degraded
+    return vector_result, failures, degraded, audit_log_failed
 
 
 def _queue_vector_retry(sku_id, description: str, cluster_id: str) -> None:
@@ -479,15 +520,16 @@ def _queue_vector_retry(sku_id, description: str, cluster_id: str) -> None:
 
 
 def run_g61(data: SkuValidateRequest) -> FailureItem | None:
-    """G6.1: intents match tier restrictions. Harvest: primary Specification + max 1 secondary from [1,3,4]. Kill: block."""
+    """G6.1: intents match tier restrictions. Harvest: primary Specification + max 1 secondary from [1,3,4]. Kill: absolute block."""
     tier = (data.tier or "").strip().lower()
-    # SOURCE: ENF§Page18 — CIE_G6_1_KILL_EDIT_BLOCKED. ENF§7.2 gate key G6_1_tier_lock
+    # SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §2.1 G6.1 — Kill: "Any edit = violation"
+    # SOURCE: CLAUDE.md DECISION-006 — Kill SKU = Total Lockout
     if tier == "kill":
         return FailureItem(
             gate="G6_1_tier_lock",
             error_code="CIE_G6_1_KILL_EDIT_BLOCKED",
             detail="Kill-tier SKU: all edits blocked.",
-            user_message="This SKU is in Kill tier. No content edits are permitted. Contact your Portfolio Holder to request a tier review.",
+            user_message="This product is marked as Kill tier. No editing is permitted.",
         )
     # SOURCE: ENF§8.3 — Harvest secondaries must be from allowed_intents [1,3,4]
     if tier == "harvest":
@@ -563,13 +605,23 @@ def run_g7(data: SkuValidateRequest) -> FailureItem | dict | None:
     return None
 
 
+def _log_gate_audit(sku_id, gate_id: str, passed: bool, error_code: str | None = None) -> bool:
+    # SOURCE: CIE_Master_Developer_Build_Spec.docx §17, CIE_v231_Developer_Build_Pack.pdf §7.1 — gate_pass / gate_fail per gate
+    if passed:
+        return log_audit_event(
+            sku_id=sku_id, event="gate_pass", detail=(gate_id or "")[:255], entity_type="gate"
+        )
+    detail = f"{gate_id}|{error_code}" if error_code else (gate_id or "fail")
+    return log_audit_event(sku_id=sku_id, event="gate_fail", detail=detail[:255], entity_type="gate")
+
+
 # SOURCE: MASTER§17 — audit_log entry for every validation request
 def run_all_gates(data: SkuValidateRequest, master_cluster_ids: set[str]) -> dict:
     """
-    Run gates IN ORDER. Returns dict with failures, vector_result, degraded.
+    Run gates IN ORDER. Returns dict with failures, vector_result, degraded, audit_degraded.
     SOURCE: openapi.yaml ValidationResponse — caller builds full response with gates keyed by id.
     """
-    log_audit_event(
+    audit_degraded = not log_audit_event(
         sku_id=data.sku_id,
         event="VALIDATION_REQUESTED",
         detail=f"action={getattr(data, 'action', 'save')}, tier={data.tier}",
@@ -580,53 +632,91 @@ def run_all_gates(data: SkuValidateRequest, master_cluster_ids: set[str]) -> dic
     tier = (data.tier or "").strip().lower()
     is_harvest = tier == "harvest"
     is_kill = tier == "kill"
+    sid = data.sku_id
 
-    # G1: always
-    f = run_g1(data, master_cluster_ids)
-    if f:
-        failures.append(f)
+    # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 G6.1 — Kill: G1–G5, G7, VEC suspended; only G6 + G6.1 (kill block).
+    # FIX: G1-03 + G6-03 — Do not run G1 before Kill path; align with PHP GateValidator.
     if is_kill:
         f = run_g6(data)
+        audit_degraded |= not _log_gate_audit(sid, "G6_tier_tag", f is None, getattr(f, "error_code", None) if f else None)
         if f:
             failures.append(f)
         g61_result = run_g61(data)
+        audit_degraded |= not _log_gate_audit(
+            sid, "G6_1_tier_lock", g61_result is None, getattr(g61_result, "error_code", None) if g61_result else None
+        )
         if g61_result is not None:
             failures.append(g61_result)
-        return {"failures": failures, "vector_result": vector_result, "degraded": degraded}
+        return {"failures": failures, "vector_result": vector_result, "degraded": degraded, "audit_degraded": audit_degraded}
 
+    # G1: non–Kill tiers only
+    f = run_g1(data, master_cluster_ids)
+    audit_degraded |= not _log_gate_audit(sid, "G1_cluster_id", f is None, getattr(f, "error_code", None) if f else None)
+    if f:
+        failures.append(f)
+
+    # GAP_LOG: Harvest primary="specification" enforced in G6.1, not G2. Functionally blocked.
+    # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.2
     # G2
     f = run_g2(data)
+    audit_degraded |= not _log_gate_audit(sid, "G2_primary_intent", f is None, getattr(f, "error_code", None) if f else None)
     if f:
         failures.append(f)
     # G3
     f = run_g3(data)
-    if f and not isinstance(f, dict):
+    if isinstance(f, FailureItem):
+        audit_degraded |= not _log_gate_audit(sid, "G3_secondary_intents", False, f.error_code)
         failures.append(f)
+    else:
+        audit_degraded |= not _log_gate_audit(sid, "G3_secondary_intents", True)
     # G4: suspended for harvest
     if not is_harvest:
         f = run_g4(data)
+        audit_degraded |= not _log_gate_audit(sid, "G4_answer_block", f is None, getattr(f, "error_code", None) if f else None)
         if f:
             failures.append(f)
+    else:
+        audit_degraded |= not _log_gate_audit(sid, "G4_answer_block", True)
     # G5: suspended for harvest
     if not is_harvest:
-        failures.extend(run_g5(data))
+        g5f = run_g5(data)
+        if g5f:
+            audit_degraded |= not _log_gate_audit(sid, "G5_best_not_for", False, g5f[0].error_code)
+            failures.extend(g5f)
+        else:
+            audit_degraded |= not _log_gate_audit(sid, "G5_best_not_for", True)
+    else:
+        audit_degraded |= not _log_gate_audit(sid, "G5_best_not_for", True)
     # G6 — tier enum only
     f = run_g6(data)
+    audit_degraded |= not _log_gate_audit(sid, "G6_tier_tag", f is None, getattr(f, "error_code", None) if f else None)
     if f:
         failures.append(f)
     # G6.1
     f = run_g61(data)
+    audit_degraded |= not _log_gate_audit(sid, "G6_1_tier_lock", f is None, getattr(f, "error_code", None) if f else None)
     if f:
         failures.append(f)
     # G7
     f = run_g7(data)
-    if f and not isinstance(f, dict):
+    if isinstance(f, FailureItem):
+        audit_degraded |= not _log_gate_audit(sid, "G7_expert_authority", False, f.error_code)
         failures.append(f)
+    else:
+        audit_degraded |= not _log_gate_audit(sid, "G7_expert_authority", True)
     # Vector check (separate from G6 per ENF§2.3, openapi.yaml)
     if tier in ("hero", "support"):
-        vec_result, vec_failures, deg = run_vector_check(data)
+        vec_result, vec_failures, deg, vec_audit_bad = run_vector_check(data)
         vector_result = vec_result
         degraded = deg
         failures.extend(vec_failures)
+        audit_degraded = audit_degraded or vec_audit_bad
+        vc = vector_result.get("status") or "pass"
+        v_pass = vc in ("pass", "warn")
+        # SOURCE: openapi.yaml ValidationResponse.vector_check.status — enum value is `pending`, not VECTOR_PENDING.
+        # FIX: VEC-05 — Audit detail uses plain `pending`; wire status remains vector_result["status"].
+        audit_degraded |= not _log_gate_audit(
+            sid, "vector_check", v_pass, None if v_pass else "pending"
+        )
 
-    return {"failures": failures, "vector_result": vector_result, "degraded": degraded}
+    return {"failures": failures, "vector_result": vector_result, "degraded": degraded, "audit_degraded": audit_degraded}

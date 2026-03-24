@@ -7,6 +7,7 @@ G2: Text before '|' must NOT start with colour, material, or dimension; must con
 import os
 import re
 from typing import Any
+from api.gates_validate import BusinessRules
 
 PIPE = "|"
 
@@ -88,7 +89,8 @@ def validate_title(
     issues: list[str] = []
     title = (title or "").strip()
     primary_intent = (primary_intent or "").strip()
-    max_title_len = 250  # §5.3: content.title_max_length not in 52 rules; hard-coded
+    # SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — zero hard-coded business thresholds.
+    max_title_len = int(BusinessRules.get('gates.title_max_chars'))
 
     if not title:
         return {"valid": False, "issues": ["Title is required."], "suggested_fix": None}
@@ -143,7 +145,7 @@ def validate_title(
             )
 
     valid = len(issues) == 0
-    suggested_fix = _build_suggested_fix(title, before, after, issues, primary_intent) if issues else None
+    suggested_fix = _build_suggested_fix(title, before, after, issues, primary_intent, max_title_len) if issues else None
     return {"valid": valid, "issues": issues, "suggested_fix": suggested_fix}
 
 
@@ -153,11 +155,11 @@ def _build_suggested_fix(
     after: str,
     issues: list[str],
     primary_intent: str,
+    max_title_len: int,
 ) -> str | None:
     """Build a suggested title fix when possible (e.g. trim to 120 chars, or reorder if only attribute-stacking)."""
     if not before or not after:
         return None
-    max_title_len = 250  # §5.3: content.title_max_length not in 52 rules; hard-coded
     if len(title) > max_title_len:
         if len(before) > max_title_len // 2:
             before_trim = before[: (max_title_len // 2) - 3].rsplit(maxsplit=1)[0] + "..."
@@ -303,7 +305,8 @@ def suggest_title(
         intent_phrase = f"{product} for {room_context} — {benefit}"
 
     min_intent_phrase_len = 20  # §5.3: content.min_intent_phrase_len not in 52 rules; hard-coded
-    max_title_len = 250  # §5.3: content.title_max_length not in 52 rules; hard-coded
+    # SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — zero hard-coded business thresholds.
+    max_title_len = int(BusinessRules.get('gates.title_max_chars'))
     if len(intent_phrase) < min_intent_phrase_len:
         intent_phrase = f"{intent_phrase} — {benefit}"[:max_title_len]
     intent_phrase = intent_phrase.strip() or f"{product} for {room_context}"

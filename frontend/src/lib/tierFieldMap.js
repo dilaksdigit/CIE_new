@@ -5,13 +5,13 @@
  * Output: show/hide form sections, max secondary intents, readonly state, exact banner text.
  */
 
-/** v2.3.2 Patch 6: Exact banner copy per tier (CIE Hardening Addendum §6.1). */
+/** Canonical tier banner lines — single source for TierBanner + TIER_FIELD_MAP.banner (UI Restructure §2.1). */
+// SOURCE: CIE_v232_Hardening_Addendum Patch 6 §6.1 — exact banner copy
 export const TIER_BANNER_COPY = {
     hero: 'HERO SKU — Full CIE Coverage. This product is a top-revenue performer. All 9 intent types, full Answer Block, FAQ, JSON-LD, and channel feeds are enabled. Target: ≥85 readiness on all active channels within 30 days.',
     support: 'SUPPORT SKU — Focused Coverage. This product supports revenue but does not lead. Primary intent + max 2 secondary intents enabled. Answer Block and Best-For/Not-For required. Max 2 hours per quarter.',
     harvest: 'HARVEST SKU — Maintenance Mode. This product has low margin and limited growth potential. Only Specification + 1 optional intent are available. Answer Block, Best-For/Not-For, and Expert Authority are suspended. Max 30 minutes per quarter. Focus your time on Hero SKUs instead.',
-    // SOURCE: ENF§2.1 G6.1, BUILD§Step3 — Kill banner exact wording
-    kill: 'This product is flagged for delisting. No edits are permitted.',
+    kill: 'KILL SKU — Editing Disabled. This product has negative margin or is flagged for delisting. All content fields are read-only. No time investment permitted. If you believe this classification is wrong, contact your Portfolio Holder to request a tier review (requires Finance co-approval).',
 };
 
 export const TIER_FIELD_MAP = {
@@ -26,16 +26,20 @@ export const TIER_FIELD_MAP = {
     },
     support: {
         // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2 (Support=5 fields)
-        // Support has same fields as Hero minus 'authority' (expert_authority not required)
+        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 G7, MASTER§7 — Support requires non-empty Expert Authority (same as Hero)
         // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 6 §6.2 — FAQ tab visible for Support (not hidden)
-        enabled: ['title', 'answerBlock', 'answer_block', 'bestFor', 'best_for', 'notFor', 'not_for', 'intent', 'faq_tab'],
+        enabled: ['title', 'answerBlock', 'answer_block', 'bestFor', 'best_for', 'notFor', 'not_for', 'authority', 'expert_authority', 'intent', 'faq_tab'],
         max_secondary: 2,
         hidden: ['wikidata_uri'],
         banner: TIER_BANNER_COPY.support,
     },
     // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §11.2 TIER_FIELD_MAP — Harvest enabled fields (canonical)
     harvest: {
-        enabled: ['specification', 'problem_solving', 'compatibility'],
+        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 G6.1
+        // FIX: UI-18 — Harvest primary intent is Specification only.
+        primaryIntentOptions: ['specification'],
+        secondaryIntentOptions: ['problem_solving', 'compatibility'],
+        enabled: ['specification'],
         hidden: ['answer_block', 'best_for', 'not_for', 'expert_authority', 'wikidata_uri', 'secondary_intents_3_9', 'faq_tab', 'comparison', 'installation', 'troubleshooting', 'inspiration', 'regulatory', 'replacement'],
         max_secondary: 1,
         banner: TIER_BANNER_COPY.harvest,

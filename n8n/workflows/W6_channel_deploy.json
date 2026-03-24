@@ -25,7 +25,7 @@
       "position": [540, 300],
       "parameters": {
         "method": "POST",
-        "url": "https://cie-api.example.com/api/skus/{{$json[\"sku_code\"]}}/channel-governor",
+        "url": "={{ $env.PHP_API_URL }}/api/skus/{{$json[\"sku_code\"]}}/channel-governor",
         "responseFormat": "json",
         "jsonParameters": true,
         "options": {
@@ -72,11 +72,11 @@
       "position": [1300, 180],
       "parameters": {
         "method": "POST",
-        "url": "https://shopify.example.com/metafields",
+        "url": "={{ $env.SHOPIFY_API_URL }}/metafields",
         "responseFormat": "json",
         "jsonParameters": true,
         "options": {
-          "timeout": 60000
+          "timeout": 30000
         },
         "bodyParametersJson": "={{$json}}"
       }
@@ -89,11 +89,11 @@
       "position": [1300, 300],
       "parameters": {
         "method": "POST",
-        "url": "https://gmc.example.com/feed",
+        "url": "={{ $env.GMC_API_URL }}/feed",
         "responseFormat": "json",
         "jsonParameters": true,
         "options": {
-          "timeout": 60000
+          "timeout": 30000
         },
         "bodyParametersJson": "={{$json}}"
       }
@@ -134,11 +134,13 @@
       "position": [1820, 240],
       "parameters": {
         "method": "POST",
-        "url": "https://cie-api.example.com/api/skus/{{$json[\"sku_code\"]}}/channel-deployed",
+        "url": "={{ $env.PHP_API_URL }}/api/skus/{{$json[\"sku_code\"]}}/channel-deployed",
         "responseFormat": "json",
+        "jsonParameters": true,
         "options": {
           "timeout": 30000
-        }
+        },
+        "bodyParametersJson": "={{ {\"channel\": $json[\"channel\"], \"status\": \"deployed\", \"timestamp\": $now.toISO() } }}"
       }
     },
     {
@@ -149,13 +151,13 @@
       "position": [1820, 420],
       "parameters": {
         "method": "POST",
-        "url": "https://cie-api.example.com/api/skus/{{$json[\"sku_code\"]}}/channel-failed",
+        "url": "={{ $env.PHP_API_URL }}/api/skus/{{$json[\"sku_code\"]}}/channel-failed",
         "responseFormat": "json",
         "jsonParameters": true,
         "options": {
           "timeout": 30000
         },
-        "bodyParametersJson": "={{ {\"reason\": $json[\"error\"] || \"Channel deploy failed\"} }}"
+        "bodyParametersJson": "={{ {\"channel\": $json[\"channel\"], \"error\": $json[\"error_message\"] || $json[\"reason\"] || \"Channel deploy failed\", \"retry_scheduled\": true } }}"
       }
     }
   ],

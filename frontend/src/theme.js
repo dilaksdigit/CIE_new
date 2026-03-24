@@ -2,18 +2,20 @@
 //         CIE_v232_Developer_Amendment_Pack_v2.docx Section 9 Phase 1
 
 export const THEME = {
+  // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §5
+  // FIX: UI-01/UI-02 — exact light palette and harvest color.
   // ── Backgrounds ────────────────────────────────────────────────
-  bg:            "#FAFAFA",   // CORRECTED was #FAFAF8 — page background
+  bg:            "#FAFAF8",
   surface:       "#FFFFFF",   // white — cards, panels
-  muted:         "#F5F5F4",   // CORRECTED was #F5F4F1 — surfaceAlt / alt backgrounds
+  muted:         "#F5F4F1",
 
   // ── Borders ────────────────────────────────────────────────────
-  border:        "#E5E5E5",   // CORRECTED was #E5E3DE
+  border:        "#E5E3DE",
 
   // ── Text ───────────────────────────────────────────────────────
-  text:          "#2D2D2D",   // CORRECTED was #2D2B28 — primary text
-  textMid:       "#6B6B6B",   // CORRECTED was #6B6860 — secondary text (textMuted)
-  textLight:     "#9B978F",   // muted grey — light/placeholder text
+  text:          "#2D2B28",
+  textMid:       "#6B6860",
+  textLight:     "#9B978F",
 
   // ── Accent ─────────────────────────────────────────────────────
   accent:        "#5B7A3A",   // olive green — primary action
@@ -31,7 +33,7 @@ export const THEME = {
   supportBorder: "#B5D0E3",
 
   // ── Tier: Harvest ──────────────────────────────────────────────
-  harvest:       "#B8860B",   // CORRECTED was #9E7C1A — Harvest badge text colour
+  harvest:       "#9E7C1A",
   harvestBg:     "#FFF8E7",
   harvestBorder: "#E8D49A",
 

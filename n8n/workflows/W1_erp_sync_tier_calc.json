@@ -26,10 +26,17 @@
       "position": [540, 220],
       "parameters": {
         "method": "GET",
-        "url": "https://erp.example.com/api/cie/export",
+        "url": "={{ $env.ERP_API_URL }}/api/cie/export",
         "responseFormat": "json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "options": {
           "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "ERP Bearer Token"
         }
       }
     },
@@ -70,10 +77,17 @@
       "position": [1040, 360],
       "parameters": {
         "method": "GET",
-        "url": "https://erp.example.com/api/cie/export",
+        "url": "={{ $env.ERP_API_URL }}/api/cie/export",
         "responseFormat": "json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "options": {
-          "timeout": 60000
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "ERP Bearer Token"
         }
       }
     },
@@ -114,10 +128,17 @@
       "position": [1540, 500],
       "parameters": {
         "method": "GET",
-        "url": "https://erp.example.com/api/cie/export",
+        "url": "={{ $env.ERP_API_URL }}/api/cie/export",
         "responseFormat": "json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "options": {
-          "timeout": 120000
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "ERP Bearer Token"
         }
       }
     },
@@ -140,6 +161,57 @@
       }
     },
     {
+      "id": "Wait_ERP_120",
+      "name": "Wait 120s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1800, 640],
+      "parameters": {
+        "amount": 120,
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "HTTP_ERP_GET_4",
+      "name": "HTTP GET ERP (4)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [2060, 640],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.ERP_API_URL }}/api/cie/export",
+        "responseFormat": "json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "ERP Bearer Token"
+        }
+      }
+    },
+    {
+      "id": "IF_ERP_4_OK",
+      "name": "ERP 4 OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2320, 640],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json[\"statusCode\"] || $json[\"status\"] || 200}}",
+              "operation": "smallerOrEqual",
+              "value2": 299
+            }
+          ]
+        }
+      }
+    },
+    {
       "id": "HTTP_ERP_SYNC",
       "name": "POST /api/v1/erp/sync",
       "type": "n8n-nodes-base.httpRequest",
@@ -147,11 +219,11 @@
       "position": [1080, 80],
       "parameters": {
         "method": "POST",
-        "url": "https://cie-api.example.com/api/v1/erp/sync",
+        "url": "={{ $env.PHP_API_URL }}/api/v1/erp/sync",
         "responseFormat": "json",
         "jsonParameters": true,
         "options": {
-          "timeout": 60000
+          "timeout": 30000
         },
         "bodyParametersJson": "={{$json[\"data\"] || $json}}"
       }
@@ -164,13 +236,13 @@
       "position": [2060, 640],
       "parameters": {
         "method": "POST",
-        "url": "https://cie-api.example.com/api/admin/sync-failed",
+        "url": "={{ $env.PHP_API_URL }}/api/admin/sync-failed",
         "responseFormat": "json",
         "jsonParameters": true,
         "options": {
           "timeout": 30000
         },
-        "bodyParametersJson": "={\"workflow\":\"W1_erp_sync_tier_calc\",\"reason\":\"ERP sync failed after 3 attempts\"}"
+        "bodyParametersJson": "={{ {\"error\": $json[\"error\"] || \"ERP sync failed after retries\", \"attempts\": 4, \"last_attempt_at\": $now.toISO(), \"workflow\": \"W1_erp_sync_tier_calc\" } }}"
       }
     }
   ],
@@ -278,6 +350,46 @@
       ]
     },
     "ERP 3 OK?": {
+      "main": [
+        [
+          {
+            "node": "POST /api/v1/erp/sync",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 120s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 120s": {
+      "main": [
+        [
+          {
+            "node": "HTTP GET ERP (4)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP GET ERP (4)": {
+      "main": [
+        [
+          {
+            "node": "ERP 4 OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ERP 4 OK?": {
       "main": [
         [
           {

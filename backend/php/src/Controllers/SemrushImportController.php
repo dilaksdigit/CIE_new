@@ -11,8 +11,13 @@ use Illuminate\Support\Str;
 
 class SemrushImportController
 {
+    /** @var int SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2 — max upload 10MB */
+    private const MAX_IMPORT_BYTES = 10485760;
+
     /**
      * POST /api/admin/semrush-import
+     *
+     * SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2 — whole-file validation; transactional insert (FIX SEM-03, SEM-04)
      */
     public function import(Request $request)
     {
@@ -29,6 +34,16 @@ class SemrushImportController
 
         if (!$file->isValid()) {
             return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file opened correctly in Excel or a text editor. It must be a plain CSV, not an Excel .xlsx file.'], 422);
+        }
+
+        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2 — server-side size limit (FIX SEM-03)
+        if ($file->getSize() > self::MAX_IMPORT_BYTES) {
+            return response()->json([
+                'error'   => 'Validation failed',
+                'message' => 'File exceeds 10MB limit.',
+                'errors'  => ['File exceeds 10MB limit.'],
+                'rows_imported' => 0,
+            ], 422);
         }
 
         $path = $file->getRealPath();
@@ -51,6 +66,24 @@ class SemrushImportController
             return strtolower(trim((string) $h));
         }, $header);
 
+        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2 — required columns (FIX SEM-03)
+        $requiredHeaders = ['keyword', 'position', 'search volume', 'keyword difficulty', 'url'];
+        $missingHeaders = array_values(array_diff($requiredHeaders, $normalizedHeader));
+        if ($missingHeaders !== []) {
+            fclose($handle);
+            $labels = array_map(function ($h) {
+                return ucwords($h);
+            }, $missingHeaders);
+
+            return response()->json([
+                'error'   => 'Validation failed',
+                'message' => 'Missing required columns: '.implode(', ', $labels).'.',
+                'errors'  => ['Missing required columns: '.implode(', ', $labels).'.'],
+                'rows_imported' => 0,
+            ], 422);
+        }
+
+        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.1 — URL column stored as competitor_url; DB keyword_difficulty (see GAP_LOG GAP-P6-3)
         $columnMap = [
             'keyword'              => 'keyword',
             'position'             => 'position',
@@ -123,13 +156,28 @@ class SemrushImportController
             return response()->json(['error' => 'Validation failed', 'message' => 'A batch for this date has already been imported. Delete the existing batch first if you want to re-import.'], 422);
         }
 
+        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2 — reject entire file if any row invalid (FIX SEM-04)
+        $rowErrors = [];
+        $rowNum = 0;
+        foreach ($rows as $r) {
+            ++$rowNum;
+            if (trim((string) ($r['keyword'] ?? '')) === '') {
+                $rowErrors[] = "Row {$rowNum}: Keyword field is empty.";
+            }
+        }
+        if ($rowErrors !== []) {
+            return response()->json([
+                'error'   => 'Validation failed',
+                'message' => 'File rejected. Fix these issues and re-upload.',
+                'errors'  => $rowErrors,
+                'rows_imported' => 0,
+            ], 422);
+        }
+
         $username = (string) ($user->name ?? $user->email ?? 'system');
 
         $insertData = [];
         foreach ($rows as $row) {
-            if (empty(trim((string) ($row['keyword'] ?? '')))) {
-                continue;
-            }
             $insertData[] = [
                 'import_batch'        => $importBatch,
                 'import_batch_id'     => $importBatchId,
@@ -150,29 +198,43 @@ class SemrushImportController
             ];
         }
 
-        DB::table('semrush_imports')->insert($insertData);
-
-        AuditLog::create([
-            'entity_type' => 'semrush_import',
-            'entity_id'   => $importBatch,
-            'action'      => 'import',
-            'field_name'  => 'import_batch',
-            'old_value'   => null,
-            'new_value'   => $importBatch,
-            'actor_id'    => (string) (auth()->id() ?? ''),
-            'actor_role'  => optional(optional($user)->role)->name ?? '',
-            'timestamp'   => now(),
-        ]);
+        try {
+            DB::transaction(function () use ($insertData, $importBatch, $user) {
+                if ($insertData !== []) {
+                    DB::table('semrush_imports')->insert($insertData);
+                }
+                AuditLog::create([
+                    'entity_type' => 'semrush_import',
+                    'entity_id'   => $importBatch,
+                    'action'      => 'import',
+                    'field_name'  => 'import_batch',
+                    'old_value'   => null,
+                    'new_value'   => $importBatch,
+                    'actor_id'    => (string) (auth()->id() ?? ''),
+                    'actor_role'  => optional(optional($user)->role)->name ?? '',
+                    'timestamp'   => now(),
+                ]);
+            });
+        } catch (\Throwable $e) {
+            return response()->json([
+                'error'   => 'Validation failed',
+                'message' => 'Import failed. No rows were saved.',
+                'errors'  => [$e->getMessage()],
+                'rows_imported' => 0,
+            ], 500);
+        }
 
         $keywordCount = count(array_unique(array_map(function ($row) {
             return (string) ($row['keyword'] ?? '');
         }, $rows)));
 
         return response()->json([
+            'status' => 'imported',
             'import_batch'    => $importBatch,
             'import_batch_id' => $importBatchId,
             'rows_imported'   => count($insertData),
             'keyword_count'   => $keywordCount,
+            'errors'          => [],
         ], 200);
     }
 

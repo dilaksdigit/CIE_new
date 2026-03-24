@@ -443,7 +443,9 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
         WHERE run_id = %s
         """,
         (
-            "completed" if engines_responded >= 2 else "failed",
+            # SOURCE: CLAUDE.md §12 — 3 of 4 engines quorum before completion
+            # FIX: W8-04 — align completion threshold to quorum minimum (default 3)
+            "completed" if engines_responded >= quorum_advance else "failed",
             round(agg_rate, 4),
             pass_fail,
             engines_responded,

@@ -31,27 +31,56 @@ class G5_TechnicalGate implements GateInterface
             );
         }
 
-        $minBestFor = (int) BusinessRules::get('gates.best_for_min_entries', 2);
-        $minNotFor = (int) BusinessRules::get('gates.not_for_min_entries', 1);
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — thresholds from BusinessRules only (no numeric fallbacks)
+        $minBestFor = (int) BusinessRules::get('gates.best_for_min_entries');
+        $minNotFor = (int) BusinessRules::get('gates.not_for_min_entries');
         $bestFor = self::parseListAttribute($sku->best_for);
         $notFor = self::parseListAttribute($sku->not_for);
 
-        if (count($bestFor) < $minBestFor || count($notFor) < $minNotFor) {
-            return new GateResult(
+        // SOURCE: CIE_Master_Developer_Build_Spec §7.1 — all distinct violations returned simultaneously
+        $results = [];
+        $bestForCount = count($bestFor);
+        $notForCount = count($notFor);
+        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.3 — CIE_G5_BESTFOR_COUNT; detail must distinguish best_for vs not_for.
+        // FIX: G5-02 — Distinct user-facing copy per field (same error_code per spec table).
+        if ($bestForCount < $minBestFor) {
+            $results[] = new GateResult(
                 gate: GateType::G5_BEST_NOT_FOR,
                 passed: false,
-                reason: 'Insufficient best_for or not_for entries',
+                reason: 'Insufficient best_for entries',
                 blocking: true,
                 metadata: [
                     'error_code' => 'CIE_G5_BESTFOR_COUNT',
-                    'detail' => "Need min {$minBestFor} best_for and {$minNotFor} not_for",
-                    'user_message' => "Add at least {$minBestFor} Best-For and {$minNotFor} Not-For entries."
+                    'detail' => "Only {$bestForCount} best_for entries. Minimum is {$minBestFor}.",
+                    'user_message' => "Add at least {$minBestFor} 'Best For' use cases for this product.",
+                ]
+            );
+        }
+        if ($notForCount < $minNotFor) {
+            $results[] = new GateResult(
+                gate: GateType::G5_BEST_NOT_FOR,
+                passed: false,
+                reason: 'Insufficient not_for entries',
+                blocking: true,
+                metadata: [
+                    'error_code' => 'CIE_G5_BESTFOR_COUNT',
+                    'detail' => "{$notForCount} not_for entries. Minimum is {$minNotFor}.",
+                    'user_message' => "Add at least {$minNotFor} 'Not Suitable For' entry for this product.",
                 ]
             );
         }
 
-        return new GateResult(gate: GateType::G5_BEST_NOT_FOR, passed: true, reason: 'G5 pass', metadata: []);
-        // GAP_LOG: required_specifications and validateUnits() removed from G5 publish gate per ENF§2.1. Architect to decide: move to pre-validation or separate advisory step.
+        if ($results !== []) {
+            return $results;
+        }
+
+        // GAP_LOG: required_specifications and validateUnits() removed from G5 publish gate per ENF§2.1.
+        return new GateResult(
+            gate: GateType::G5_BEST_NOT_FOR,
+            passed: true,
+            reason: "{$bestForCount} best-for, {$notForCount} not-for",
+            metadata: []
+        );
     }
  
  private function validateUnits(array $specs): array

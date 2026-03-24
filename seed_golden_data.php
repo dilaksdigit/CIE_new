@@ -32,7 +32,8 @@ $intentNameMap = [
     'Comparison' => 'comparison',
     'Replacement/Refill' => 'replacement',
     'Problem-Solving' => 'problem_solving',
-    'Regulatory/Safety' => 'safety_compliance',
+    'Regulatory/Safety' => 'regulatory',
+    'Troubleshooting' => 'troubleshooting',
 ];
 
 foreach ($data as $skuData) {

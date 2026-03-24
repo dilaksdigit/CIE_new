@@ -67,11 +67,8 @@ class BulkOpsController
     public function summary()
     {
         $counts = $this->computeCounts();
-        try {
-            $maxSkus = (int) BusinessRules::get('bulk_ops.max_skus_per_operation', 500);
-        } catch (\Throwable $e) {
-            $maxSkus = 500;
-        }
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5.2 — must throw on missing key.
+        $maxSkus = (int) BusinessRules::get('bulk.batch_limit');
         $operations = array_map(function ($op) use ($counts) {
             $countKey = $op['count_key'] ?? null;
             $count = $countKey !== null ? ($counts[$countKey] ?? 0) : null;
@@ -163,11 +160,8 @@ class BulkOpsController
             'sku_ids.*' => 'required|string',
             'cluster_id' => 'required|string',
         ]);
-        try {
-            $maxSkus = (int) BusinessRules::get('bulk_ops.max_skus_per_operation', 500);
-        } catch (\Throwable $e) {
-            $maxSkus = 500;
-        }
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5.2 — must throw on missing key.
+        $maxSkus = (int) BusinessRules::get('bulk.batch_limit');
         $skuIds = array_slice(array_unique($data['sku_ids']), 0, $maxSkus);
         $updated = DB::table('skus')->whereIn('id', $skuIds)->update(['primary_cluster_id' => $data['cluster_id']]);
         return ResponseFormatter::format(['updated' => $updated, 'sku_ids' => $skuIds]);
@@ -184,11 +178,8 @@ class BulkOpsController
             'sku_ids.*' => 'required|string',
             'validation_status' => 'required|string|in:DRAFT,PENDING,VALID,INVALID,DEGRADED',
         ]);
-        try {
-            $maxSkus = (int) BusinessRules::get('bulk_ops.max_skus_per_operation', 500);
-        } catch (\Throwable $e) {
-            $maxSkus = 500;
-        }
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5.2 — must throw on missing key.
+        $maxSkus = (int) BusinessRules::get('bulk.batch_limit');
         $skuIds = array_slice(array_unique($data['sku_ids']), 0, $maxSkus);
         $updated = DB::table('skus')->whereIn('id', $skuIds)->update(['validation_status' => $data['validation_status']]);
         return ResponseFormatter::format(['updated' => $updated, 'sku_ids' => $skuIds]);
@@ -205,11 +196,8 @@ class BulkOpsController
             'sku_ids' => 'required|array',
             'sku_ids.*' => 'required|string',
         ]);
-        try {
-            $maxSkus = (int) BusinessRules::get('bulk_ops.max_skus_per_operation', 500);
-        } catch (\Throwable $e) {
-            $maxSkus = 500;
-        }
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5.2 — must throw on missing key.
+        $maxSkus = (int) BusinessRules::get('bulk.batch_limit');
         $skuIds = array_slice(array_unique($data['sku_ids']), 0, $maxSkus);
         $templateId = $data['template_id'];
         $inserted = 0;

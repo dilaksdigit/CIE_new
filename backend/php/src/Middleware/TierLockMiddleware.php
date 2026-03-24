@@ -18,7 +18,14 @@ class TierLockMiddleware
         // Patch 6: Kill-tier SKUs - absolute lock on any edit
         if ($sku->tier === TierType::KILL) {
             return response()->json([
-                'error' => "KILL TIER: Policy violation. Any edit to a decommissioned SKU is prohibited."
+                // SOURCE: CIE_v231_Developer_Build_Pack.pdf §1.2 — gate error code format.
+                'status' => 'fail',
+                'gates_failed' => [[
+                    'gate' => 'G6.1',
+                    'error_code' => 'CIE_G6_1_KILL_EDIT_BLOCKED',
+                    'detail' => 'Kill-tier SKU: all content fields are read-only.',
+                    'user_message' => 'This product is flagged for delisting. All editing is disabled. Contact your Portfolio Holder for a tier review.'
+                ]]
             ], 403);
         }
 
@@ -43,7 +50,7 @@ class TierLockMiddleware
             }
 
             if ($request->has('secondary_intents')) {
-                $allowedIntents = ['problem_solving', 'compatibility'];
+                $allowedIntents = ['problem_solving', 'compatibility', 'specification'];
                 $provided = (array) $request->input('secondary_intents');
 
                 if (count($provided) > 1) {
@@ -59,7 +66,7 @@ class TierLockMiddleware
                         return response()->json([
                             'status'     => 'fail',
                             'error_code' => 'HARVEST_SECONDARY_INTENT_INVALID',
-                            'detail'     => "Harvest-tier SKU secondary intent must be 'problem_solving' or 'compatibility'. Got: '{$intent}'.",
+                            'detail'     => "Harvest-tier SKU secondary intent must be one of 'problem_solving', 'compatibility', or 'specification'. Got: '{$intent}'.",
                         ], 422);
                     }
                 }

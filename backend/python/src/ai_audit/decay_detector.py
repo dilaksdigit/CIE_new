@@ -22,7 +22,13 @@ class DecayDetector:
         """
         yellow_flag_weeks = int(BusinessRules.get('decay.yellow_flag_weeks'))
         alert_weeks = int(BusinessRules.get('decay.alert_weeks'))
-        auto_brief_weeks = int(BusinessRules.get('decay.auto_brief_weeks'))
+        # SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3
+        # FIX: DEC-01/DEC-06 — use spec key; keep legacy alias fallback.
+        auto_brief_weeks = int(
+            BusinessRules.get('decay.zero_weeks_before_brief')
+            or BusinessRules.get('decay.auto_brief_weeks')
+            or 3
+        )
         escalate_weeks = int(BusinessRules.get('decay.escalate_weeks'))
 
         results = []

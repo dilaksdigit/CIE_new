@@ -26,10 +26,10 @@
       "position": [540, 300],
       "parameters": {
         "method": "POST",
-        "url": "https://cie-api.example.com/api/decay/check",
+        "url": "={{ $env.PHP_API_URL }}/api/decay/check",
         "responseFormat": "json",
         "options": {
-          "timeout": 60000
+          "timeout": 30000
         }
       }
     },
@@ -59,7 +59,7 @@
       "position": [1060, 240],
       "parameters": {
         "method": "POST",
-        "url": "https://alerts.example.com/decay",
+        "url": "={{ $env.ALERTS_API_URL }}/decay",
         "responseFormat": "json",
         "jsonParameters": true,
         "options": {
@@ -76,7 +76,7 @@
       "position": [1060, 420],
       "parameters": {
         "method": "POST",
-        "url": "https://alerts.example.com/errors",
+        "url": "={{ $env.ALERTS_API_URL }}/errors",
         "responseFormat": "json",
         "jsonParameters": true,
         "options": {

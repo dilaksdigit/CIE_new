@@ -2,8 +2,9 @@
 Weekly GSC sync job.
 
 SOURCE: CIE_Master_Developer_Build_Spec.docx
-- §9.1  GSC weekly pull — Monday 02:00 UTC, gsc_weekly_performance table
-- §9.3  URL normalisation with normalise_url(); unmatched URLs to gsc_unmatched_urls
+- §5.3  sync.gsc_cron_schedule — Sunday 03:00 UTC (host/env; see utils.config.Config)
+- §9.2  Writes to url_performance (Hero + Support SKUs) and gsc_weekly_performance
+- §9.3  URL normalisation; unmatched URLs to gsc_unmatched_urls
 - §9.5  Error handling: 429 backoff, 500 queue for next cron, auth halt
 """
 
@@ -15,8 +16,8 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional
-from urllib.parse import urlparse
+from typing import Iterable, List, Optional, Set
+from urllib.parse import urlparse, urlunparse
 
 import pymysql
 
@@ -58,30 +59,80 @@ def _get_db():
 
 def normalise_url(raw: str) -> str:
     """
-    Normalise URLs to a canonical form before matching to SKUs.
+    Canonical URL for matching (lowercase, no query/fragment, no trailing slash on path).
 
-    Spec §9.3 normalise_url() — high-level behaviour:
-    - Lowercase scheme + host
-    - Strip URL fragments and query parameters
-    - Remove trailing slashes
+    SOURCE: CIE_Master_Developer_Build_Spec.docx §9.3 — urlparse(url.lower().strip()); urlunparse strip path /
+    FIX: GSC-03 — full lowercase normalisation per spec
     """
     if not raw:
         return ""
-    url = raw.strip()
-    # Very lightweight normalisation; full behaviour is defined in the spec.
-    # Implemented conservatively here to avoid external dependencies.
-    if "://" in url:
-        scheme, rest = url.split("://", 1)
-        scheme = scheme.lower()
-        url = f"{scheme}://{rest}"
-    if "#" in url:
-        url = url.split("#", 1)[0]
-    if "?" in url:
-        url = url.split("?", 1)[0]
-    # Remove trailing slash except for bare domain
-    if url.endswith("/") and "://" in url and url.count("/") > 2:
-        url = url.rstrip("/")
-    return url
+    p = urlparse(raw.lower().strip())
+    path = p.path or ""
+    if path.endswith("/") and path != "/":
+        path = path.rstrip("/")
+    return urlunparse((p.scheme, p.netloc, path, "", "", ""))
+
+
+def load_all_sku_landing_urls_normalized() -> Set[str]:
+    """
+    Normalised landing URLs for all SKUs with sku_code (any tier).
+
+    SOURCE: CIE_Master_Developer_Build_Spec.docx §9.3 — unmatched = no SKU match
+    """
+    base = (Config.CIE_LANDING_BASE_URL or os.environ.get("CIE_LANDING_BASE_URL", "")).rstrip("/")
+    if not base:
+        return set()
+    db = _get_db()
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """
+            SELECT sku_code FROM skus
+            WHERE sku_code IS NOT NULL AND TRIM(sku_code) <> ''
+            """
+        )
+        rows = cur.fetchall()
+        cur.close()
+        out: Set[str] = set()
+        for row in rows:
+            code = (row.get("sku_code") or "").strip()
+            if code:
+                out.add(normalise_url(f"{base}/{code.lstrip('/')}"))
+        return out
+    finally:
+        db.close()
+
+
+def load_hero_support_landing_urls_normalized() -> Set[str]:
+    """
+    Normalised landing URLs for Hero and Support SKUs only.
+
+    SOURCE: CIE_Master_Developer_Build_Spec.docx §9.2; FINAL Dev Instruction Phase 2.2
+    FIX: GSC-02d — url_performance scope Hero + Support only
+    """
+    base = (Config.CIE_LANDING_BASE_URL or os.environ.get("CIE_LANDING_BASE_URL", "")).rstrip("/")
+    if not base:
+        return set()
+    db = _get_db()
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """
+            SELECT sku_code FROM skus
+            WHERE sku_code IS NOT NULL AND TRIM(sku_code) <> ''
+              AND tier IN ('hero', 'support')
+            """
+        )
+        rows = cur.fetchall()
+        cur.close()
+        out: Set[str] = set()
+        for row in rows:
+            code = (row.get("sku_code") or "").strip()
+            if code:
+                out.add(normalise_url(f"{base}/{code.lstrip('/')}"))
+        return out
+    finally:
+        db.close()
 
 
 def pull_weekly_gsc(start_date: datetime, end_date: datetime) -> List[GscRow]:
@@ -134,7 +185,10 @@ def save_gsc_weekly_performance(rows: Iterable[GscRow], window_end: datetime) ->
 
 def save_url_performance(rows: Iterable[GscRow], window_end: datetime) -> None:
     """
-    Persist GSC rows into url_performance table (legacy; spec §9.1 uses gsc_weekly_performance).
+    Persist GSC rows into url_performance (spec §9.2).
+
+    SOURCE: CIE_Master_Developer_Build_Spec.docx §9.2
+    FIX: GSC-02c — populate url_performance (Hero + Support rows supplied by caller)
     """
     rows_list = list(rows)
     if not rows_list:
@@ -191,14 +245,12 @@ def run() -> None:
     """
     Entrypoint for the weekly GSC sync.
 
-    Intended cron (per Config.GSC_CRON_SCHEDULE, default '0 2 * * 1'):
-    - Monday 02:00 UTC
-    - 7‑day window ending previous Sunday
+    SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3 — intended host schedule from Config.GSC_CRON_SCHEDULE / env
+    7‑day window ending the day before the run (UTC).
     """
     logger.info("Starting weekly GSC sync (cron=%s)", Config.GSC_CRON_SCHEDULE)
 
     today_utc = datetime.now(timezone.utc).date()
-    # For a run on Monday 02:00, window ends previous Sunday (yesterday).
     window_end = today_utc - timedelta(days=1)
     window_start = window_end - timedelta(days=6)
 
@@ -217,27 +269,40 @@ def run() -> None:
         logger.warning("No GSC rows returned for %s → %s", window_start, window_end)
         return
 
-    # Apply URL normalisation and split into matched vs unmatched.
-    normalised_rows = []
-    unmatched_urls = []
+    all_sku_urls = load_all_sku_landing_urls_normalized()
+    hero_support_urls = load_hero_support_landing_urls_normalized()
+
+    normalised_rows: List[GscRow] = []
+    unmatched_urls: List[str] = []
     for row in rows:
         norm_url = normalise_url(row.url)
         if not norm_url:
             unmatched_urls.append(row.url)
             continue
-        normalised_rows.append(GscRow(url=norm_url,
-                                      impressions=row.impressions,
-                                      clicks=row.clicks,
-                                      ctr=row.ctr,
-                                      avg_position=row.avg_position))
+        gr = GscRow(
+            url=norm_url,
+            impressions=row.impressions,
+            clicks=row.clicks,
+            ctr=row.ctr,
+            avg_position=row.avg_position,
+        )
+        normalised_rows.append(gr)
+        if len(all_sku_urls) > 0 and norm_url not in all_sku_urls:
+            unmatched_urls.append(row.url)
+
+    url_perf_rows = [r for r in normalised_rows if r.url in hero_support_urls]
 
     save_gsc_weekly_performance(normalised_rows, end_dt)
+    save_url_performance(url_perf_rows, end_dt)
     save_unmatched_urls(unmatched_urls, end_dt)
 
-    logger.info("Weekly GSC sync completed: %s rows, %s unmatched URLs",
-                len(normalised_rows), len(unmatched_urls))
+    logger.info(
+        "Weekly GSC sync completed: %s gsc_weekly rows, %s url_performance (hero/support), %s unmatched URLs",
+        len(normalised_rows),
+        len(url_perf_rows),
+        len(unmatched_urls),
+    )
 
 
 if __name__ == "__main__":
     run()
-

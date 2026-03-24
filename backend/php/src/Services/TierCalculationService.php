@@ -8,7 +8,6 @@ namespace App\Services;
 use App\Models\Sku;
 use App\Enums\TierType;
 use App\Support\BusinessRules;
-use Illuminate\Support\Collection;
 
 class TierCalculationService
 {
@@ -30,12 +29,15 @@ class TierCalculationService
             return [];
         }
 
-        // Cohort max velocity_90d used for normalisation.
+        // Cohort max velocity_90d used for normalisation (legacy param to calculateCommercialScore).
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — tier.velocity_normalisation_min from BusinessRules
+        // FIX: TS-03 — avoid literal 1.0 in tier engine
         $maxVelocity = (float) $allSkus->max(function (Sku $sku) {
             return (float) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0);
         });
+        $normMin = (int) BusinessRules::get('tier.velocity_normalisation_min', 1);
         if ($maxVelocity <= 0) {
-            $maxVelocity = 1.0;
+            $maxVelocity = (float) $normMin;
         }
 
         // Compute composite scores first
@@ -81,13 +83,15 @@ class TierCalculationService
                 }
             }
 
-            // Auto-promotion rule: Harvest SKUs with >30% QoQ velocity increase become Support (§5.3: not in 52 rules; hard-coded 0.30)
+            // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 9.2 — auto-promotion velocity threshold
+            // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 5 — zero hard-coded values
+            // Auto-promotion rule: Harvest SKUs with > configured QoQ velocity increase become Support.
             if ($oldTier === TierType::HARVEST && $newTier === TierType::HARVEST) {
                 $previousVelocity = (int) ($sku->previous_velocity_90d ?? 0);
                 $currentVelocity  = (int) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0);
                 if ($previousVelocity > 0) {
                     $growth = ($currentVelocity - $previousVelocity) / $previousVelocity;
-                    $autoPromotionThreshold = 0.30;
+                    $autoPromotionThreshold = (float) BusinessRules::get('tier.auto_promotion_velocity_threshold');
                     if ($growth > $autoPromotionThreshold) {
                         $newTier = TierType::SUPPORT;
                     }
@@ -111,28 +115,47 @@ class TierCalculationService
         return $changes;
     }
 
+    /**
+     * SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §3.2; CIE_Master_Developer_Build_Spec.docx §8.1
+     * FIX: TS-03 — Authoritative commercial priority formula (shared with TierController::erpSync).
+     */
+    public static function commercialPriorityScore(
+        float $marginPct,
+        float $cppc,
+        float $velocity,
+        float $returnPct
+    ): float {
+        $wMargin = (float) BusinessRules::get('tier.margin_weight');
+        $wCppc = (float) BusinessRules::get('tier.cppc_weight');
+        $wVelocity = (float) BusinessRules::get('tier.velocity_weight');
+        $wReturns = (float) BusinessRules::get('tier.returns_weight');
+        $cppcScale = (float) BusinessRules::get('tier.cppc_inverse_scale');
+        $velLogScale = (float) BusinessRules::get('tier.velocity_log_scale');
+        $cppcFloor = (float) BusinessRules::get('tier.cppc_floor');
+        $velocityFloor = (float) BusinessRules::get('tier.velocity_floor');
+
+        $safeCppc = max($cppc, $cppcFloor);
+        $safeVelocity = max($velocity, $velocityFloor);
+
+        $score =
+            ($marginPct / 100) * $wMargin
+            + ((1 / $safeCppc) * $cppcScale * $wCppc)
+            + (log10($safeVelocity) * $velLogScale * $wVelocity)
+            + ((1 - ($returnPct / 100)) * $wReturns);
+
+        return (float) $score;
+    }
+
     public function calculateCommercialScore(Sku $sku, float $maxVelocity): float
     {
-        // SOURCE: CIE Validation Report DB-08 | CLAUDE.md Section 7 — exact formula
-        // composite_score = (margin × 0.40) + ((1/cppc)×10×0.25) + (log10(velocity)×25×0.20) + ((1 - return_rate/100)×0.15)
-        $marginPct   = (float) ($sku->erp_margin_pct ?? 0);
-        $cppc        = (float) ($sku->erp_cppc ?? 0);
+        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §9.2 — same inputs as ERP sync (margin_percent + erp_* aliases)
+        // FIX: TS-03 — delegate to commercialPriorityScore; return term aligned with TierController (no ×100)
+        $marginPct = (float) ($sku->erp_margin_pct ?? $sku->margin_percent ?? 0);
+        $cppc = (float) ($sku->erp_cppc ?? 0);
         $velocity90d = (float) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0);
-        $returnPct   = (float) ($sku->erp_return_rate_pct ?? 0);
+        $returnPct = (float) ($sku->erp_return_rate_pct ?? 0);
 
-        $safeCppc     = max($cppc, 0.001);
-        $safeVelocity = max($velocity90d, 0.001);
-
-        // Tier score: (margin_pct * 0.40) + (cppc_pct * 0.35) + (velocity_pct * 0.25)
-        // margin_pct, cppc_pct, velocity_pct are 0–100 raw percentile values from ERP.
-        // SOURCE: CIE_v231_Developer_Build_Pack — Tier Calculation
-        // Note: margin stored 0–100; term below uses /100 so margin contributes 0–0.4 to composite (compatible with percentile cutoffs).
-        // SOURCE: CIE_v231_Developer_Build_Pack.pdf — Tier Scoring Formula. Return-rate term: ((1 - return_rate_pct/100) × 100 × 0.15)
-        $score =
-            ($marginPct / 100.0) * 0.40
-            + ((1.0 / $safeCppc) * 10.0 * 0.25)
-            + (log10($safeVelocity) * 25.0 * 0.20)
-            + ((1.0 - ($returnPct / 100.0)) * 100.0 * 0.15);
+        $score = self::commercialPriorityScore($marginPct, $cppc, $velocity90d, $returnPct);
 
         return round((float) $score, 4);
     }
@@ -141,17 +164,19 @@ class TierCalculationService
  
     private function shouldBeKilled(Sku $sku): bool
     {
-        $profitabilityThreshold = 5.0; // §5.3: tier.profitability_min_margin_pct not in 52 rules; hard-coded
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 5 — zero hard-coded values
+        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 3.1 — Kill = Negative margin, NNV
+        $profitabilityThreshold = (float) BusinessRules::get('tier.kill_margin_floor');
 
         if ((float) ($sku->erp_margin_pct ?? 0) < $profitabilityThreshold) {
             return true;
         }
-        $noSaleDays = 90; // §5.3: tier.kill_no_sale_days not in 52 rules; hard-coded
+        $noSaleDays = (int) BusinessRules::get('tier.kill_no_sale_days');
         $cutoff = new \DateTime('-' . $noSaleDays . ' days');
         if ($sku->last_sale_date && strtotime($sku->last_sale_date) < $cutoff->getTimestamp()) {
             return true;
         }
-        $zeroVelThreshold = 0; // §5.3: tier.kill_zero_velocity_threshold not in 52 rules; hard-coded
+        $zeroVelThreshold = (int) BusinessRules::get('tier.kill_zero_velocity_threshold');
         if ((int) ($sku->erp_velocity_90d ?? $sku->annual_volume ?? 0) <= $zeroVelThreshold) {
             return true;
         }
@@ -180,34 +205,20 @@ class TierCalculationService
             'annual_volume' => $velocity,
             'changed_by'    => auth()->id(),
         ]);
+        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §9.2 — audit_log on tier change
+        // FIX: TS-04 — entity_type sku (aligned with TierController::erpSync)
         \App\Models\AuditLog::create([
-            'entity_type' => 'tier',
+            'entity_type' => 'sku',
             'entity_id'   => $sku->id,
             'action'      => 'tier_change',
+            'field_name'  => 'tier',
+            'old_value'   => $oldTier->value ?? (string) $oldTier,
+            'new_value'   => $newTier->value ?? (string) $newTier,
             'actor_id'    => 'SYSTEM',
-            'old_value'   => $oldTier,
-            'new_value'   => $newTier,
-            'reason'      => $rationale,
+            'actor_role'  => 'system',
+            'timestamp'   => now(),
             'created_at'  => now(),
         ]);
     }
 
-    private function normalise(float $value, float $min, float $max): float
-    {
-        if ($max <= $min) {
-            return 0.0;
-        }
-
-        $normalised = ($value - $min) / ($max - $min);
-
-        if ($normalised < 0.0) {
-            return 0.0;
-        }
-
-        if ($normalised > 1.0) {
-            return 1.0;
-        }
-
-        return $normalised;
-    }
 }

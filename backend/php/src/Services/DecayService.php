@@ -36,7 +36,9 @@ class DecayService
 
         $yellowFlagWeeks = (int) BusinessRules::get('decay.yellow_flag_weeks');
         $alertWeeks = (int) BusinessRules::get('decay.alert_weeks');
-        $autoBriefWeeks = (int) BusinessRules::get('decay.auto_brief_weeks');
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3
+        // FIX: DEC-01/DEC-06 — use spec key; fallback to legacy alias.
+        $autoBriefWeeks = (int) (BusinessRules::get('decay.zero_weeks_before_brief') ?: BusinessRules::get('decay.auto_brief_weeks') ?: 3);
         $escalateWeeks = (int) BusinessRules::get('decay.escalate_weeks');
 
         $status = match (true) {
@@ -89,13 +91,15 @@ class DecayService
 
     private function generateAutoBrief(Sku $sku): void
     {
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §12.3 / §6.5
+        // FIX: DEC-03 — lowercase status aligned to content_briefs ENUM.
         $deadlineDays = (int) BusinessRules::get('decay.auto_brief_deadline_days');
         $brief = \App\Models\ContentBrief::create([
             'sku_id' => $sku->id,
             'brief_type' => 'DECAY_REFRESH',
             'title' => 'Auto-brief: 3-week citation decay – ' . ($sku->title ?? $sku->sku_code ?? $sku->id),
             'description' => '3-Week Citation Decay (Auto-generated). Refresh answer block and authority content.',
-            'status' => 'OPEN',
+            'status' => 'open',
             'deadline' => now()->addDays($deadlineDays)->toDateString(),
         ]);
 

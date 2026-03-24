@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import THEME from '../theme';
-import { bulkOpsApi, skuApi, clusterApi, faqApi } from '../services/api';
+import { bulkOpsApi, skuApi, clusterApi, faqApi, extractApiArray } from '../services/api';
 import { AppContext } from '../App';
 
 const BULK_OPS = THEME.bulkOps || { gridMinPx: 280, gapPx: 12, iconRem: 1.2, titleRem: 0.8, descRem: 0.65, badgeRem: 0.58, badgePadding: '2px 6px', badgeRadius: 3 };
@@ -64,9 +64,7 @@ const BulkOps = () => {
     const loadSkusAndClusters = async () => {
         try {
             const [skuRes, clusterRes] = await Promise.all([skuApi.list({ per_page: 500 }), clusterApi.list()]);
-            const skuData = skuRes.data?.data ?? skuRes.data;
-            const list = Array.isArray(skuData) ? skuData : skuData?.skus ?? skuData?.data ?? [];
-            setSkus(Array.isArray(list) ? list : []);
+            setSkus(extractApiArray(skuRes));
             const clusterData = clusterRes.data?.data ?? clusterRes.data;
             setClusters(Array.isArray(clusterData) ? clusterData : clusterData?.clusters ?? []);
         } catch (e) {

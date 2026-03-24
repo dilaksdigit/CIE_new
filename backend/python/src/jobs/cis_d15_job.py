@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 import pymysql
 
 from api.gates_validate import BusinessRules
+from utils.business_rules import get_business_rule
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -111,7 +112,12 @@ def get_due_baselines(target_date: datetime) -> List[BaselineRow]:
 
 
 def pull_current_gsc(url: str) -> Optional[GscSnapshot]:
-    """Pull current GSC metrics for a single URL (14-day window ending today)."""
+    """
+    Pull current GSC metrics for a single URL (baseline lookback window ending today).
+
+    SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3 sync.baseline_lookback_weeks
+    FIX: CIS-02 — lookback from business_rules, not hardcoded 14 days
+    """
     try:
         from utils.config import Config
         from integrations.gsc_client import pull_gsc_for_page
@@ -120,7 +126,8 @@ def pull_current_gsc(url: str) -> Optional[GscSnapshot]:
             logger.debug("GSC_PROPERTY not set")
             return None
         end = date.today()
-        start = end - timedelta(days=14)
+        lookback_weeks = int(get_business_rule("sync.baseline_lookback_weeks", 2))
+        start = end - timedelta(days=lookback_weeks * 7)
         return pull_gsc_for_page(site_url, url, start, end)
     except Exception as exc:
         logger.warning("pull_current_gsc failed for url=%s: %s", url, exc)
@@ -128,7 +135,12 @@ def pull_current_gsc(url: str) -> Optional[GscSnapshot]:
 
 
 def pull_current_ga4(url: str) -> Optional[Ga4Snapshot]:
-    """Pull current GA4 Organic Search metrics for the landing page (url)."""
+    """
+    Pull current GA4 Organic Search metrics for the landing page (url).
+
+    SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3 sync.baseline_lookback_weeks
+    FIX: CIS-02 — lookback from business_rules, not hardcoded 14 days
+    """
     try:
         from utils.config import Config
         from integrations.ga4_client import pull_ga4_for_landing_page
@@ -137,7 +149,8 @@ def pull_current_ga4(url: str) -> Optional[Ga4Snapshot]:
             logger.debug("GA4_PROPERTY_ID not set")
             return None
         end = date.today()
-        start = end - timedelta(days=14)
+        lookback_weeks = int(get_business_rule("sync.baseline_lookback_weeks", 2))
+        start = end - timedelta(days=lookback_weeks * 7)
         return pull_ga4_for_landing_page(property_id, url, start, end)
     except Exception as exc:
         logger.warning("pull_current_ga4 failed for url=%s: %s", url, exc)

@@ -91,7 +91,9 @@ const Sidebar = () => {
                     className="sidebar-logout-btn"
                     title="Logout"
                 >
-                    🚪
+                    {/* SOURCE: CLAUDE.md §8
+                       FIX: UI-05 — no emojis in production UI. */}
+                    L
                 </button>
             </div>
         </aside>
