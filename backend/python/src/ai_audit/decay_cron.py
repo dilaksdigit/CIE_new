@@ -388,6 +388,70 @@ def default_brief_generate_hook(payload: Dict[str, Any]) -> None:
         logger.exception("Failed to queue auto-brief for %s: %s", payload.get("sku_code"), e)
 
 
+def _post_auto_brief_generate(payload: Dict[str, Any]) -> bool:
+    """
+    SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §9.3 — Week 3 auto-brief
+    Post deterministic week-3 decay payload to POST /api/v1/brief/generate.
+    """
+    try:
+        import requests
+        base_url = os.environ.get("CIE_CMS_URL", "http://localhost:8000").rstrip("/")
+        url = f"{base_url}/api/v1/brief/generate"
+        request_payload = {
+            "sku_id": payload.get("sku_id"),
+            "trigger": "citation_decay",
+            "consecutive_zero_weeks": 3,
+            "failing_questions": [str(q.get("id")) for q in payload.get("failing_questions", []) if q.get("id")],
+        }
+        headers = {"Content-Type": "application/json"}
+        token = os.environ.get("CIE_INTERNAL_API_KEY", "").strip()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        response = requests.post(url, json=request_payload, headers=headers, timeout=10)
+        return response.status_code in (200, 201, 202)
+    except Exception as exc:
+        logger.warning("POST /api/v1/brief/generate failed for sku_id=%s: %s", payload.get("sku_id"), exc)
+        return False
+
+
+def _set_decay_status_auto_brief(db, sku_id: str) -> None:
+    """
+    SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §9.3 — Week 3 auto-brief
+    Ensure status advances to auto_brief regardless of brief call success.
+    """
+    cur = db.cursor()
+    cur.execute(
+        """
+        UPDATE skus
+        SET decay_status = 'auto_brief'
+        WHERE id = %s
+        """,
+        (sku_id,),
+    )
+    db.commit()
+    cur.close()
+
+
+def _log_auto_brief_error(db, sku_id: str, error_message: str) -> None:
+    """
+    SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §9.3 — Week 3 auto-brief
+    Log brief generation failure while preserving decay status progression.
+    """
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """
+            INSERT INTO audit_log (id, entity_type, entity_id, action, actor_id, new_value, created_at)
+            VALUES (%s, 'sku', %s, 'auto_brief_generation_failed', 'system', %s, NOW())
+            """,
+            (str(uuid.uuid4()), sku_id, json.dumps({"error": error_message[:500]})),
+        )
+        db.commit()
+        cur.close()
+    except Exception as exc:
+        logger.warning("Failed to write auto_brief_generation_failed audit_log for sku_id=%s: %s", sku_id, exc)
+
+
 def _build_brief_payload(
     sku: Dict[str, Any],
     failing_questions: Sequence[Dict[str, Any]],
@@ -596,10 +660,19 @@ def run_decay_escalation(
                 )
                 try:
                     _persist_complete_auto_brief(db, sku, payload)
-                    brief_generate_hook(payload)
-                    action["auto_brief_generated"] = True
+                    # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §9.3 — Week 3 auto-brief
+                    posted = _post_auto_brief_generate(payload)
+                    if posted:
+                        brief_generate_hook(payload)
+                        action["auto_brief_generated"] = True
+                    else:
+                        _log_auto_brief_error(db, str(sku["id"]), "POST /api/v1/brief/generate failed")
+                        action["auto_brief_generated"] = False
+                    _set_decay_status_auto_brief(db, str(sku["id"]))
                 except Exception as e:
                     logger.warning("brief_generate_hook failed for %s: %s", sku_code, e)
+                    _set_decay_status_auto_brief(db, str(sku["id"]))
+                    _log_auto_brief_error(db, str(sku["id"]), str(e))
                     action["auto_brief_generated"] = False
 
             actions.append(action)
