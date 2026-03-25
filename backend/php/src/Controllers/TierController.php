@@ -77,6 +77,7 @@ class TierController {
                 $sku = $skuMap[$skuCode];
                 $previousVelocity = (int) ($sku->erp_velocity_90d ?? 0);
                 $erpIncomplete = false;
+                $rowHasFieldError = false;
 
                 $updateData = [
                     'previous_velocity_90d' => $previousVelocity > 0 ? $previousVelocity : ($sku->previous_velocity_90d ?? null),
@@ -136,14 +137,15 @@ class TierController {
                 $cppcRaw = $row['cppc'] ?? null;
                 // SOURCE: CIE_Integration_Specification.pdf §1.2 — field-level error logging
                 if ($cppcRaw === null || $cppcRaw === '') {
-                    $updateData['erp_cppc'] = 1.0;
                     $erpIncomplete = true;
-                    $errors[] = "SKU {$skuCode}: cppc missing (value: null)";
+                    $rowHasFieldError = true;
+                    $errors[] = "SKU {$skuCode}: cppc out of range (value: null, expected: 0.01-999.99)";
                 } else {
                     $cppc = (float) $cppcRaw;
-                    if ($cppc < 0.01 || $cppc > 100.0) {
+                    if ($cppc < 0.01 || $cppc > 999.99) {
                         $erpIncomplete = true;
-                        $errors[] = "SKU {$skuCode}: cppc out of range (value: {$cppcRaw})";
+                        $rowHasFieldError = true;
+                        $errors[] = "SKU {$skuCode}: cppc out of range (value: {$cppcRaw}, expected: 0.01-999.99)";
                     } else {
                         $updateData['erp_cppc'] = $cppc;
                     }
@@ -152,15 +154,15 @@ class TierController {
                 $velRaw = $row['velocity_90d'] ?? null;
                 // SOURCE: CIE_Integration_Specification.pdf §1.2 — field-level error logging
                 if ($velRaw === null || $velRaw === '') {
-                    $updateData['erp_velocity_90d'] = 0;
-                    $updateData['annual_volume'] = 0;
                     $erpIncomplete = true;
-                    $errors[] = "SKU {$skuCode}: velocity_90d missing (value: null)";
+                    $rowHasFieldError = true;
+                    $errors[] = "SKU {$skuCode}: velocity_90d out of range (value: null, expected: 0+)";
                 } else {
                     $velocity = (int) $velRaw;
                     if ($velocity < 0 || $velocity > 999999) {
                         $erpIncomplete = true;
-                        $errors[] = "SKU {$skuCode}: velocity_90d out of range (value: {$velRaw})";
+                        $rowHasFieldError = true;
+                        $errors[] = "SKU {$skuCode}: velocity_90d out of range (value: {$velRaw}, expected: 0+)";
                     } else {
                         $updateData['erp_velocity_90d'] = $velocity;
                         $updateData['annual_volume'] = $velocity;
@@ -170,17 +172,25 @@ class TierController {
                 $retRaw = $row['return_rate_pct'] ?? null;
                 // SOURCE: CIE_Integration_Specification.pdf §1.2 — field-level error logging
                 if ($retRaw === null || $retRaw === '') {
-                    $updateData['erp_return_rate_pct'] = 5.0;
                     $erpIncomplete = true;
-                    $errors[] = "SKU {$skuCode}: return_rate_pct missing (value: null)";
+                    $rowHasFieldError = true;
+                    $errors[] = "SKU {$skuCode}: return_rate_pct out of range (value: null, expected: 0.00-100.00)";
                 } else {
                     $returnPct = (float) $retRaw;
                     if ($returnPct < 0.0 || $returnPct > 100.0) {
                         $erpIncomplete = true;
-                        $errors[] = "SKU {$skuCode}: return_rate_pct out of range (value: {$retRaw})";
+                        $rowHasFieldError = true;
+                        $errors[] = "SKU {$skuCode}: return_rate_pct out of range (value: {$retRaw}, expected: 0.00-100.00)";
                     } else {
                         $updateData['erp_return_rate_pct'] = $returnPct;
                     }
+                }
+
+                // SOURCE: CIE_Integration_Specification.pdf §1.4 — skip entire row when any field is invalid
+                if ($rowHasFieldError) {
+                    $marginSkipTierBySkuId[(string) $sku->id] = true;
+                    $skuMap[$skuCode] = $sku->fresh();
+                    continue;
                 }
 
                 if (Schema::hasColumn('skus', 'erp_data_incomplete')) {
