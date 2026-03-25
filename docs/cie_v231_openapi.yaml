@@ -513,11 +513,12 @@ components:
           enum: [save, publish]
 
     ValidationResponse:
+      # SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 1 §1.4
       type: object
       properties:
         status:
           type: string
-          enum: [pass, fail]
+          enum: [pass, fail, not_applicable, pending]
         gates:
           type: object
           additionalProperties:
@@ -525,7 +526,7 @@ components:
             properties:
               status:
                 type: string
-                enum: [pass, fail, not_applicable]
+                enum: [pass, fail, not_applicable, pending]
               error_code:
                 type: string
                 nullable: true
@@ -548,6 +549,13 @@ components:
               enum: [pass, fail]
         publish_allowed:
           type: boolean
+          description: False if any gate is 'pending' or 'fail'
+        degraded_mode:
+          type: boolean
+          description: True if any gate returned 'pending' due to service failure
+        save_allowed:
+          type: boolean
+          description: True even in degraded mode (save ≠ publish)
 
     SimilarityResponse:
       type: object
@@ -719,3 +727,129 @@ components:
               return_rate_pct:
                 type: number
                 example: 2.1
+LoginResponse:
+      # SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx Section 3 (RBAC roles);
+      #         CIE_v232_UI_Restructure_Instructions.docx (login routing logic)
+      type: object
+      properties:
+        token:
+          type: string
+          description: Bearer token for subsequent authenticated requests
+        user_id:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+            enum:
+              - CONTENT_EDITOR
+              - PRODUCT_SPECIALIST
+              - SEO_GOVERNOR
+              - CONTENT_LEAD
+              - CHANNEL_MANAGER
+              - FINANCE
+              - AI_OPS
+              - ADMIN
+        redirect_to:
+          type: string
+          description: The route the client should navigate to after login
+
+    QueueResponse:
+      # SOURCE: CIE_Master_Developer_Build_Spec.docx Section 14.1;
+      #         CIE_v232_UI_Restructure_Instructions.docx /writer/queue route
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueueItem'
+
+    QueueItem:
+      # SOURCE: CIE_Master_Developer_Build_Spec.docx Section 14.1;
+      #         CIE_v232_UI_Restructure_Instructions.docx /writer/queue route
+      type: object
+      properties:
+        sku_id:
+          type: string
+        sku_code:
+          type: string
+        product_name:
+          type: string
+        tier:
+          type: string
+          enum: [hero, support, harvest, kill]
+        priority_score:
+          type: integer
+        missing_fields_count:
+          type: integer
+        ai_suggestion_count:
+          type: integer
+        locked:
+          type: boolean
+          description: true for kill-tier SKUs — editing locked
+        decay_status:
+          type: string
+          enum: [none, yellow_flag, alert, auto_brief, escalated]
+
+    DashboardSummaryResponse:
+      # SOURCE: CIE_v232_UI_Restructure_Instructions.docx /review/dashboard route;
+      #         CIE_Master_Developer_Build_Spec.docx S4 KPI Dashboard screen
+      type: object
+      properties:
+        hero_skus_at_risk:
+          type: integer
+        avg_citation_rate_pct:
+          type: number
+          minimum: 0
+          maximum: 100
+        hero_time_pct:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: Percentage of content hours spent on Hero SKUs
+        open_briefs_count:
+          type: integer
+        skus_published_this_week:
+          type: integer
+        avg_readiness_hero:
+          type: number
+          minimum: 0
+          maximum: 100
+
+    WeeklyScoresResponse:
+      # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 5.4 (query family mapping);
+      #         CIE_v232_UI_Restructure_Instructions.docx (KPI reviewer weekly scoring)
+      type: object
+      properties:
+        scores:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeeklyScoreEntry'
+
+    WeeklyScoreEntry:
+      # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 5.4;
+      #         CIE_v232_UI_Restructure_Instructions.docx
+      type: object
+      properties:
+        week_start_date:
+          type: string
+          format: date
+        category:
+          type: string
+        avg_score:
+          type: number
+          minimum: 0
+          maximum: 3
+        engine_scores:
+          type: object
+          properties:
+            chatgpt:
+              type: number
+            gemini:
+              type: number
+            perplexity:
+              type: number
+            google_sge:
+              type: number
+        questions_at_zero:
+          type: integer
