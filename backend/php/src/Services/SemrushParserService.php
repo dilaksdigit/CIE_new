@@ -77,6 +77,7 @@ class SemrushParserService
             return new SemrushParseResult(false, 'Missing required column: Timestamp. Check this is a Semrush Organic Positions export.');
         }
 
+        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.1 — canonical columns only
         $columnMap = [
             'keyword'              => 'keyword',
             'position'             => 'position',
@@ -87,9 +88,6 @@ class SemrushParserService
             'traffic (%)'          => 'traffic_pct',
             'trends'               => 'trend',
             'timestamp'            => 'timestamp',
-            'sku'                  => 'sku_code',
-            'sku code'             => 'sku_code',
-            'competitor position'  => 'competitor_position',
         ];
 
         $remappedRows = [];
@@ -167,7 +165,7 @@ class SemrushParserService
             'traffic_pct'     => strlen(trim((string) ($row['traffic_pct'] ?? ''))) ? (float) str_replace('%', '', (string) $row['traffic_pct']) : null,
             'trend'           => isset($row['trend']) && $row['trend'] !== '' ? (string) $row['trend'] : null,
             'imported_by'     => $username,
-            'imported_at'     => now(),
+            // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §3.1 — DB default owns imported_at
         ];
 
         $kd = isset($row['keyword_diff']) && $row['keyword_diff'] !== '' ? (int) $row['keyword_diff'] : null;
@@ -184,19 +182,6 @@ class SemrushParserService
         }
         if (Schema::hasColumn('semrush_imports', 'competitor_url')) {
             $base['competitor_url'] = $urlVal;
-        }
-
-        if (Schema::hasColumn('semrush_imports', 'sku_code')) {
-            $base['sku_code'] = isset($row['sku_code']) && $row['sku_code'] !== '' ? (string) $row['sku_code'] : null;
-        }
-        if (Schema::hasColumn('semrush_imports', 'competitor_position')) {
-            $base['competitor_position'] = isset($row['competitor_position']) && $row['competitor_position'] !== '' ? (int) $row['competitor_position'] : null;
-        }
-        if (Schema::hasColumn('semrush_imports', 'intent')) {
-            $base['intent'] = isset($row['intent']) && $row['intent'] !== '' ? (string) $row['intent'] : null;
-        }
-        if (Schema::hasColumn('semrush_imports', 'cluster_id')) {
-            $base['cluster_id'] = isset($row['cluster_id']) && $row['cluster_id'] !== '' ? (string) $row['cluster_id'] : null;
         }
 
         return $base;
