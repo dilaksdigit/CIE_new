@@ -185,10 +185,12 @@ class ContentHealthScoreService
             return self::COMPETITIVE_GAP_NO_DATA;
         }
 
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — competitive gap position threshold from BusinessRules
+        $gapThreshold = (int) BusinessRules::get('semrush.gap_position_threshold', 10);
         $gap = (int) DB::table('semrush_imports')
             ->where('sku_code', $skuCode)
-            ->where(function ($q) {
-                $q->whereNull('position')->orWhere('position', '>', 10);
+            ->where(function ($q) use ($gapThreshold) {
+                $q->whereNull('position')->orWhere('position', '>', $gapThreshold);
             })
             ->count();
 
@@ -210,7 +212,11 @@ class ContentHealthScoreService
         if ($avg === null) {
             return 0.0;
         }
-        // score is 0–3 → 0–100
-        return min(100.0, ((float) $avg / 3.0) * 100.0);
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — audit citation scale max from BusinessRules
+        $scaleMax = (float) BusinessRules::get('audit.citation_score_scale_max', 3);
+        if ($scaleMax <= 0) {
+            $scaleMax = 3.0;
+        }
+        return min(100.0, ((float) $avg / $scaleMax) * 100.0);
     }
 }

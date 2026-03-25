@@ -37,15 +37,76 @@ class DashboardController
         $effortAllocation = $this->safeBuild('buildEffortAllocation', ['by_tier' => [], 'total_hours' => 0, 'hero_pct' => 0, 'hero_alert' => false]);
         $staffKpis = $this->safeBuild('buildStaffKpis', []);
         $rollbackCandidates = $this->safeBuild('buildRollbackCandidates', ['sku_ids' => [], 'count' => 0]);
+        $openapiSummary = $this->safeBuild('buildOpenApiDashboardSummary', []);
 
-        return ResponseFormatter::format([
+        return ResponseFormatter::format(array_merge([
             'tier_summary' => $tierSummary,
             'category_heatmap' => $categoryHeatmap,
             'decay_monitor' => $decayMonitor,
             'effort_allocation' => $effortAllocation,
             'staff_kpis' => $staffKpis,
             'rollback_candidates' => $rollbackCandidates,
-        ]);
+        ], $openapiSummary));
+    }
+
+    /**
+     * SOURCE: openapi.yaml DashboardSummaryResponse schema
+     */
+    private function buildOpenApiDashboardSummary(): array
+    {
+        $heroMin = (int) BusinessRules::get('readiness.hero_primary_channel_min');
+        $heroQuery = Sku::query()->where('tier', 'hero');
+        if (Schema::hasColumn('skus', 'is_active')) {
+            $heroQuery->where('is_active', true);
+        }
+        $heroSkusAtRisk = (clone $heroQuery)->where(function ($q) use ($heroMin) {
+            $q->whereNull('readiness_score')->orWhere('readiness_score', '<', $heroMin);
+        })->count();
+
+        $avgReadinessHero = round((float) ((clone $heroQuery)->avg('readiness_score') ?? 0), 1);
+
+        $avgCitation = 0.0;
+        if (Schema::hasColumn('skus', 'score_citation')) {
+            try {
+                $avgCitation = round((float) ((clone $heroQuery)->avg('score_citation') ?? 0), 2);
+            } catch (\Throwable $e) {
+                $avgCitation = 0.0;
+            }
+        }
+
+        $openBriefs = 0;
+        if (Schema::hasTable('content_briefs')) {
+            try {
+                $openBriefs = (int) DB::table('content_briefs')->whereIn('status', ['open', 'OPEN'])->count();
+            } catch (\Throwable $e) {
+                $openBriefs = 0;
+            }
+        }
+
+        $publishedThisWeek = 0;
+        $weekAgo = now()->subDays(7);
+        if (Schema::hasColumn('skus', 'last_published_at')) {
+            try {
+                $publishedThisWeek = (int) Sku::query()
+                    ->whereNotNull('last_published_at')
+                    ->where('last_published_at', '>=', $weekAgo)
+                    ->count();
+            } catch (\Throwable $e) {
+                $publishedThisWeek = 0;
+            }
+        }
+
+        $effort = $this->safeBuild('buildEffortAllocation', ['hero_pct' => 0]);
+        $heroTimePct = isset($effort['hero_pct']) ? round((float) $effort['hero_pct'], 1) : 0.0;
+
+        return [
+            'hero_skus_at_risk' => $heroSkusAtRisk,
+            'avg_readiness_hero' => $avgReadinessHero,
+            'avg_citation_rate_pct' => $avgCitation,
+            'hero_time_pct' => $heroTimePct,
+            'open_briefs_count' => $openBriefs,
+            'skus_published_this_week' => $publishedThisWeek,
+        ];
     }
 
     private function safeBuild(string $method, $default)
@@ -161,12 +222,37 @@ class DashboardController
             return ResponseFormatter::error('weekly_scores table does not exist', 500);
         }
 
-        $id = DB::table('weekly_scores')->insertGetId([
+        $hasNotes = false;
+        try {
+            $hasNotes = Schema::hasColumn('weekly_scores', 'notes');
+        } catch (\Throwable $e) {
+            $hasNotes = false;
+        }
+
+        $hasUserId = false;
+        try {
+            $hasUserId = Schema::hasColumn('weekly_scores', 'user_id');
+        } catch (\Throwable $e) {
+            $hasUserId = false;
+        }
+
+        $row = [
             'week_start' => $request->input('week_start'),
             'score' => $request->input('score'),
-            'notes' => $request->input('notes', ''),
             'created_at' => now(),
-        ]);
+        ];
+        if ($hasNotes) {
+            $row['notes'] = $request->input('notes', '');
+        }
+        if ($hasUserId) {
+            $uid = auth()->id();
+            if ($uid === null) {
+                return ResponseFormatter::error('Authentication required', 401);
+            }
+            $row['user_id'] = $uid;
+        }
+
+        $id = DB::table('weekly_scores')->insertGetId($row);
 
         return ResponseFormatter::format([
             'id' => $id,

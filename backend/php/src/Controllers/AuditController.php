@@ -39,12 +39,13 @@ class AuditController {
             'user_agent'  => $request->userAgent(),
             'timestamp'   => now(),
         ]);
+        // SOURCE: openapi.yaml /audit/run 202; CIE_v232_Hardening_Addendum.pdf Patch 2 — quorum / run_status surface
         return response()->json([
-            'data' => [
-                'run_id' => $runId,
-                'status' => 'running',
-                'estimated_duration_minutes' => 15,
-            ]
+            'run_id' => $runId,
+            'status' => 'queued',
+            'quorum' => (int) BusinessRules::get('decay.quorum_minimum', 3),
+            'run_status' => 'queued',
+            'estimated_duration_minutes' => 15,
         ], 202);
     }
 
@@ -107,16 +108,54 @@ class AuditController {
             ? ($citationRate >= (float) BusinessRules::get('decay.hero_citation_target') ? 'pass' : 'fail')
             : null;
 
+        $decayAlerts = $this->getDecayAlertsForCategory($category);
+
+        // SOURCE: openapi.yaml AuditResults schema; decay_alerts from sku decay fields (CIE_Master_Developer_Build_Spec.docx §6.1)
         return response()->json([
             'data' => [
-                'run_id'                 => null,
-                'category'               => $category,
-                'run_date'               => $runDate ?? now()->toDateString(),
+                'run_id'                  => null,
+                'category'                => $category,
+                'run_date'                => $runDate ?? now()->toDateString(),
                 'aggregate_citation_rate' => $citationRate,
-                'pass_fail'              => $passFail,
-                'results'                => $results,
-                'decay_alerts'           => [],
-            ]
+                'pass_fail'               => $passFail,
+                'results'                 => $results,
+                'decay_alerts'            => $decayAlerts,
+            ],
         ]);
+    }
+
+    /**
+     * SOURCE: openapi.yaml AuditResults.decay_alerts; CIE_Master_Developer_Build_Spec.docx §6.1
+     */
+    private function getDecayAlertsForCategory(string $category): array
+    {
+        if (!Schema::hasTable('skus')) {
+            return [];
+        }
+        try {
+            $q = Sku::query()->where('category', $category);
+            if (Schema::hasColumn('skus', 'decay_consecutive_zeros')) {
+                $q->where('decay_consecutive_zeros', '>', 0);
+            } else {
+                return [];
+            }
+            return $q->get(['id', 'decay_status', 'decay_consecutive_zeros'])->map(function ($sku) {
+                $status = strtolower((string) ($sku->decay_status ?? 'none'));
+                if ($status === 'none' || $status === '') {
+                    return null;
+                }
+                if (!in_array($status, ['yellow_flag', 'alert', 'auto_brief', 'escalated'], true)) {
+                    return null;
+                }
+                return [
+                    'sku_id' => (string) $sku->id,
+                    'decay_status' => $status,
+                    'consecutive_zero_weeks' => (int) ($sku->decay_consecutive_zeros ?? 0),
+                ];
+            })->filter()->values()->all();
+        } catch (\Throwable $e) {
+            Log::warning('getDecayAlertsForCategory: '.$e->getMessage());
+            return [];
+        }
     }
 }

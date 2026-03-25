@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Sku;
 use App\Enums\TierType;
+use App\Support\BusinessRules;
 
 /**
  * CIE v2.3.2 — Readiness score (0-100) per channel per SKU.
@@ -13,8 +14,8 @@ use App\Enums\TierType;
  */
 class ReadinessScoreService
 {
-    /** SOURCE: CIE_v2.3_Enforcement_Edition.pdf §7.1 — 4-channel readiness surface. */
-    private const CHANNELS = ['google_sge', 'amazon', 'ai_assistants', 'own_website'];
+    /** SOURCE: CLAUDE.md §4 DECISION-001; openapi.yaml ReadinessResponse */
+    private const CHANNELS = ['shopify', 'gmc'];
 
     public function __construct(private ChannelGovernorService $channelGovernorService)
     {
@@ -44,7 +45,8 @@ class ReadinessScoreService
             ];
         }
         $overall = count($scores) > 0 ? (int) round(array_sum($scores) / count($scores)) : 0;
-        $componentScores = $assessment['own_website']['component_scores'] ?? [];
+        // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 3 — openapi.yaml component_scores naming (weights configured via BusinessRules in governor)
+        $componentScores = $assessment['shopify']['component_scores'] ?? ($assessment['gmc']['component_scores'] ?? []);
 
         return [
             'sku_id'           => (string) $sku->id,
@@ -57,13 +59,14 @@ class ReadinessScoreService
             'components'       => [],
             'channels'         => $channels,
             'component_scores' => [
-                // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 3 — OpenAPI schema fields.
+                // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 3; openapi.yaml ReadinessResponse component names
                 'answer_block_score' => (int) ($componentScores['answer_block'] ?? 0),
                 'faq_coverage_score' => (int) ($componentScores['faq_coverage'] ?? 0),
                 'safety_depth_score' => (int) ($componentScores['safety_depth'] ?? 0),
                 'cross_sku_comparison_score' => (int) ($componentScores['comparison_data'] ?? 0),
                 'structured_data_score' => (int) ($componentScores['structured_data'] ?? 0),
-                'citation_score' => (int) (($componentScores['citation_score'] ?? 0) * 10),
+                // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — display scale from BusinessRules
+                'citation_score' => (int) (($componentScores['citation_score'] ?? 0) * (int) BusinessRules::get('readiness.citation_component_scale_multiplier', 10)),
             ],
             'active_channels' => (int) ($assessment['active_channels'] ?? 0),
             'deadline' => $assessment['deadline'] ?? ['breached' => false, 'days_since_publish' => null],

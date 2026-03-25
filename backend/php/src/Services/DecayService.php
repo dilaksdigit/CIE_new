@@ -3,9 +3,11 @@
 namespace App\Services;
 
 use App\Models\Sku;
-use App\Models\AuditLog;
+use App\Services\BriefGenerationService;
 use App\Support\BusinessRules;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class DecayService
 {
@@ -91,58 +93,34 @@ class DecayService
 
     private function generateAutoBrief(Sku $sku): void
     {
-        // SOURCE: CIE_Master_Developer_Build_Spec.docx §12.3 / §6.5
-        // FIX: DEC-03 — lowercase status aligned to content_briefs ENUM.
-        $deadlineDays = (int) BusinessRules::get('decay.auto_brief_deadline_days');
-        $brief = \App\Models\ContentBrief::create([
+        // SOURCE: openapi.yaml POST /brief/generate; CIE_v232_Developer_Build_Guide.pdf — week 3 decay uses same brief path as API (BriefGenerationService)
+        $failingQuestions = $this->collectFailingQuestionIdsForSku($sku);
+        $brief = app(BriefGenerationService::class)->generateDecayRefreshBrief((string) $sku->id, $failingQuestions);
+
+        Log::info('Auto-brief created for SKU after citation decay (BriefGenerationService)', [
             'sku_id' => $sku->id,
-            'brief_type' => 'DECAY_REFRESH',
-            'title' => 'Auto-brief: 3-week citation decay – ' . ($sku->title ?? $sku->sku_code ?? $sku->id),
-            'description' => '3-Week Citation Decay (Auto-generated). Refresh answer block and authority content.',
-            'status' => 'open',
-            'deadline' => now()->addDays($deadlineDays)->toDateString(),
+            'sku_code' => $sku->sku_code,
+            'brief_id' => $brief->id ?? null,
+            'failing_questions_count' => count($failingQuestions),
         ]);
+    }
 
-        // Queue brief generation in Python worker so actual brief content is produced
-        $pythonUrl = rtrim(env('PYTHON_API_URL', 'http://python-worker:5000'), '/');
-        try {
-            $client = new \GuzzleHttp\Client(['timeout' => 5.0]);
-            $response = $client->post($pythonUrl . '/queue/brief-generation', [
-                'json' => [
-                    'sku_id' => $sku->id,
-                    'title'  => $sku->title ?? $sku->sku_code ?? 'SKU',
-                ],
-            ]);
-            $body = json_decode($response->getBody()->getContents(), true);
-            Log::info('Auto-brief queued for SKU after 3-week decay', [
-                'sku_id' => $sku->id,
-                'sku_code' => $sku->sku_code,
-                'brief_id' => $brief->id ?? null,
-                'queued' => $body['queued'] ?? false,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Failed to queue auto-brief for SKU ' . $sku->id . ': ' . $e->getMessage());
+    /**
+     * SOURCE: CIE_Master_Developer_Build_Spec.docx §12 — golden questions; failing = score 0 on latest audit rows
+     *
+     * @return list<string>
+     */
+    private function collectFailingQuestionIdsForSku(Sku $sku): array
+    {
+        if (!Schema::hasTable('ai_audit_results')) {
+            return [];
         }
+        $q = DB::table('ai_audit_results')
+            ->where('cited_sku_id', $sku->id)
+            ->where('score', 0)
+            ->orderByDesc('created_at')
+            ->limit(80);
 
-        // Log brief_generated in audit_log
-        try {
-            AuditLog::create([
-                'entity_type' => 'brief',
-                'entity_id'   => $sku->id,
-                'action'      => 'brief_generated',
-                'field_name'  => null,
-                'old_value'   => null,
-                'new_value'   => 'auto_decay_brief',
-                'actor_id'    => 'SYSTEM',
-                'actor_role'  => 'system',
-                'timestamp'   => now(),
-                'user_id'     => null,
-                'ip_address'  => null,
-                'user_agent'  => null,
-                'created_at'  => now(),
-            ]);
-        } catch (\Throwable $e) {
-            // Fail-soft if audit_log columns differ
-        }
+        return $q->pluck('question_id')->unique()->values()->map(fn ($id) => (string) $id)->all();
     }
 }

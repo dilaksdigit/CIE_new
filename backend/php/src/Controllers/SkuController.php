@@ -132,6 +132,9 @@ class SkuController {
         $gateStatuses = $this->loadGateStatusRowsForSku($sku);
         $auditStatus = $this->buildAuditStatusSnapshot($sku);
 
+        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §3.2 — writer suggestion cards use latest import_batch
+        $semrushImports = $this->loadSemrushImportsForSku($sku);
+
         return response()->json([
             'sku_id' => (string) $sku->id,
             'sku_code' => (string) ($sku->sku_code ?? ''),
@@ -152,6 +155,7 @@ class SkuController {
             'readiness' => $readiness,
             'audit_status' => $auditStatus,
             'gates' => $gateStatuses,
+            'semrush_imports' => $semrushImports,
         ], 200);
     }
 
@@ -237,24 +241,18 @@ class SkuController {
         if (!Schema::hasTable('semrush_imports')) {
             return [];
         }
-        if (!Schema::hasColumn('semrush_imports', 'sku_code')) {
-            return [];
-        }
-        $skuCode = $sku->sku_code ?? '';
-        if ($skuCode === '') {
-            return [];
-        }
+        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §3.2 — filter latest batch; optional sku_code column for row-level SKU linkage
+        $skuCode = (string) ($sku->sku_code ?? '');
         try {
             $latestBatch = DB::table('semrush_imports')->max('import_batch');
             if ($latestBatch === null) {
                 return [];
             }
-            $rows = DB::table('semrush_imports')
-                ->where('sku_code', $skuCode)
-                ->where('import_batch', $latestBatch)
-                ->orderByDesc('search_volume')
-                ->limit(100)
-                ->get();
+            $q = DB::table('semrush_imports')->where('import_batch', $latestBatch);
+            if (Schema::hasColumn('semrush_imports', 'sku_code') && $skuCode !== '') {
+                $q->where('sku_code', $skuCode);
+            }
+            $rows = $q->orderByDesc('search_volume')->limit(100)->get();
             return $rows->map(fn ($row) => (array) $row)->all();
         } catch (\Throwable $e) {
             Log::warning('loadSemrushImportsForSku failed: ' . $e->getMessage(), ['sku_id' => $sku->id]);
@@ -284,16 +282,25 @@ class SkuController {
             // Kill-tier check first: load and reject before any other logic (no bypass)
             $sku = Sku::lockForUpdate()->findOrFail($id);
             if ($sku->tier === \App\Enums\TierType::KILL) {
+                // SOURCE: openapi.yaml ValidationResponse; CLAUDE.md R3 — plain English user_message; no gate codes for writer UI
                 return response()->json([
-                    // SOURCE: CIE_v231_Developer_Build_Pack.pdf §1.2 — gate error code format.
                     'status' => 'fail',
-                    'gates_failed' => [[
-                        'gate' => 'G6.1',
-                        'error_code' => 'CIE_G6_1_KILL_EDIT_BLOCKED',
-                        'detail' => 'Kill-tier SKU: all content fields are read-only.',
-                        'user_message' => 'This product is flagged for delisting. All editing is disabled. Contact your Portfolio Holder for a tier review.',
-                    ]],
-                ], 403);
+                    'gates' => [
+                        'tier_content_lock' => [
+                            'status' => 'fail',
+                            'error_code' => 'CIE_TIER_LOCKED',
+                            'detail' => 'Kill-tier SKU — all content fields are locked.',
+                            'user_message' => 'This product is scheduled for removal. No content changes are allowed.',
+                        ],
+                    ],
+                    'vector_check' => [
+                        'status' => 'pass',
+                        'user_message' => null,
+                    ],
+                    'degraded_mode' => false,
+                    'save_allowed' => false,
+                    'publish_allowed' => false,
+                ], 400);
             }
 
             // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 Gate G6.1
@@ -489,7 +496,7 @@ class SkuController {
     /**
      * POST /api/v1/sku/{sku_id}/publish — publish SKU to active channels.
      * SOURCE: CIE_Master_Developer_Build_Spec.docx Section 11 (7 steps). Amendment Pack Section 5: no human approval.
-     * Flow: 1) Re-validate gates 2) GSC baseline (abort if fail) 3) GA4 baseline 4) Deploy Shopify then GMC 5) Recompute readiness 6) D+15/D+30 queued via baseline row 7) logAutoPublish.
+     * Flow: 1) Re-validate gates 2) GSC+GA4 baseline (fail-soft — never blocks publish) 3) Deploy Shopify then GMC 4) Recompute readiness 5) D+15/D+30 via baseline row 6) logAutoPublish.
      */
     public function publish(Request $request, string $sku_id)
     {
@@ -520,17 +527,21 @@ class SkuController {
             return response()->json(['error' => 'Insufficient permissions'], 403);
         }
 
-        // Step 2: GSC baseline. Abort if baseline not captured (Master Build Spec §9.5).
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §9.5, §2.7 — baseline capture failure never blocks publish
         $baselineId = $this->baselineService->captureGsc($sku);
         if ($baselineId === null) {
             try {
                 AuditLog::create([
                     'entity_type' => 'sku_publish',
                     'entity_id'   => (string) $sku_id,
-                    'action'      => 'baseline_not_captured',
+                    'action'      => 'baseline_capture_failed',
                     'field_name'  => null,
                     'old_value'   => null,
-                    'new_value'   => 'Baseline not captured — CIS unavailable for this change',
+                    'new_value'   => json_encode([
+                        'gsc_captured' => false,
+                        'ga4_captured' => false,
+                        'note' => 'Baseline not captured — CIS unavailable for this change',
+                    ], JSON_UNESCAPED_SLASHES),
                     'actor_id'    => (string) ($user->id ?? 'SYSTEM'),
                     'actor_role'  => optional($user->role)->name ?? 'system',
                     'timestamp'   => now(),
@@ -539,17 +550,13 @@ class SkuController {
                     'user_agent'  => $request->userAgent(),
                 ]);
             } catch (\Throwable $e) {
-                Log::warning('publish: audit_log baseline_not_captured failed: ' . $e->getMessage());
+                Log::warning('publish: audit_log baseline_capture_failed failed: ' . $e->getMessage());
             }
-            return response()->json([
-                'error'   => 'Baseline not captured — CIS unavailable for this change',
-                'status'  => 'aborted',
-            ], 503);
+        } else {
+            // Step 3: GA4 baseline into same row.
+            $this->baselineService->captureGa4($sku, $baselineId);
+            $this->baselineService->updateBaselineContentSnapshot($baselineId, $sku);
         }
-
-        // Step 3: GA4 baseline into same row.
-        $this->baselineService->captureGa4($sku, $baselineId);
-        $this->baselineService->updateBaselineContentSnapshot($baselineId, $sku);
 
         // Step 4: Deploy to Shopify then GMC (N8N webhooks).
         $shopifyResult = $this->channelDeployService->deployToShopify($sku_id);
@@ -578,11 +585,13 @@ class SkuController {
             Log::warning('publish: semrush_content_snapshots insert failed: ' . $e->getMessage());
         }
 
+        // SOURCE: openapi.yaml /sku/{sku_id}/publish — 200 response; CLAUDE.md §4 DECISION-001
         return response()->json([
-            'status'           => 'published',
-            'channels'         => $channelResults,
-            'baseline_id'      => $baselineId,
-            'readiness_scores' => $readinessScores,
+            'status'            => 'published',
+            'channels_updated'  => ['shopify', 'gmc'],
+            'channels'          => $channelResults,
+            'baseline_id'       => $baselineId,
+            'readiness_scores'  => $readinessScores,
         ], 200);
     }
 
@@ -913,8 +922,11 @@ class SkuController {
         if (Schema::hasColumn('skus', 'is_active')) {
             $q->where('is_active', true);
         }
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1 — candidates are Hero/Support only (GAP-QUEUE: OpenAPI text vs Master Spec — Master Spec authoritative)
         if ($tierFilter !== null && $tierFilter !== '') {
             $q->where('tier', strtolower((string) $tierFilter));
+        } else {
+            $q->whereIn('tier', ['hero', 'support']);
         }
         $candidates = $q->get();
 
@@ -925,33 +937,34 @@ class SkuController {
             $score = 0;
             $decayStatus = $sku->decay_status ?? 'none';
 
-            if (in_array($decayStatus, ['auto_brief', 'escalated'])) {
-                $score += 100;
+            // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1 + §5 — queue priority bonuses from BusinessRules (zero hard-coded literals)
+            if (in_array($decayStatus, ['auto_brief', 'escalated'], true)) {
+                $score += (int) BusinessRules::get('queue.decay_critical_bonus', 100);
             }
             if ($decayStatus === 'alert') {
-                $score += 60;
+                $score += (int) BusinessRules::get('queue.decay_alert_bonus', 60);
             }
             $chs = (int) ($sku->content_score ?? 0);
             if ($chs < $amberThreshold) {
-                $score += 40;
+                $score += (int) BusinessRules::get('queue.low_chs_bonus', 40);
             }
             $tierLower = $sku->tier instanceof TierType ? $sku->tier->value : strtolower((string) ($sku->tier ?? ''));
             if (in_array($tierLower, ['hero', 'support'], true)) {
                 if ($tierLower === 'hero') {
                     $readiness = (int) ($sku->readiness_score ?? 0);
                     if ($readiness < $heroReadinessMin) {
-                        $score += 35;
+                        $score += (int) BusinessRules::get('queue.hero_readiness_gap_bonus', 35);
                     }
                     // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1
                     // FIX: AI-11 — Hero + no answer_block only (skus.ai_answer_block)
                     $answerBlockEmpty = trim((string) ($sku->ai_answer_block ?? '')) === '';
                     if ($answerBlockEmpty) {
-                        $score += 30;
+                        $score += (int) BusinessRules::get('queue.hero_missing_answer_bonus', 30);
                     }
                 }
             }
             if ($this->hasOpenBrief((string) $sku->id)) {
-                $score += 25;
+                $score += (int) BusinessRules::get('queue.open_brief_bonus', 25);
             }
 
             if ($tierLower === 'kill') {

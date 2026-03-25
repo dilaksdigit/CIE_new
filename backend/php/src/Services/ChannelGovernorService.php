@@ -7,8 +7,8 @@ use Illuminate\Support\Facades\DB;
 
 class ChannelGovernorService
 {
-    // SOURCE: CIE_v2.3_Enforcement_Edition.pdf §7.1 — four-channel readiness.
-    private const CHANNELS = ['google_sge', 'amazon', 'ai_assistants', 'own_website'];
+    // SOURCE: CLAUDE.md §4 DECISION-001; openapi.yaml ReadinessResponse — Shopify + GMC only
+    private const CHANNELS = ['shopify', 'gmc'];
 
     /**
      * GMC feed inclusion (CHAN-02): Kill/Harvest excluded; Hero ≥85, Support ≥70.
@@ -85,13 +85,15 @@ class ChannelGovernorService
 
     private function computeChannelScore(int $baseScore, string $channel): int
     {
-        // SOURCE: CIE_v2.3_Enforcement_Edition.pdf §7.1 — channel-specific scoring surface.
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — zero hard-coded business numbers
+        $deltaShopify = (int) BusinessRules::get('channels.delta_shopify', 10);
+        $deltaGmc = (int) BusinessRules::get('channels.delta_gmc', 7);
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — unknown channel delta from BusinessRules
+        $deltaOther = (int) BusinessRules::get('channels.delta_other', 0);
         $delta = match ($channel) {
-            'own_website' => 10,
-            'google_sge' => 7,
-            'ai_assistants' => 0,
-            'amazon' => -7,
-            default => 0,
+            'shopify' => $deltaShopify,
+            'gmc' => $deltaGmc,
+            default => $deltaOther,
         };
         return max(0, min(100, $baseScore + $delta));
     }
@@ -102,7 +104,8 @@ class ChannelGovernorService
             return 'SKIP';
         }
 
-        $primaryChannel = 'own_website';
+        // SOURCE: CLAUDE.md §4 DECISION-001
+        $primaryChannel = 'shopify';
         $heroPrimaryMin = (int) BusinessRules::get('readiness.hero_primary_channel_min');
         $heroAllMin = (int) BusinessRules::get('readiness.hero_all_channels_min');
         $supportPrimaryMin = (int) BusinessRules::get('readiness.support_primary_channel_min');
@@ -135,10 +138,8 @@ class ChannelGovernorService
             'component_scores' => $this->emptyAiReadinessComponents(),
         ];
         return [
-            'google_sge' => $skip,
-            'amazon' => $skip,
-            'ai_assistants' => $skip,
-            'own_website' => $skip,
+            'shopify' => $skip,
+            'gmc' => $skip,
             'active_channels' => 0,
             'deadline' => ['breached' => false, 'days_since_publish' => null],
         ];
@@ -175,10 +176,12 @@ class ChannelGovernorService
         if ($answer === '') {
             return 0;
         }
-        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — component points from BusinessRules
         $answerBlockMin = (int) BusinessRules::get('gates.answer_block_min_chars');
         $len = strlen($answer);
-        return $len >= $answerBlockMin ? 25 : 15;
+        $high = (int) BusinessRules::get('channels.ai_readiness_answer_block_high_pts', 25);
+        $low = (int) BusinessRules::get('channels.ai_readiness_answer_block_low_pts', 15);
+        return $len >= $answerBlockMin ? $high : $low;
     }
 
     private function scoreFaqCoverage(Sku $sku): int
@@ -186,11 +189,14 @@ class ChannelGovernorService
         $faqRaw = $sku->faq_data ?? null;
         $faqArr = is_string($faqRaw) ? json_decode($faqRaw, true) : (is_array($faqRaw) ? $faqRaw : []);
         $count = is_array($faqArr) ? count($faqArr) : 0;
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5
+        $full = (int) BusinessRules::get('channels.ai_readiness_faq_full_pts', 20);
+        $partial = (int) BusinessRules::get('channels.ai_readiness_faq_partial_pts', 10);
         if ($count >= 3) {
-            return 20;
+            return $full;
         }
         if ($count >= 1) {
-            return 10;
+            return $partial;
         }
         return 0;
     }
@@ -199,35 +205,47 @@ class ChannelGovernorService
     {
         $text = strtolower((string) ($sku->expert_authority ?? ''));
         $signals = ['bs ', 'en ', 'iso', 'iec', 'ce', 'ukca', 'rohs'];
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5
+        $hitPts = (int) BusinessRules::get('channels.ai_readiness_safety_signal_pts', 15);
+        $weakPts = (int) BusinessRules::get('channels.ai_readiness_safety_weak_pts', 8);
         foreach ($signals as $signal) {
             if (str_contains($text, $signal)) {
-                return 15;
+                return $hitPts;
             }
         }
-        return $text !== '' ? 8 : 0;
+        return $text !== '' ? $weakPts : 0;
     }
 
     private function scoreComparisonData(Sku $sku): int
     {
         $bestFor = trim((string) ($sku->best_for ?? ''));
         $notFor = trim((string) ($sku->not_for ?? ''));
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5
+        $full = (int) BusinessRules::get('channels.ai_readiness_comparison_full_pts', 15);
+        $partial = (int) BusinessRules::get('channels.ai_readiness_comparison_partial_pts', 8);
         if ($bestFor !== '' && $notFor !== '') {
-            return 15;
+            return $full;
         }
-        return ($bestFor !== '' || $notFor !== '') ? 8 : 0;
+        return ($bestFor !== '' || $notFor !== '') ? $partial : 0;
     }
 
     private function scoreStructuredData(Sku $sku): int
     {
         $hasWikidata = !empty($sku->wikidata_uri) || !empty($sku->wikidata_entities);
-        return $hasWikidata ? 15 : 8;
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5
+        $full = (int) BusinessRules::get('channels.ai_readiness_structured_full_pts', 15);
+        $partial = (int) BusinessRules::get('channels.ai_readiness_structured_partial_pts', 8);
+        return $hasWikidata ? $full : $partial;
     }
 
     private function scoreCitationAudit(Sku $sku): int
     {
         $citationRate = (float) ($sku->score_citation ?? $sku->ai_citation_rate ?? 0);
-        $score = (int) round(max(0, min(100, $citationRate)) * 0.10);
-        return max(0, min(10, $score));
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5
+        $factor = (float) BusinessRules::get('channels.ai_readiness_citation_rate_factor', 0.10);
+        $cap = (int) BusinessRules::get('channels.ai_readiness_citation_max_pts', 10);
+        $score = (int) round(max(0, min(100, $citationRate)) * $factor);
+        return max(0, min($cap, $score));
     }
 
     // SOURCE: CIE_v2.3_Enforcement_Edition.pdf §7.1 — 30-day readiness deadline.
@@ -239,7 +257,7 @@ class ChannelGovernorService
 
         $deadlineDays = (int) BusinessRules::get('readiness.deadline_days_after_completion');
         $daysSincePublish = now()->diffInDays($sku->last_published_at);
-        $primaryChannel = 'own_website';
+        $primaryChannel = 'shopify';
         $heroPrimaryMin = (int) BusinessRules::get('readiness.hero_primary_channel_min');
         $heroAllMin = (int) BusinessRules::get('readiness.hero_all_channels_min');
 

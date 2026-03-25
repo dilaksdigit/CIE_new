@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Log;
 /**
  * Baseline capture for GSC/GA4 (Section 17 Check 9.3, 9.4).
  * Creates gsc_baselines row, fetches GSC then GA4 metrics via Python API, writes to same row.
- * Does not throw — publish is never blocked by GSC/GA4 failures.
+ * Does not throw. Publish flow must not abort when baseline row creation or API fetch fails (Master Build Spec §9.5 / §2.7).
  */
 class BaselineService
 {

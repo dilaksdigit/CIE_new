@@ -2,10 +2,10 @@
 namespace App\Controllers;
 
 use App\Models\AuditLog;
+use App\Services\SemrushParserService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Str;
 
 // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx Sections 3–5
 
@@ -21,22 +21,21 @@ class SemrushImportController
      */
     public function import(Request $request)
     {
+        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2 + §4.1 — multipart + 10MB; parsing delegated to SemrushParserService
         $user = auth()->user();
         if (!$user || !optional($user->role)->name || strtoupper($user->role->name) !== 'ADMIN') {
             return response()->json(['error' => 'Forbidden'], 403);
         }
 
-        if (!$request->hasFile('file')) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file opened correctly in Excel or a text editor. It must be a plain CSV, not an Excel .xlsx file.'], 422);
-        }
+        $request->validate([
+            'file' => 'required|file|max:10240|mimes:csv,txt',
+        ]);
 
         $file = $request->file('file');
-
         if (!$file->isValid()) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file opened correctly in Excel or a text editor. It must be a plain CSV, not an Excel .xlsx file.'], 422);
+            return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file is a standard Semrush export.'], 422);
         }
 
-        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2 — server-side size limit (FIX SEM-03)
         if ($file->getSize() > self::MAX_IMPORT_BYTES) {
             return response()->json([
                 'error'   => 'Validation failed',
@@ -46,157 +45,25 @@ class SemrushImportController
             ], 422);
         }
 
-        $path = $file->getRealPath();
-        if ($path === false) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file opened correctly in Excel or a text editor. It must be a plain CSV, not an Excel .xlsx file.'], 422);
-        }
-
-        $handle = fopen($path, 'r');
-        if ($handle === false) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file opened correctly in Excel or a text editor. It must be a plain CSV, not an Excel .xlsx file.'], 422);
-        }
-
-        $header = fgetcsv($handle);
-        if ($header === false || !is_array($header)) {
-            fclose($handle);
-            return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file opened correctly in Excel or a text editor. It must be a plain CSV, not an Excel .xlsx file.'], 422);
-        }
-
-        $normalizedHeader = array_map(function ($h) {
-            return strtolower(trim((string) $h));
-        }, $header);
-
-        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2 — required columns (FIX SEM-03)
-        $requiredHeaders = ['keyword', 'position', 'search volume', 'keyword difficulty', 'url'];
-        $missingHeaders = array_values(array_diff($requiredHeaders, $normalizedHeader));
-        if ($missingHeaders !== []) {
-            fclose($handle);
-            $labels = array_map(function ($h) {
-                return ucwords($h);
-            }, $missingHeaders);
-
-            return response()->json([
-                'error'   => 'Validation failed',
-                'message' => 'Missing required columns: '.implode(', ', $labels).'.',
-                'errors'  => ['Missing required columns: '.implode(', ', $labels).'.'],
-                'rows_imported' => 0,
-            ], 422);
-        }
-
-        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.1 — URL column stored as competitor_url; DB keyword_difficulty (see GAP_LOG GAP-P6-3)
-        $columnMap = [
-            'keyword'              => 'keyword',
-            'position'             => 'position',
-            'previous position'    => 'prev_position',
-            'search volume'        => 'search_volume',
-            'keyword difficulty'   => 'keyword_difficulty',
-            'cpc (usd)'            => 'cpc_usd',
-            'url'                  => 'competitor_url',
-            'traffic (%)'          => 'traffic_pct',
-            'traffic volume'       => 'traffic_volume',
-            'trends'               => 'trend',
-            'timestamp'            => 'timestamp',
-            'competitor position'  => 'competitor_position',
-        ];
-
-        $keywordIndex = array_search('keyword', $normalizedHeader, true);
-        if ($keywordIndex === false) {
-            fclose($handle);
-            return response()->json(['error' => 'Validation failed', 'message' => 'Missing required column: Keyword. Check you exported from Organic Research → Positions, not a different Semrush report.'], 422);
-        }
-
-        $rows = [];
-        $rowCount = 0;
-        while (($data = fgetcsv($handle)) !== false) {
-            if ($data === [null] || $data === false) {
-                continue;
-            }
-            $rowCount++;
-            if ($rowCount > 100000) {
-                fclose($handle);
-                return response()->json(['error' => 'Validation failed', 'message' => 'File contains more than 100,000 rows. Split the export into smaller files and import each separately.'], 422);
-            }
-
-            $row = [];
-            foreach ($normalizedHeader as $idx => $name) {
-                $row[$name] = $data[$idx] ?? null;
-            }
-            $remapped = [];
-            foreach ($columnMap as $normalisedKey => $dbKey) {
-                if (array_key_exists($normalisedKey, $row)) {
-                    $remapped[$dbKey] = $row[$normalisedKey];
-                }
-            }
-            $rows[] = $remapped;
-        }
-
-        fclose($handle);
-
-        if ($rowCount === 0) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'The file contains no data rows. Export again from Semrush and try uploading the new file.'], 422);
-        }
-
-        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx Section 4.1 — import_batch from CSV Timestamp (first data row)
-        $importBatch = null;
-        $firstTs = isset($rows[0]['timestamp']) ? trim((string) $rows[0]['timestamp']) : '';
-        if ($firstTs !== '') {
-            $t = strtotime($firstTs);
-            if ($t !== false) {
-                $importBatch = date('Y-m-d', $t);
-            }
-        }
-        if ($importBatch === null) {
-            $importBatch = now()->toDateString();
-        }
-
-        $importBatchId = (string) Str::uuid();
-
-        $existing = DB::table('semrush_imports')->where('import_batch', $importBatch)->count();
-        if ($existing > 0) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'A batch for this date has already been imported. Delete the existing batch first if you want to re-import.'], 422);
-        }
-
-        // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2 — reject entire file if any row invalid (FIX SEM-04)
-        $rowErrors = [];
-        $rowNum = 0;
-        foreach ($rows as $r) {
-            ++$rowNum;
-            if (trim((string) ($r['keyword'] ?? '')) === '') {
-                $rowErrors[] = "Row {$rowNum}: Keyword field is empty.";
-            }
-        }
-        if ($rowErrors !== []) {
-            return response()->json([
-                'error'   => 'Validation failed',
-                'message' => 'File rejected. Fix these issues and re-upload.',
-                'errors'  => $rowErrors,
-                'rows_imported' => 0,
-            ], 422);
-        }
-
         $username = (string) ($user->name ?? $user->email ?? 'system');
+        $parser = new SemrushParserService();
+        $result = $parser->parseAndValidate($file, $username);
 
-        $insertData = [];
-        foreach ($rows as $row) {
-            $insertData[] = [
-                'import_batch'        => $importBatch,
-                'import_batch_id'     => $importBatchId,
-                'keyword'             => (string) ($row['keyword'] ?? ''),
-                'position'            => isset($row['position']) && $row['position'] !== '' ? (int) $row['position'] : null,
-                'prev_position'       => isset($row['prev_position']) && $row['prev_position'] !== '' ? (int) $row['prev_position'] : null,
-                'search_volume'       => isset($row['search_volume']) && $row['search_volume'] !== '' ? (int) $row['search_volume'] : null,
-                'intent'              => isset($row['intent']) && $row['intent'] !== '' ? (string) $row['intent'] : null,
-                'sku_code'            => isset($row['sku_code']) && $row['sku_code'] !== '' ? (string) $row['sku_code'] : null,
-                'cluster_id'          => isset($row['cluster_id']) && $row['cluster_id'] !== '' ? (string) $row['cluster_id'] : null,
-                'keyword_difficulty'  => isset($row['keyword_difficulty']) && $row['keyword_difficulty'] !== '' ? (int) $row['keyword_difficulty'] : null,
-                'competitor_url'      => isset($row['competitor_url']) && $row['competitor_url'] !== '' ? (string) $row['competitor_url'] : null,
-                'traffic_pct'         => strlen(trim((string) ($row['traffic_pct'] ?? ''))) ? (float) str_replace('%', '', $row['traffic_pct']) : null,
-                'trend'               => isset($row['trend']) && $row['trend'] !== '' ? (string) $row['trend'] : null,
-                'competitor_position' => isset($row['competitor_position']) && $row['competitor_position'] !== '' ? (int) $row['competitor_position'] : null,
-                'imported_by'         => $username,
-                'imported_at'         => now(),
+        if ($result->hasErrors()) {
+            $payload = [
+                'error'   => 'Validation failed',
+                'message' => $result->getFirstError(),
             ];
+            if ($result->rowErrors !== []) {
+                $payload['errors'] = $result->rowErrors;
+                $payload['rows_imported'] = 0;
+            }
+            return response()->json($payload, 422);
         }
+
+        $insertData = $result->getRows();
+        $importBatch = $result->getBatch();
+        $importBatchId = $result->importBatchId;
 
         try {
             DB::transaction(function () use ($insertData, $importBatch, $user) {
@@ -224,15 +91,15 @@ class SemrushImportController
             ], 500);
         }
 
-        $keywordCount = count(array_unique(array_map(function ($row) {
+        $keywordCount = count(array_unique(array_map(static function ($row) {
             return (string) ($row['keyword'] ?? '');
-        }, $rows)));
+        }, $result->parsedRows)));
 
         return response()->json([
             'status' => 'imported',
             'import_batch'    => $importBatch,
             'import_batch_id' => $importBatchId,
-            'rows_imported'   => count($insertData),
+            'rows_imported'   => $result->getRowCount(),
             'keyword_count'   => $keywordCount,
             'errors'          => [],
         ], 200);
@@ -274,15 +141,23 @@ class SemrushImportController
         }
 
         if ($filter === 'quick_wins') {
-            $diffCol = Schema::hasColumn('semrush_imports', 'keyword_difficulty')
-                ? 'semrush_imports.keyword_difficulty' : 'semrush_imports.keyword_diff';
+            // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §3.1 — prefer keyword_diff column when present
+            $diffCol = null;
+            if (Schema::hasColumn('semrush_imports', 'keyword_diff')) {
+                $diffCol = 'semrush_imports.keyword_diff';
+            } elseif (Schema::hasColumn('semrush_imports', 'keyword_difficulty')) {
+                $diffCol = 'semrush_imports.keyword_difficulty';
+            }
             $quickWins = DB::table('semrush_imports')
                 ->join('skus', 'skus.sku_code', '=', 'semrush_imports.sku_code')
                 ->where('semrush_imports.import_batch', $maxBatch)
                 ->whereBetween('semrush_imports.position', [11, 30])
-                ->whereRaw("({$diffCol} IS NULL OR {$diffCol} < 40)")
                 ->whereRaw('(semrush_imports.search_volume IS NULL OR semrush_imports.search_volume > 500)')
-                ->whereIn(DB::raw('LOWER(TRIM(skus.tier))'), ['hero', 'support'])
+                ->whereIn(DB::raw('LOWER(TRIM(skus.tier))'), ['hero', 'support']);
+            if ($diffCol !== null) {
+                $quickWins->whereRaw("({$diffCol} IS NULL OR {$diffCol} < 40)");
+            }
+            $quickWins = $quickWins
                 ->select('semrush_imports.keyword', 'semrush_imports.position', 'semrush_imports.prev_position', 'semrush_imports.search_volume', 'semrush_imports.sku_code')
                 ->orderBy('semrush_imports.position')
                 ->limit(500)
