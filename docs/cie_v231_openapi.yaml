@@ -355,6 +355,16 @@ paths:
                   estimated_duration_minutes:
                     type: integer
                     example: 15
+                  # SOURCE: openapi.yaml AuditRunResponse; Hardening Addendum Patch 2
+                  quorum:
+                    type: integer
+                    minimum: 0
+                    maximum: 4
+                    description: Number of AI engines that responded
+                  run_status:
+                    type: string
+                    enum: [complete, partial, failed]
+                    description: complete = all 4 engines; partial = 2-3; failed = 0-1
 
   /audit/results/{category}:
     get:

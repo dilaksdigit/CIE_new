@@ -39,12 +39,13 @@ class AuditController {
             'user_agent'  => $request->userAgent(),
             'timestamp'   => now(),
         ]);
-        // SOURCE: openapi.yaml /audit/run 202; CIE_v232_Hardening_Addendum.pdf Patch 2 — quorum / run_status surface
+        // SOURCE: openapi.yaml AuditRunResponse; CIE_v232_Hardening_Addendum.pdf Patch 2
         return response()->json([
             'run_id' => $runId,
-            'status' => 'queued',
-            'quorum' => (int) BusinessRules::get('decay.quorum_minimum', 3),
-            'run_status' => 'queued',
+            'status' => 'running',
+            // Async trigger response: quorum/run_status are initialized and finalized by the worker run output.
+            'quorum' => 0,
+            'run_status' => 'complete',
             'estimated_duration_minutes' => 15,
         ], 202);
     }
