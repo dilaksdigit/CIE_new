@@ -3,6 +3,34 @@
 
 ---
 
+## GAP-ERP-04 | 2026-03-25 | ERP Tier Calc | Cloud Briefing §11 uses weights 40/35/15/10 which conflicts with Integration Spec §1.3, Enforcement Spec §3.2, and Master Spec §8.1 which all use 40/25/20/15. Current code matches the Integration Spec (higher authority). Cloud Briefing is a summary doc, not authoritative. | Blocking: NO — Architect confirmation requested to close.
+
+---
+
+## GAP-ERP-01 | ERPSyncService.php unreferenced (dead code?) | 2026-03-25
+
+**Description:** `backend/php/src/Services/ERPSyncService.php` exists but is not referenced by PHP routing/controllers; active ERP sync path is `TierController::erpSync` (`POST /api/v1/erp/sync`).
+
+**Action:** Architect: confirm whether `ERPSyncService.php` is planned for future use or should be removed in a spec-approved cleanup. Do not delete without authority.
+
+---
+
+## GAP-ERP-02 | Python tier_recalculator formula + rule key mismatch | 2026-03-25
+
+**Description:** `backend/python/src/erp_sync/tier_recalculator.py` implements a different commercial score formula (velocity normalized by max; no log scaling) and references a non-seeded rule key (`tier.auto_promotion_velocity_growth_pct` vs seeded `tier.auto_promotion_velocity_threshold`). This Python path is not invoked by the PHP ERP sync route.
+
+**Action:** Architect: confirm whether Python recalculator is dead code or intended for a separate execution path; align formula and BusinessRules keys only with explicit authority.
+
+---
+
+## GAP-ERP-03 | `skus` vs `sku_master` / `sku_commercial` schema divergence | 2026-03-25
+
+**Description:** Canonical spec schema defines `sku_master` + `sku_commercial` tables, but PHP implementation uses legacy `skus` table with ERP fields inlined. Current fixes follow the existing PHP pattern (add to `skus`) to avoid breaking changes.
+
+**Action:** Architect: confirm authoritative production schema and consolidation plan (dual-table vs single-table). No migrations should retarget FKs or rename tables without formal approval.
+
+---
+
 ## GAP-P7-1 | W2 Vision AI workflow missing in repo | 2026-03-24
 
 **Description:** Phase 7 workflow audit found no N8N JSON definition for W2 (Vision AI), and no explicit W2 orchestration artifact under `n8n/workflows`.
