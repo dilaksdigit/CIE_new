@@ -3,6 +3,10 @@
 
 ---
 
+## GAP-ERP-05 | 2026-03-25 | Intent Taxonomy | CLAUDE.md §6 lists "Safety/Compliance" and "Bulk/Trade" as taxonomy entries. Enforcement Spec §8.3 uses keys "troubleshooting" + "regulatory" + "replacement" (no "bulk_trade" key exists). Three potential conflicts: (1) troubleshooting vs safety_compliance, (2) regulatory vs safety_compliance, (3) replacement vs bulk_trade. Codebase follows Enforcement Spec §8.3. | Blocking: YES for OpenAPI update — Architect must confirm canonical key set.
+
+---
+
 ## GAP-ERP-04 | 2026-03-25 | ERP Tier Calc | Cloud Briefing §11 uses weights 40/35/15/10 which conflicts with Integration Spec §1.3, Enforcement Spec §3.2, and Master Spec §8.1 which all use 40/25/20/15. Current code matches the Integration Spec (higher authority). Cloud Briefing is a summary doc, not authoritative. | Blocking: NO — Architect confirmation requested to close.
 
 ---
