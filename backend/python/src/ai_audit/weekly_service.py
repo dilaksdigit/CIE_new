@@ -172,8 +172,9 @@ def evaluate_citation(
     if answer_block:
         ab = answer_block.lower()
         ratio = SequenceMatcher(None, ab, text).ratio()
-        ratio_high = 0.8  # §5.3: audit.citation_fuzzy_ratio_high not in 52 rules; hard-coded
-        ratio_low = 0.6   # §5.3: audit.citation_fuzzy_ratio_low not in 52 rules; hard-coded
+        # SOURCE: CLAUDE.md R3; CIE_Master_Developer_Build_Spec.docx §4
+        ratio_high = float(BusinessRules.get('audit.citation_fuzzy_ratio_high', 0.8))
+        ratio_low = float(BusinessRules.get('audit.citation_fuzzy_ratio_low', 0.6))
         if ratio >= ratio_high:
             score = 3
         elif ratio >= ratio_low:
@@ -268,7 +269,8 @@ def compute_aggregate(results: Sequence[EngineRunSummary]) -> Tuple[float, int]:
     if not per_engine_scores:
         return 0.0, 0
 
-    min_coverage = 15  # §5.3: audit.min_engine_question_coverage not in 52 rules; hard-coded
+    # SOURCE: CLAUDE.md R3; CIE_Master_Developer_Build_Spec.docx §4
+    min_coverage = int(BusinessRules.get('audit.min_engine_question_coverage', 15))
     engines_with_coverage = {
         e: s for e, s in per_engine_scores.items() if len(s) >= min_coverage
     }
@@ -385,7 +387,8 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
     engines_responded = len(engines_ok)
 
     quorum_advance = int(BusinessRules.get('decay.quorum_minimum'))
-    quorum_pause = 2  # §5.3: not in 52 rules; hard-coded
+    # SOURCE: CLAUDE.md R3; CIE_Master_Developer_Build_Spec.docx §4
+    quorum_pause = int(BusinessRules.get('decay.quorum_pause_minimum', 2))
     if engines_responded >= quorum_advance:
         quorum_status = "COMPLETE"
         decay_action = "advanced"

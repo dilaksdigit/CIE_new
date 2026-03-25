@@ -333,7 +333,8 @@ class ValidationService
         $sku->update(['last_audit_quorum' => $successCount]);
 
         $quorumAdvance = (int) BusinessRules::get('decay.quorum_minimum');
-        $quorumPause   = 2; // §5.3: not in 52 rules; hard-coded
+        // SOURCE: CLAUDE.md R3 — no hard-coded thresholds
+        $quorumPause   = (int) BusinessRules::get('decay.quorum_pause_minimum', 2);
         if ($successCount >= $quorumAdvance) {
             return 'ADVANCE';
         } elseif ($successCount == $quorumPause) {
