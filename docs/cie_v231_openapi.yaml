@@ -466,6 +466,42 @@ paths:
                     items:
                       type: string
 
+  /admin/semrush-import:
+    # SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §5 — v2.3.2 addendum
+    post:
+      summary: Upload Semrush CSV for keyword import
+      tags: [Semrush]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: CSV file, max 10MB
+      responses:
+        '200':
+          description: Import successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rows_imported:
+                    type: integer
+                  import_batch:
+                    type: string
+                    format: date
+        '400':
+          description: Validation failed
+        '403':
+          description: Non-admin role denied
+
 components:
   securitySchemes:
     BearerAuth:
