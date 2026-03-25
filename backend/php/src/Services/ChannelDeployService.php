@@ -108,7 +108,20 @@ class ChannelDeployService
                 $cronQueuer
             );
 
-            if (isset($result['status_code']) && $result['status_code'] >= 200 && $result['status_code'] < 300) {
+            $statusCode = (int) ($result['status_code'] ?? 0);
+            // SOURCE: CIE_Integration_Specification.pdf §2.5 — Auth failure: no retry, immediate alert
+            if (in_array($statusCode, [401, 403], true)) {
+                $this->alertAdmin("Channel deploy auth failure (shopify): HTTP {$statusCode}. Credential rotation required.");
+                $this->logDeployFailure($skuIdStr, 'shopify', "auth_failure_{$statusCode}", false);
+                return [
+                    'channel'            => 'shopify',
+                    'status'             => 'failed',
+                    'shopify_product_id' => null,
+                    'deployed_at'        => null,
+                ];
+            }
+
+            if ($statusCode >= 200 && $statusCode < 300) {
                 $body = $result['body'] ?? [];
                 return [
                     'channel'            => 'shopify',
@@ -119,6 +132,10 @@ class ChannelDeployService
             }
 
             if (isset($result['status']) && $result['status'] === 'failed') {
+                if (str_contains((string) ($result['reason'] ?? ''), 'auth failure')) {
+                    $this->alertAdmin('Channel deploy auth failure (shopify): credential rotation required.');
+                    $this->logDeployFailure($skuIdStr, 'shopify', (string) ($result['reason'] ?? 'auth_failure'), false);
+                }
                 Log::error('ChannelDeploy: Shopify webhook failed', [
                     'sku_id' => $skuIdStr,
                     'reason' => $result['reason'] ?? 'unknown',
@@ -177,6 +194,13 @@ class ChannelDeployService
             $this->enforceGmcRateLimit();
             $response = $this->postWithHmac($url, $payload, $secret);
             $statusCode = $response['status_code'] ?? 0;
+
+            // SOURCE: CIE_Integration_Specification.pdf §2.5 — Auth failure: no retry, immediate alert
+            if (in_array((int) $statusCode, [401, 403], true)) {
+                $this->alertAdmin("Channel deploy auth failure (gmc): HTTP {$statusCode}. Credential rotation required.");
+                $this->logDeployFailure((string) $skuId, 'gmc', "auth_failure_{$statusCode}", false);
+                return ['channel' => 'gmc', 'status' => 'failed', 'deployed_at' => null];
+            }
 
             if ($statusCode === 200 || $statusCode === 201) {
                 $body = $response['body'] ?? [];
@@ -385,6 +409,39 @@ class ChannelDeployService
             ]);
         } catch (\Throwable $e) {
             Log::warning('ChannelDeploy: audit_log retry entry failed: ' . $e->getMessage());
+        }
+    }
+
+    // SOURCE: CIE_Integration_Specification.pdf §2.5 — immediate admin alert on 401/403 auth failures
+    private function alertAdmin(string $message): void
+    {
+        Log::alert($message);
+    }
+
+    // SOURCE: CIE_Integration_Specification.pdf §2.5 — log deploy failure and retry scheduling decision
+    private function logDeployFailure(string $skuCode, string $channel, string $reason, bool $retryScheduled): void
+    {
+        try {
+            AuditLog::create([
+                'entity_type' => 'channel_deploy',
+                'entity_id' => $skuCode,
+                'action' => 'deploy_failure',
+                'field_name' => $channel,
+                'old_value' => null,
+                'new_value' => json_encode([
+                    'reason' => $reason,
+                    'retry_scheduled' => $retryScheduled,
+                ]),
+                'actor_id' => 'SYSTEM',
+                'actor_role' => 'system',
+                'timestamp' => now(),
+                'user_id' => 'SYSTEM',
+                'ip_address' => null,
+                'user_agent' => null,
+                'created_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('ChannelDeploy: deploy failure audit insert failed: ' . $e->getMessage());
         }
     }
 }
