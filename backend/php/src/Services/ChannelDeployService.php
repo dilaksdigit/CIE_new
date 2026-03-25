@@ -189,6 +189,8 @@ class ChannelDeployService
         $payload = $this->buildDeployPayload($sku);
         $url = $baseUrl . '/webhook/gmc-deploy';
         $attempt = 0;
+        $serverErrorAttempt = 0;
+        $serverErrorBackoff = [30, 60, 120];
 
         while (true) {
             $this->enforceGmcRateLimit();
@@ -199,6 +201,20 @@ class ChannelDeployService
             if (in_array((int) $statusCode, [401, 403], true)) {
                 $this->alertAdmin("Channel deploy auth failure (gmc): HTTP {$statusCode}. Credential rotation required.");
                 $this->logDeployFailure((string) $skuId, 'gmc', "auth_failure_{$statusCode}", false);
+                return ['channel' => 'gmc', 'status' => 'failed', 'deployed_at' => null];
+            }
+
+            // SOURCE: CIE_Integration_Specification.pdf §2.5 — Timeout/retry applies to all workflows
+            if (in_array((int) $statusCode, [500, 503], true)) {
+                if ($serverErrorAttempt < count($serverErrorBackoff)) {
+                    $delay = $serverErrorBackoff[$serverErrorAttempt];
+                    $serverErrorAttempt++;
+                    $this->logRetryToAudit((string) $skuId, 'gmc', (int) $statusCode, $serverErrorAttempt, $delay);
+                    sleep($delay);
+                    continue;
+                }
+                $this->alertAdmin("Channel deploy server failure (gmc): HTTP {$statusCode}. Retries exhausted.");
+                $this->logDeployFailure((string) $skuId, 'gmc', "server_error_{$statusCode}", true);
                 return ['channel' => 'gmc', 'status' => 'failed', 'deployed_at' => null];
             }
 
