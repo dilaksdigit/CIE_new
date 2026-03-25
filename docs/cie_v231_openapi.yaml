@@ -502,6 +502,65 @@ paths:
         '403':
           description: Non-admin role denied
 
+  /skus/{sku_code}/channel-deployed:
+    # SOURCE: CIE_Integration_Specification.pdf §2.4 Step 8
+    post:
+      summary: Record successful channel deployment (N8N callback)
+      tags: [Channel Deploy]
+      parameters:
+        - name: sku_code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, status, timestamp]
+              properties:
+                channel:
+                  type: string
+                status:
+                  type: string
+                timestamp:
+                  type: string
+                  format: date-time
+      responses:
+        '200':
+          description: Deploy recorded
+
+  /skus/{sku_code}/channel-failed:
+    # SOURCE: CIE_Integration_Specification.pdf §2.4 Step 9
+    post:
+      summary: Record failed channel deployment (N8N callback)
+      tags: [Channel Deploy]
+      parameters:
+        - name: sku_code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, error]
+              properties:
+                channel:
+                  type: string
+                error:
+                  type: string
+                retry_scheduled:
+                  type: boolean
+      responses:
+        '200':
+          description: Failure recorded
+
 components:
   securitySchemes:
     BearerAuth:
