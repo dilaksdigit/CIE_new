@@ -166,6 +166,7 @@ class SemrushParserService
             'trend'           => isset($row['trend']) && $row['trend'] !== '' ? (string) $row['trend'] : null,
             'imported_by'     => $username,
             // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §3.1 — DB default owns imported_at
+            // intentionally omitted from payload so CURRENT_TIMESTAMP default is used.
         ];
 
         $kd = isset($row['keyword_diff']) && $row['keyword_diff'] !== '' ? (int) $row['keyword_diff'] : null;
