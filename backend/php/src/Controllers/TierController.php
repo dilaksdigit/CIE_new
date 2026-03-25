@@ -135,34 +135,35 @@ class TierController {
                 }
 
                 $cppcRaw = $row['cppc'] ?? null;
-                // SOURCE: CIE_Integration_Specification.pdf §1.2 — field-level error logging
+                // SOURCE: CIE_Integration_Specification.pdf §1.2 — ERP Data Contract
                 if ($cppcRaw === null || $cppcRaw === '') {
                     $erpIncomplete = true;
-                    $rowHasFieldError = true;
-                    $errors[] = "SKU {$skuCode}: cppc out of range (value: null, expected: 0.01-999.99)";
+                    $updateData['erp_cppc'] = 1.00;
+                    $errors[] = "SKU {$skuCode}: cppc missing - defaulted to 1.00 (neutral)";
                 } else {
                     $cppc = (float) $cppcRaw;
-                    if ($cppc < 0.01 || $cppc > 999.99) {
+                    if ($cppc < 0.01 || $cppc > 100.00) {
                         $erpIncomplete = true;
                         $rowHasFieldError = true;
-                        $errors[] = "SKU {$skuCode}: cppc out of range (value: {$cppcRaw}, expected: 0.01-999.99)";
+                        $errors[] = "SKU {$skuCode}: cppc out of range (value: {$cppcRaw}, expected: 0.01-100.00)";
                     } else {
                         $updateData['erp_cppc'] = $cppc;
                     }
                 }
 
                 $velRaw = $row['velocity_90d'] ?? null;
-                // SOURCE: CIE_Integration_Specification.pdf §1.2 — field-level error logging
+                // SOURCE: CIE_Integration_Specification.pdf §1.2 — ERP Data Contract
                 if ($velRaw === null || $velRaw === '') {
                     $erpIncomplete = true;
-                    $rowHasFieldError = true;
-                    $errors[] = "SKU {$skuCode}: velocity_90d out of range (value: null, expected: 0+)";
+                    $updateData['erp_velocity_90d'] = 0;
+                    $updateData['annual_volume'] = 0;
+                    $errors[] = "SKU {$skuCode}: velocity_90d missing - defaulted to 0 (no sales data)";
                 } else {
                     $velocity = (int) $velRaw;
                     if ($velocity < 0 || $velocity > 999999) {
                         $erpIncomplete = true;
                         $rowHasFieldError = true;
-                        $errors[] = "SKU {$skuCode}: velocity_90d out of range (value: {$velRaw}, expected: 0+)";
+                        $errors[] = "SKU {$skuCode}: velocity_90d out of range (value: {$velRaw}, expected: 0-999999)";
                     } else {
                         $updateData['erp_velocity_90d'] = $velocity;
                         $updateData['annual_volume'] = $velocity;
@@ -170,11 +171,11 @@ class TierController {
                 }
 
                 $retRaw = $row['return_rate_pct'] ?? null;
-                // SOURCE: CIE_Integration_Specification.pdf §1.2 — field-level error logging
+                // SOURCE: CIE_Integration_Specification.pdf §1.2 — ERP Data Contract
                 if ($retRaw === null || $retRaw === '') {
                     $erpIncomplete = true;
-                    $rowHasFieldError = true;
-                    $errors[] = "SKU {$skuCode}: return_rate_pct out of range (value: null, expected: 0.00-100.00)";
+                    $updateData['erp_return_rate_pct'] = 5.0;
+                    $errors[] = "SKU {$skuCode}: return_rate_pct missing - defaulted to 5.0 (industry avg)";
                 } else {
                     $returnPct = (float) $retRaw;
                     if ($returnPct < 0.0 || $returnPct > 100.0) {
