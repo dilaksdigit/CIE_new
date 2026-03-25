@@ -922,11 +922,12 @@ class SkuController {
         if (Schema::hasColumn('skus', 'is_active')) {
             $q->where('is_active', true);
         }
-        // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1 — candidates are Hero/Support only (GAP-QUEUE: OpenAPI text vs Master Spec — Master Spec authoritative)
+        // SOURCE: openapi.yaml /queue/today; CIE_v232_UI_Restructure_Instructions.docx Step 3
+        // Default includes Hero/Support/Harvest/Kill so Kill rows can be returned as locked=true.
         if ($tierFilter !== null && $tierFilter !== '') {
             $q->where('tier', strtolower((string) $tierFilter));
         } else {
-            $q->whereIn('tier', ['hero', 'support']);
+            $q->whereIn('tier', ['hero', 'support', 'harvest', 'kill']);
         }
         $candidates = $q->get();
 
@@ -937,19 +938,20 @@ class SkuController {
             $score = 0;
             $decayStatus = $sku->decay_status ?? 'none';
 
-            // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1 + §5 — queue priority bonuses from BusinessRules (zero hard-coded literals)
-            if (in_array($decayStatus, ['auto_brief', 'escalated'], true)) {
-                $score += (int) BusinessRules::get('queue.decay_critical_bonus', 100);
-            }
-            if ($decayStatus === 'alert') {
-                $score += (int) BusinessRules::get('queue.decay_alert_bonus', 60);
-            }
-            $chs = (int) ($sku->content_score ?? 0);
-            if ($chs < $amberThreshold) {
-                $score += (int) BusinessRules::get('queue.low_chs_bonus', 40);
-            }
             $tierLower = $sku->tier instanceof TierType ? $sku->tier->value : strtolower((string) ($sku->tier ?? ''));
+
+            // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1 — scoring factors are for Hero/Support candidates only.
             if (in_array($tierLower, ['hero', 'support'], true)) {
+                if (in_array($decayStatus, ['auto_brief', 'escalated'], true)) {
+                    $score += (int) BusinessRules::get('queue.decay_critical_bonus', 100);
+                }
+                if ($decayStatus === 'alert') {
+                    $score += (int) BusinessRules::get('queue.decay_alert_bonus', 60);
+                }
+                $chs = (int) ($sku->content_score ?? 0);
+                if ($chs < $amberThreshold) {
+                    $score += (int) BusinessRules::get('queue.low_chs_bonus', 40);
+                }
                 if ($tierLower === 'hero') {
                     $readiness = (int) ($sku->readiness_score ?? 0);
                     if ($readiness < $heroReadinessMin) {
@@ -962,12 +964,10 @@ class SkuController {
                         $score += (int) BusinessRules::get('queue.hero_missing_answer_bonus', 30);
                     }
                 }
-            }
-            if ($this->hasOpenBrief((string) $sku->id)) {
-                $score += (int) BusinessRules::get('queue.open_brief_bonus', 25);
-            }
-
-            if ($tierLower === 'kill') {
+                if ($this->hasOpenBrief((string) $sku->id)) {
+                    $score += (int) BusinessRules::get('queue.open_brief_bonus', 25);
+                }
+            } else {
                 $score = 0;
             }
 
