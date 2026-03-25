@@ -2,6 +2,7 @@
 
 namespace App\Console;
 
+use App\Support\BusinessRules;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
 
 class Kernel extends ConsoleKernel
@@ -11,8 +12,9 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule($schedule): void
     {
-        // CIE v2.3.2: Weekly AI audit Monday 09:00 UTC; decay escalation after.
-        $schedule->command('decay:run')->weeklyOn(1, '09:00');
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §12.1 — ai_audit_cron_schedule
+        $aiAuditCron = (string) BusinessRules::get('sync.ai_audit_cron_schedule', '0 9 * * 1');
+        $schedule->command('decay:run')->cron($aiAuditCron);
         $schedule->command('cie:decay-check')->weeklyOn(1, '09:30');
     }
 
