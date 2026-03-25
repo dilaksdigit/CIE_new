@@ -18,6 +18,7 @@ use App\Services\BaselineService;
 use App\Services\ChannelDeployService;
 use App\Services\PublishTraceService;
 use App\Support\BusinessRules;
+use App\Utils\ResponseFormatter;
 use App\Enums\ValidationStatus;
 use App\Enums\TierType;
 use Illuminate\Http\Request;
@@ -447,10 +448,12 @@ class SkuController {
                 'validation' => $validationResult['openapi_validation_body'] ?? null,
             ], 200);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json(['error' => 'SKU_NOT_FOUND', 'message' => 'SKU not found'], 404);
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+            return ResponseFormatter::standardError(404, 'SKU_NOT_FOUND', 'SKU not found');
         } catch (\Exception $e) {
             Log::error('SKU update failed: ' . $e->getMessage());
-            return response()->json(['error' => 'UPDATE_FAILED', 'message' => 'Update failed'], 500);
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+            return ResponseFormatter::standardError(500, 'UPDATE_FAILED', 'Update failed');
         }
     }
 
@@ -609,7 +612,8 @@ class SkuController {
 
         $sku = Sku::where('sku_code', $skuCode)->first();
         if (!$sku) {
-            return response()->json(['error' => 'SKU_NOT_FOUND', 'message' => 'SKU not found'], 404);
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+            return ResponseFormatter::standardError(404, 'SKU_NOT_FOUND', 'SKU not found');
         }
 
         $readiness = $this->readinessScoreService->computeReadiness($sku->fresh());
@@ -650,7 +654,8 @@ class SkuController {
 
         $sku = Sku::where('sku_code', $skuCode)->first();
         if (!$sku) {
-            return response()->json(['error' => 'SKU_NOT_FOUND', 'message' => 'SKU not found'], 404);
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+            return ResponseFormatter::standardError(404, 'SKU_NOT_FOUND', 'SKU not found');
         }
 
         AuditLog::create([
@@ -732,10 +737,12 @@ class SkuController {
     public function rollbackContent($sku_id) {
         $sku = Sku::find($sku_id);
         if (!$sku) {
-            return response()->json(['error' => 'SKU not found'], 404);
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+            return ResponseFormatter::standardError(404, 'SKU_NOT_FOUND', 'SKU not found');
         }
         if (!Schema::hasTable('gsc_baselines')) {
-            return response()->json(['error' => 'No baseline data'], 404);
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+            return ResponseFormatter::standardError(404, 'NO_BASELINE_DATA', 'No baseline data');
         }
         $row = DB::table('gsc_baselines')
             ->where('sku_id', $sku_id)
@@ -743,7 +750,8 @@ class SkuController {
             ->orderByDesc('id')
             ->first();
         if (!$row || empty($row->baseline_content_snapshot)) {
-            return response()->json(['error' => 'No rollback content available'], 404);
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+            return ResponseFormatter::standardError(404, 'NO_ROLLBACK_CONTENT', 'No rollback content available');
         }
         $snapshot = is_string($row->baseline_content_snapshot)
             ? json_decode($row->baseline_content_snapshot, true)

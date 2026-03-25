@@ -3,6 +3,7 @@ namespace App\Controllers;
 
 use App\Models\AuditLog;
 use App\Services\SemrushParserService;
+use App\Utils\ResponseFormatter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -33,16 +34,20 @@ class SemrushImportController
 
         $file = $request->file('file');
         if (!$file->isValid()) {
-            return response()->json(['error' => 'Validation failed', 'message' => 'File could not be read as CSV. Check the file is a standard Semrush export.'], 422);
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+            return ResponseFormatter::semrushError(
+                422,
+                'Validation failed',
+                'File could not be read as CSV. Check the file is a standard Semrush export.'
+            );
         }
 
         if ($file->getSize() > self::MAX_IMPORT_BYTES) {
-            return response()->json([
-                'error'   => 'Validation failed',
-                'message' => 'File exceeds 10MB limit.',
-                'errors'  => ['File exceeds 10MB limit.'],
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+            return ResponseFormatter::semrushError(422, 'Validation failed', 'File exceeds 10MB limit.', [
+                'errors' => ['File exceeds 10MB limit.'],
                 'rows_imported' => 0,
-            ], 422);
+            ]);
         }
 
         $username = (string) ($user->name ?? $user->email ?? 'system');
@@ -51,13 +56,14 @@ class SemrushImportController
 
         if ($result->hasErrors()) {
             $payload = [
-                'error'   => 'Validation failed',
-                'message' => $result->getFirstError(),
+                'error' => 'Validation failed',
+                'detail' => $result->getFirstError(),
             ];
             if ($result->rowErrors !== []) {
                 $payload['errors'] = $result->rowErrors;
                 $payload['rows_imported'] = 0;
             }
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
             return response()->json($payload, 422);
         }
 
@@ -83,12 +89,11 @@ class SemrushImportController
                 ]);
             });
         } catch (\Throwable $e) {
-            return response()->json([
-                'error'   => 'Validation failed',
-                'message' => 'Import failed. No rows were saved.',
-                'errors'  => [$e->getMessage()],
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+            return ResponseFormatter::semrushError(500, 'Validation failed', 'Import failed. No rows were saved.', [
+                'errors' => [$e->getMessage()],
                 'rows_imported' => 0,
-            ], 500);
+            ]);
         }
 
         $keywordCount = count(array_unique(array_map(static function ($row) {
@@ -158,7 +163,14 @@ class SemrushImportController
                 $quickWins->whereRaw("({$diffCol} IS NULL OR {$diffCol} < 40)");
             }
             $quickWins = $quickWins
-                ->select('semrush_imports.keyword', 'semrush_imports.position', 'semrush_imports.prev_position', 'semrush_imports.search_volume', 'semrush_imports.sku_code')
+                ->select(
+                    'semrush_imports.keyword',
+                    'semrush_imports.position',
+                    'semrush_imports.prev_position',
+                    'semrush_imports.search_volume',
+                    'semrush_imports.sku_code',
+                    'skus.tier as tier'
+                )
                 ->orderBy('semrush_imports.position')
                 ->limit(500)
                 ->get();
@@ -166,11 +178,21 @@ class SemrushImportController
         }
 
         if ($filter === 'rank_movement') {
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §5.6 — filters work on /review/semrush
+            // SOURCE: CLAUDE.md §13 — Semrush CSV can include sku_code; tier resolved via join to skus
             $movement = DB::table('semrush_imports')
-                ->where('import_batch', $maxBatch)
+                ->leftJoin('skus', 'skus.sku_code', '=', 'semrush_imports.sku_code')
+                ->where('semrush_imports.import_batch', $maxBatch)
                 ->whereNotNull('prev_position')
-                ->select('keyword', 'position', 'prev_position', 'search_volume', 'sku_code')
-                ->orderByRaw('(position - prev_position) ASC')
+                ->select(
+                    'semrush_imports.keyword',
+                    'semrush_imports.position',
+                    'semrush_imports.prev_position',
+                    'semrush_imports.search_volume',
+                    'semrush_imports.sku_code',
+                    'skus.tier as tier'
+                )
+                ->orderByRaw('(semrush_imports.position - semrush_imports.prev_position) ASC')
                 ->limit(500)
                 ->get();
             return response()->json(['filter' => 'rank_movement', 'rows' => $movement], 200);

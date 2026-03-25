@@ -56,7 +56,8 @@ class AuditController {
      */
     public function resultsByCategory($category) {
         if (!in_array($category, ['cables', 'lampshades', 'bulbs', 'pendants', 'floor_lamps'], true)) {
-            return response()->json(['error' => 'Invalid category'], 400);
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+            return ResponseFormatter::standardError(400, 'INVALID_CATEGORY', 'Invalid category');
         }
 
         $citationRate = null;

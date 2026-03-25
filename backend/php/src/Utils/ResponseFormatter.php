@@ -41,4 +41,17 @@ class ResponseFormatter {
             'message' => $message,
         ], $extra), $httpStatus);
     }
+
+    /**
+     * SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+     * SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2
+     * Semrush validation errors use {error, detail} with optional extra fields.
+     */
+    public static function semrushError(int $httpStatus, string $error, string $detail, array $extra = []): JsonResponse
+    {
+        return response()->json(array_merge([
+            'error' => $error,
+            'detail' => $detail,
+        ], $extra), $httpStatus);
+    }
 }
