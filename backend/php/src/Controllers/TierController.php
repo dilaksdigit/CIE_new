@@ -26,15 +26,16 @@ class TierController {
      * Override: contribution_margin_pct < 0 → KILL (e.g. FLR-ARC-BLK-175 -4.2% → KILL).
      */
     public function erpSync(Request $request) {
-        // SOURCE: openapi.yaml ErpSyncPayload; CIE_Integration_Specification.pdf §1.2 — optional numeric fields with defaults/flags
+        // SOURCE: openapi.yaml ErpSyncPayload — keys required
+        // SOURCE: CIE_Integration_Specification.pdf §1.2 — null fallbacks
         $payload = $request->validate([
             'sync_date' => 'required|date',
-            'skus' => 'required|array',
+            'skus' => 'required|array|min:1',
             'skus.*.sku_id' => 'required|string',
-            'skus.*.contribution_margin_pct' => 'nullable|numeric',
-            'skus.*.cppc' => 'nullable|numeric',
-            'skus.*.velocity_90d' => 'nullable|integer',
-            'skus.*.return_rate_pct' => 'nullable|numeric',
+            'skus.*.contribution_margin_pct' => 'present|nullable|numeric',
+            'skus.*.cppc' => 'present|nullable|numeric',
+            'skus.*.velocity_90d' => 'present|nullable|integer',
+            'skus.*.return_rate_pct' => 'present|nullable|numeric',
         ]);
 
         $syncDate = $payload['sync_date'];
@@ -46,7 +47,6 @@ class TierController {
         $tierChanges = 0;
         $orphanSkuCodes = [];
         $marginSkipTierBySkuId = [];
-        $marginMissingSkipTierBySkuId = [];
 
         // Preload all SKU rows we can match from payload (sku_id = sku_code on wire).
         $skuIds = array_values(array_unique(array_map(fn ($r) => (string) ($r['sku_id'] ?? ''), $items)));
@@ -85,20 +85,11 @@ class TierController {
                     $updateData['erp_sync_date'] = $syncDate;
                 }
 
-                $marginKeyPresent = array_key_exists('contribution_margin_pct', $row);
-                $marginRaw = $marginKeyPresent ? $row['contribution_margin_pct'] : null;
-                if (!$marginKeyPresent || $marginRaw === null || $marginRaw === '') {
-                    // SOURCE: CIE_Integration_Specification.pdf §1.2 — missing margin → tier = null, alert; skip tier recomputation for this SKU
-                    $patchMissing = ['tier' => null];
-                    if (Schema::hasColumn('skus', 'erp_data_incomplete')) {
-                        $patchMissing['erp_data_incomplete'] = true;
-                    }
-                    try {
-                        $sku->update($patchMissing);
-                    } catch (\Throwable $patchErr) {
-                        Log::warning('erpSync: could not apply missing-margin patch', ['sku' => $skuCode, 'error' => $patchErr->getMessage()]);
-                    }
-                    $marginMissingSkipTierBySkuId[(string) $sku->id] = true;
+                $marginRaw = $row['contribution_margin_pct'] ?? null;
+                if ($marginRaw === null || $marginRaw === '') {
+                    // SOURCE: CIE_Integration_Specification.pdf §1.2 — missing margin: flag + alert (null fallback rules apply)
+                    // SOURCE: CIE_v232_Cloud_Briefing.md §11 — contribution_margin_pct null: flag; keep existing DB value
+                    $erpIncomplete = true;
                     try {
                         AuditLog::create([
                             'entity_type' => 'sku',
@@ -115,8 +106,6 @@ class TierController {
                     } catch (\Throwable $auditErr) {
                         Log::warning('erpSync: erp_margin_missing_alert audit failed: '.$auditErr->getMessage());
                     }
-                    $skuMap[$skuCode] = $sku->fresh();
-                    continue;
                 } else {
                     $marginPct = (float) $marginRaw;
                     if ($marginPct < -100.0 || $marginPct > 100.0) {
@@ -137,49 +126,58 @@ class TierController {
                     }
                     $updateData['margin_percent'] = $marginPct;
                     if (Schema::hasColumn('skus', 'erp_margin_pct')) {
+                        // SOURCE: CIE_v231_Developer_Build_Pack.pdf Section 1.2
+                        // erp_margin_pct written alongside other ERP fields for
+                        // TierCalculationService::recalculateAllTiers() whereNotNull filter
                         $updateData['erp_margin_pct'] = $marginPct;
                     }
                 }
 
-                $cppcKeyPresent = array_key_exists('cppc', $row);
-                $cppcRaw = $cppcKeyPresent ? $row['cppc'] : null;
-                if (!$cppcKeyPresent || $cppcRaw === null || $cppcRaw === '') {
+                $cppcRaw = $row['cppc'] ?? null;
+                // SOURCE: CIE_Integration_Specification.pdf §1.2 — field-level error logging
+                if ($cppcRaw === null || $cppcRaw === '') {
                     $updateData['erp_cppc'] = 1.0;
                     $erpIncomplete = true;
+                    $errors[] = "SKU {$skuCode}: cppc missing (value: null)";
                 } else {
                     $cppc = (float) $cppcRaw;
                     if ($cppc < 0.01 || $cppc > 100.0) {
                         $erpIncomplete = true;
+                        $errors[] = "SKU {$skuCode}: cppc out of range (value: {$cppcRaw})";
                     } else {
                         $updateData['erp_cppc'] = $cppc;
                     }
                 }
 
-                $velKeyPresent = array_key_exists('velocity_90d', $row);
-                $velRaw = $velKeyPresent ? $row['velocity_90d'] : null;
-                if (!$velKeyPresent || $velRaw === null || $velRaw === '') {
+                $velRaw = $row['velocity_90d'] ?? null;
+                // SOURCE: CIE_Integration_Specification.pdf §1.2 — field-level error logging
+                if ($velRaw === null || $velRaw === '') {
                     $updateData['erp_velocity_90d'] = 0;
                     $updateData['annual_volume'] = 0;
                     $erpIncomplete = true;
+                    $errors[] = "SKU {$skuCode}: velocity_90d missing (value: null)";
                 } else {
                     $velocity = (int) $velRaw;
                     if ($velocity < 0 || $velocity > 999999) {
                         $erpIncomplete = true;
+                        $errors[] = "SKU {$skuCode}: velocity_90d out of range (value: {$velRaw})";
                     } else {
                         $updateData['erp_velocity_90d'] = $velocity;
                         $updateData['annual_volume'] = $velocity;
                     }
                 }
 
-                $retKeyPresent = array_key_exists('return_rate_pct', $row);
-                $retRaw = $retKeyPresent ? $row['return_rate_pct'] : null;
-                if (!$retKeyPresent || $retRaw === null || $retRaw === '') {
+                $retRaw = $row['return_rate_pct'] ?? null;
+                // SOURCE: CIE_Integration_Specification.pdf §1.2 — field-level error logging
+                if ($retRaw === null || $retRaw === '') {
                     $updateData['erp_return_rate_pct'] = 5.0;
                     $erpIncomplete = true;
+                    $errors[] = "SKU {$skuCode}: return_rate_pct missing (value: null)";
                 } else {
                     $returnPct = (float) $retRaw;
                     if ($returnPct < 0.0 || $returnPct > 100.0) {
                         $erpIncomplete = true;
+                        $errors[] = "SKU {$skuCode}: return_rate_pct out of range (value: {$retRaw})";
                     } else {
                         $updateData['erp_return_rate_pct'] = $returnPct;
                     }
@@ -244,10 +242,6 @@ class TierController {
 
                 // SOURCE: CIE_Integration_Specification.pdf §1.2 — invalid margin rows: tier cleared; skip percentile reassignment
                 if (!empty($marginSkipTierBySkuId[(string) $sku->id])) {
-                    continue;
-                }
-                // SOURCE: CIE_Integration_Specification.pdf §1.2 — missing margin rows: tier null; skip percentile reassignment
-                if (!empty($marginMissingSkipTierBySkuId[(string) $sku->id])) {
                     continue;
                 }
 
