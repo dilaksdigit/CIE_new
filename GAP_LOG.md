@@ -7,7 +7,7 @@
 
 ---
 
-## GAP-SEMRUSH-DDL-01 | 2026-03-25 | Semrush Schema Drift | `semrush_imports` contains extra columns (`keyword_difficulty`, `competitor_url`, `intent`, `cluster_id`, `sku_code`, `competitor_position`, `import_batch_id`) and extra index (`idx_batch_id`) beyond canonical DDL in Semrush Spec §3.1. Columns cannot be dropped under additive-only migration rule. Parser writes are now restricted to canonical columns only; extra columns become orphaned/empty moving forward. Architect must decide whether to approve as extensions or plan table-version migration. | Blocking: NO
+## GAP-SEMRUSH-DDL-01 | 2026-03-25 | Semrush Schema Drift | `semrush_imports` contains extra columns (`keyword_difficulty`, `competitor_url`, `intent`, `cluster_id`, `sku_code`, `competitor_position`, `import_batch_id`) and extra index (`idx_batch_id`) beyond canonical DDL in Semrush Spec §3.1. Columns cannot be dropped under additive-only migration rule. Parser writes are now restricted to canonical columns only; extra columns become orphaned/empty moving forward (Audit Round 2 Fix 9). Architect must decide whether to approve as extensions or plan table-version migration. | Blocking: NO
 
 ---
 
