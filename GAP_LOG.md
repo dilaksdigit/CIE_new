@@ -3,6 +3,18 @@
 
 ---
 
+## GAP-INTENT-01 | 2026-03-25 | Intent Taxonomy Keys | CLAUDE.md §6 lists display labels "Safety/Compliance" and "Bulk/Trade" which differ from canonical JSON keys "troubleshooting", "regulatory", "replacement" in Enforcement Spec §8.3 and Build Pack schema. Codebase and OpenAPI correctly use §8.3 keys. CLAUDE labels are display-layer, not enum-layer. No code change needed unless architect mandates key rename. | Blocking: NO
+
+---
+
+## GAP-SEMRUSH-DDL-01 | 2026-03-25 | Semrush Schema Drift | `semrush_imports` contains extra columns (`keyword_difficulty`, `competitor_url`, `intent`, `cluster_id`, `sku_code`, `competitor_position`, `import_batch_id`) and extra index (`idx_batch_id`) beyond canonical DDL in Semrush Spec §3.1. Columns cannot be dropped under additive-only migration rule. Parser writes are now restricted to canonical columns only; extra columns become orphaned/empty moving forward. Architect must decide whether to approve as extensions or plan table-version migration. | Blocking: NO
+
+---
+
+## GAP-ROUTES-01 | 2026-03-25 | Undocumented API Routes | Routes exist in `backend/php/routes/api.php` without OpenAPI contract entries and no explicit authority. Architect decision required per CLAUDE.md R1: add to OpenAPI or retire. Candidate routes: `GET /admin/semrush-import/latest`, `DELETE /admin/semrush-import/{batch}`, `POST /sku/{id}/suggest`, `GET /gsc/verify`, `GET /ga4/health`, `POST /admin/sync-failed`, `POST /admin/sync-complete` (if present in active runtime path). Note: `/admin/sync-failed` and `/admin/sync-complete` are referenced by Integration Spec §2.2 callbacks and likely require contract registration pattern similar to deploy callbacks. | Blocking: YES for contract consumers
+
+---
+
 ## GAP-ERP-05 | 2026-03-25 | Intent Taxonomy | CLAUDE.md §6 lists "Safety/Compliance" and "Bulk/Trade" as taxonomy entries. Enforcement Spec §8.3 uses keys "troubleshooting" + "regulatory" + "replacement" (no "bulk_trade" key exists). Three potential conflicts: (1) troubleshooting vs safety_compliance, (2) regulatory vs safety_compliance, (3) replacement vs bulk_trade. Codebase follows Enforcement Spec §8.3. | Blocking: YES for OpenAPI update — Architect must confirm canonical key set.
 
 ---
