@@ -536,17 +536,15 @@ components:
                 type: string
                 nullable: true
         vector_check:
+          # SOURCE: CLAUDE.md §11; CIE_v232_UI_Restructure_Instructions.docx
           type: object
           properties:
-            cosine_similarity:
-              type: number
-              example: 0.87
-            threshold:
-              type: number
-              example: 0.72
             status:
               type: string
-              enum: [pass, fail]
+              enum: [pass, fail, pending]
+            user_message:
+              type: string
+              nullable: true
         publish_allowed:
           type: boolean
           description: False if any gate is 'pending' or 'fail'
