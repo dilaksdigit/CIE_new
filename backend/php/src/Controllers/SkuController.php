@@ -948,7 +948,9 @@ class SkuController {
 
             $tierLower = $sku->tier instanceof TierType ? $sku->tier->value : strtolower((string) ($sku->tier ?? ''));
 
-            // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1 — scoring factors are for Hero/Support candidates only.
+            // SOURCE: openapi.yaml /queue/today — all tiers included; Kill flagged locked=true
+            // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1 — 6-factor scoring hero/support only
+            // Harvest/Kill included with priority_score=0 for UI display (dimmed/locked).
             if (in_array($tierLower, ['hero', 'support'], true)) {
                 if (in_array($decayStatus, ['auto_brief', 'escalated'], true)) {
                     $score += (int) BusinessRules::get('queue.decay_critical_bonus', 100);
