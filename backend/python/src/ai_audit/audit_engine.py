@@ -75,7 +75,8 @@ class AuditEngine:
         )
 
         quorum_advance = int(BusinessRules.get('decay.quorum_minimum'))
-        quorum_pause = 2  # §5.3: not in 52 rules; hard-coded
+        # SOURCE: CLAUDE.md R3; CIE_Master_Developer_Build_Spec.docx §4 L1
+        quorum_pause = int(BusinessRules.get('decay.quorum_pause_minimum', 2))
         if responders >= quorum_advance:
             run_status = "complete"
         elif responders == quorum_pause:
