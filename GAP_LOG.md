@@ -11,7 +11,7 @@
 
 ---
 
-## GAP-ROUTES-01 | 2026-03-25 | Undocumented API Routes | Routes exist in `backend/php/routes/api.php` without OpenAPI contract entries and no explicit authority. Architect decision required per CLAUDE.md R1: add to OpenAPI or retire. Candidate routes: `GET /admin/semrush-import/latest`, `DELETE /admin/semrush-import/{batch}`, `POST /sku/{id}/suggest`, `GET /gsc/verify`, `GET /ga4/health`, `POST /admin/sync-failed`, `POST /admin/sync-complete` (if present in active runtime path). Note: `/admin/sync-failed` and `/admin/sync-complete` are referenced by Integration Spec §2.2 callbacks and likely require contract registration pattern similar to deploy callbacks. | Blocking: YES for contract consumers
+## GAP-ROUTES-01 | 2026-03-25 | Undocumented API Routes | Routes exist in `backend/php/routes/api.php` without OpenAPI contract entries and no explicit authority. Architect decision required per CLAUDE.md R1: add to OpenAPI or retire. Candidate routes: `GET /admin/semrush-import/latest`, `DELETE /admin/semrush-import/{batch}`, `POST /sku/{id}/suggest`, `GET /gsc/verify`, `GET /ga4/health`, `POST /admin/sync-failed`, `POST /admin/sync-complete` (if present in active runtime path). Current route scan confirms `/admin/sync-failed` exists and `/admin/sync-complete` is not currently defined. Note: Integration Spec §2.2 callback references still require architect reconciliation with OpenAPI. | Blocking: YES for contract consumers
 
 ---
 
