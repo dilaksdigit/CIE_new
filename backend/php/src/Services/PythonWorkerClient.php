@@ -23,7 +23,8 @@ class PythonWorkerClient
     }
 
     /**
-     * Call existing Python similarity endpoint. SOURCE: openapi.yaml POST /api/v1/sku/similarity — returns { status, message }.
+     * SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — Core API Endpoints
+     * SOURCE: openapi.yaml POST /api/v1/sku/similarity — returns { status, message }.
      */
     public function validateVector(string $description, string $clusterId, ?string $skuId = null): array
     {
