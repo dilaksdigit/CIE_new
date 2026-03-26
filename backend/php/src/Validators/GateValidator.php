@@ -130,6 +130,19 @@ class GateValidator
         // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 G6.1 — Kill lock after G6 tier tag confirmed.
         // FIX: G6-03 — Record G6 PASS (tier tag present) before G6.1 kill block.
         if ($tier === TierType::KILL->value) {
+            // SOURCE: CIE_Master_Developer_Build_Spec.docx §7 — G1 REQUIRED for all tiers.
+            // SOURCE: Readme_First_CIE_v232_Developer_Build_Guide.pdf Phase 1 Step 2 — Kill checks include G1 + G6; content gates are suspended.
+            $g1Result = (new G1_BasicInfoGate())->validate($sku);
+            $this->recordGateResult(
+                $sku,
+                $g1Result,
+                $results,
+                $overallPassed,
+                $blockingFailure,
+                $isDegraded,
+                $hasVectorWarn
+            );
+
             $this->recordGateResult(
                 $sku,
                 new GateResult(
@@ -165,6 +178,18 @@ class GateValidator
                 $isDegraded,
                 $hasVectorWarn
             );
+
+            foreach ([GateType::G2_INTENT, GateType::G3_SECONDARY_INTENT, GateType::G4_ANSWER_BLOCK, GateType::G5_BEST_NOT_FOR, GateType::G7_EXPERT] as $naGate) {
+                $this->recordGateResult(
+                    $sku,
+                    GateResult::notApplicable($naGate, 'Kill tier: gate suspended'),
+                    $results,
+                    $overallPassed,
+                    $blockingFailure,
+                    $isDegraded,
+                    $hasVectorWarn
+                );
+            }
         } elseif ($tier === TierType::HARVEST->value) {
             // SOURCE: CIE_Master_Developer_Build_Spec.docx §8.3 — Harvest executes only G1, G2, G6.
             // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 G6.1 — HARVEST: Specification + 1 other; G6.1 results MUST be recorded.
