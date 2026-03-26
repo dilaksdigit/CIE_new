@@ -182,6 +182,27 @@ class G4_VectorGate implements GateInterface
             }
 
             // SOURCE: CLAUDE.md §11, DECISION-005 — below threshold = WARNING, not block. Fail-Soft Vector Validation.
+            // SOURCE: CLAUDE.md §11 — fail-soft vector warnings must create an audit trail entry.
+            try {
+                AuditLog::create([
+                    'entity_type' => 'sku',
+                    'entity_id'   => $sku->id,
+                    'action'      => 'vector_similarity_warn',
+                    'field_name'  => 'G4_VECTOR',
+                    'old_value'   => null,
+                    'new_value'   => json_encode([
+                        'status' => 'warn',
+                        'mode' => 'fail_soft_warn',
+                    ]),
+                    'actor_id'    => 'SYSTEM',
+                    'actor_role'  => 'system',
+                    'timestamp'   => now(),
+                    'created_at'  => now(),
+                ]);
+            } catch (\Throwable $auditWarnError) {
+                // Fail-soft: audit write failures must not block content save.
+            }
+
             return new GateResult(
                 gate: GateType::G4_VECTOR,
                 passed: true,
