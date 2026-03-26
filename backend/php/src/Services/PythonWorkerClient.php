@@ -126,41 +126,45 @@ class PythonWorkerClient
     }
 
     /**
-     * Queue a brief generation job
+     * SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — POST /api/v1/brief/generate
+     * Forwards to Python worker (which proxies to Laravel when CIE_CMS_URL is set) or accepts decay payloads directly.
      */
     public function queueBriefGeneration(int $skuId, string $title, ?string $category = null): array
     {
         try {
-            $response = $this->client->post('/queue/brief-generation', [
+            $response = $this->client->post('/api/v1/brief/generate', [
                 'json' => [
-                    'sku_id' => $skuId,
-                    'title' => $title,
-                    'category' => $category
-                ]
+                    'sku_id' => (string) $skuId,
+                    'failing_questions' => [],
+                ],
             ]);
 
-            if ($response->getStatusCode() !== 200 && $response->getStatusCode() !== 202) {
-                Log::warning("Python brief queue returned {$response->getStatusCode()}");
-                return ['queued' => false, 'error' => 'Queue failed'];
+            if ($response->getStatusCode() !== 200 && $response->getStatusCode() !== 201 && $response->getStatusCode() !== 202) {
+                Log::warning("Python brief/generate returned {$response->getStatusCode()}");
+                return ['queued' => false, 'error' => 'Brief generation failed'];
             }
 
             return json_decode($response->getBody()->getContents(), true) ?? [
                 'queued' => true,
-                'brief_id' => bin2hex(random_bytes(8))
+                'brief_id' => bin2hex(random_bytes(8)),
             ];
         } catch (RequestException $e) {
-            Log::error("Failed to queue brief generation: {$e->getMessage()}", ['sku_id' => $skuId]);
+            Log::error("Failed to call brief/generate: {$e->getMessage()}", ['sku_id' => $skuId]);
             return ['queued' => false, 'error' => 'Service unavailable'];
         }
     }
 
     /**
-     * Get audit results (polling)
+     * SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — GET /api/v1/audit/results/{category}
      */
-    public function getAuditResult(string $auditId): array
+    public function getAuditResult(string $category, ?string $runId = null): array
     {
         try {
-            $response = $this->client->get("/audits/{$auditId}");
+            $path = '/api/v1/audit/results/'.rawurlencode($category);
+            if ($runId !== null && $runId !== '') {
+                $path .= '?run_id='.rawurlencode($runId);
+            }
+            $response = $this->client->get($path);
 
             if ($response->getStatusCode() === 404) {
                 return ['status' => 'pending'];
@@ -172,7 +176,7 @@ class PythonWorkerClient
 
             return json_decode($response->getBody()->getContents(), true) ?? ['status' => 'pending'];
         } catch (RequestException $e) {
-            Log::error("Failed to fetch audit result: {$e->getMessage()}");
+            Log::error("Failed to fetch audit results: {$e->getMessage()}");
             return ['status' => 'error'];
         }
     }
