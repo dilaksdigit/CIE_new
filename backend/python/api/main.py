@@ -157,6 +157,7 @@ def _weekly_audit_background(category: str, run_id: str) -> None:
         )
 
 
+# SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — POST /api/v1/sku/embed
 @app.post("/api/v1/sku/embed")
 def sku_embed(body: EmbedRequest):
     """
@@ -185,6 +186,7 @@ def sku_embed(body: EmbedRequest):
         }
 
 
+# SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — POST /api/v1/sku/similarity
 @app.post("/api/v1/sku/similarity")
 def sku_similarity(body: SimilarityRequest):
     """
