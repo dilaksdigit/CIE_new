@@ -13,6 +13,24 @@ use App\Validators\GateInterface;
 
 class G6_TierTagGate implements GateInterface
 {
+    // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §8.3 — tier_access in intent taxonomy drives tier-allowed intents.
+    private function taxonomyIntentKeysByTier(string $tier): array
+    {
+        $allowed = [];
+        foreach (IntentTaxonomy::query()->get() as $row) {
+            $access = json_decode((string) ($row->tier_access ?? '[]'), true);
+            if (!is_array($access)) {
+                continue;
+            }
+            $normalizedAccess = array_map(fn ($t) => strtolower((string) $t), $access);
+            if (in_array(strtolower($tier), $normalizedAccess, true)) {
+                $allowed[] = strtolower((string) ($row->intent_key ?? ''));
+            }
+        }
+
+        return array_values(array_unique(array_filter($allowed, fn ($k) => $k !== '')));
+    }
+
     private function tierKey(mixed $tierRaw): string
     {
         if ($tierRaw instanceof TierType) {
@@ -115,7 +133,8 @@ class G6_TierTagGate implements GateInterface
                 );
                 return $results;
             }
-            $allowedSecondary = ['problem_solving', 'compatibility', 'specification'];
+            // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §8.3 — Harvest allowed intents sourced from taxonomy tier_access.
+            $allowedSecondary = $this->taxonomyIntentKeysByTier('harvest');
             foreach ($secondaryIntents as $si) {
                 // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §8.3 — intent_key is snake_case;
                 // labels contain hyphens/slashes that must all normalize to underscores
@@ -161,6 +180,7 @@ class G6_TierTagGate implements GateInterface
         }
 
         // Support: tier-locked intents via canonical tier_access
+        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 — Support max secondary count is enforced by G3; G6.1 enforces tier_access intent-field permissions.
         $primaryIntentNode = $sku->skuIntents->where('is_primary', true)->first();
         if ($primaryIntentNode && $primaryIntentNode->intent) {
             $intentName = $primaryIntentNode->intent->name;
