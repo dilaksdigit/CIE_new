@@ -25,7 +25,8 @@ class SemrushImportController
         // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2 + §4.1 — multipart + 10MB; parsing delegated to SemrushParserService
         $user = auth()->user();
         if (!$user || !optional($user->role)->name || strtoupper($user->role->name) !== 'ADMIN') {
-            return response()->json(['error' => 'Forbidden'], 403);
+            // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
+            return ResponseFormatter::standardError(403, 'FORBIDDEN', 'Admin role required for Semrush import');
         }
 
         $request->validate([
@@ -55,16 +56,18 @@ class SemrushImportController
         $result = $parser->parseAndValidate($file, $username);
 
         if ($result->hasErrors()) {
-            $payload = [
-                'error' => 'Validation failed',
-                'detail' => $result->getFirstError(),
-            ];
+            $extra = [];
             if ($result->rowErrors !== []) {
-                $payload['errors'] = $result->rowErrors;
-                $payload['rows_imported'] = 0;
+                $extra['errors'] = $result->rowErrors;
+                $extra['rows_imported'] = 0;
             }
             // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15
-            return response()->json($payload, 422);
+            return ResponseFormatter::semrushError(
+                422,
+                'Validation failed',
+                $result->getFirstError(),
+                $extra
+            );
         }
 
         $insertData = $result->getRows();
