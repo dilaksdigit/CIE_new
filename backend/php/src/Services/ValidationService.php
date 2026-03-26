@@ -71,6 +71,28 @@ class ValidationService
             ];
         }
 
+        // SOURCE: openapi.yaml ValidationResponse — gate object should always surface the full gate contract for consumers.
+        $requiredGateKeys = [
+            'G1_cluster_id',
+            'G2_primary_intent',
+            'G3_secondary_intents',
+            'G4_answer_block',
+            'G5_best_not_for',
+            'G6_tier_tag',
+            'G6_1_tier_lock',
+            'G7_expert_authority',
+        ];
+        foreach ($requiredGateKeys as $requiredGateKey) {
+            if (!array_key_exists($requiredGateKey, $openapiGates)) {
+                $openapiGates[$requiredGateKey] = [
+                    'status' => 'not_applicable',
+                    'error_code' => null,
+                    'detail' => 'Gate not applicable for this tier',
+                    'user_message' => null,
+                ];
+            }
+        }
+
         $hasBlockingFailure = false;
         foreach ($gatesKeyed as $g) {
             if (!is_array($g)) {
