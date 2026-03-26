@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Validator;
 use App\Models\AuditLog;
 use App\Support\BusinessRules;
 use Illuminate\Support\Str;
@@ -24,7 +25,17 @@ class AuditController {
      * POST /api/v1/audit/run — trigger AI citation audit for a category (20 questions). Unified API 7.1.
      */
     public function runByCategory(Request $request) {
-        $request->validate(['category' => 'required|string|in:cables,lampshades,bulbs,pendants,floor_lamps']);
+        // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15 — consistent validation error envelope
+        $validator = Validator::make($request->all(), [
+            'category' => 'required|string|in:cables,lampshades,bulbs,pendants,floor_lamps',
+        ]);
+        if ($validator->fails()) {
+            return ResponseFormatter::standardError(
+                400,
+                'VALIDATION_FAILED',
+                (string) $validator->errors()->first()
+            );
+        }
         $category = $request->input('category');
         // SOURCE: openapi.yaml AuditRunResponse — run_id format uuid; CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1
         $runId = (string) Str::uuid();
