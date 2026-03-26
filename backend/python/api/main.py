@@ -15,7 +15,7 @@ _backend = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 load_dotenv(os.path.join(_backend, ".env"))
 import sys
 import uuid
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +292,310 @@ def audit_run(body: AuditRunRequest, background_tasks: BackgroundTasks):
             "run_status": "complete",
         },
     )
+
+
+def _load_tier_rules_dict() -> Dict[str, Any]:
+    """Build openapi TierRules-shaped object from tier_intent_rules + BusinessRules."""
+    harvest_ids: List[int] = []
+    conn = _db_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT intent_id FROM tier_intent_rules WHERE LOWER(TRIM(tier)) = %s",
+                ("harvest",),
+            )
+            for row in cur.fetchall() or []:
+                harvest_ids.append(int(row["intent_id"]))
+    finally:
+        conn.close()
+    harvest_ids = sorted(set(harvest_ids))
+    return {
+        "hero": {
+            "max_secondary": int(BusinessRules.get("gates.hero_max_secondary")),
+            "all_intents": True,
+        },
+        "support": {
+            "max_secondary": int(BusinessRules.get("gates.support_max_secondary")),
+            "all_intents": True,
+        },
+        "harvest": {
+            "max_secondary": int(BusinessRules.get("gates.harvest_max_secondary")),
+            "allowed_intents": harvest_ids,
+        },
+        "kill": {"max_secondary": 0, "all_intents": False},
+    }
+
+
+def _build_audit_results_envelope(category: str, run_id: Optional[str] = None) -> Dict[str, Any]:
+    """Mirror PHP AuditController::resultsByCategory `data` object (DB-backed)."""
+    cat = category.strip().lower()
+    citation_rate: Optional[float] = None
+    results: List[Dict[str, Any]] = []
+    run_date: Optional[str] = None
+    latest_run_id: Optional[str] = None
+    quorum: Optional[int] = None
+    run_status: Optional[str] = None
+    decay_alerts: List[Dict[str, Any]] = []
+
+    conn = _db_connect()
+    try:
+        with conn.cursor() as cur:
+            if run_id and str(run_id).strip():
+                cur.execute(
+                    """
+                    SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, run_status, status
+                    FROM ai_audit_runs
+                    WHERE run_id = %s AND category = %s
+                    """,
+                    (str(run_id).strip(), cat),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, run_status, status
+                    FROM ai_audit_runs
+                    WHERE category = %s AND status = 'completed'
+                    ORDER BY run_date DESC, created_at DESC
+                    LIMIT 1
+                    """,
+                    (cat,),
+                )
+            meta = cur.fetchone()
+            if meta:
+                latest_run_id = str(meta.get("run_id") or "")
+                rd = meta.get("run_date")
+                if rd is not None:
+                    run_date = rd.isoformat() if hasattr(rd, "isoformat") else str(rd)
+                if meta.get("aggregate_citation_rate") is not None:
+                    citation_rate = round(float(meta["aggregate_citation_rate"]), 4)
+                if meta.get("engines_available") is not None:
+                    quorum = int(meta["engines_available"])
+                rs = meta.get("run_status")
+                if rs:
+                    run_status = str(rs)
+
+            if latest_run_id:
+                cur.execute(
+                    """
+                    SELECT air.question_id, gq.question_text, air.engine, air.score, s.sku_code AS cited_sku
+                    FROM ai_audit_results air
+                    LEFT JOIN ai_golden_queries gq ON gq.question_id = air.question_id
+                    LEFT JOIN skus s ON s.id = air.cited_sku_id
+                    WHERE air.run_id = %s
+                    ORDER BY air.question_id, air.engine
+                    """,
+                    (latest_run_id,),
+                )
+                by_q: Dict[str, Dict[str, Any]] = {}
+                for r in cur.fetchall() or []:
+                    qid = str(r.get("question_id") or "")
+                    if not qid:
+                        continue
+                    if qid not in by_q:
+                        by_q[qid] = {
+                            "question_id": qid,
+                            "question_text": str(r.get("question_text") or qid),
+                            "scores": {},
+                            "cited_sku": r.get("cited_sku"),
+                        }
+                    eng = str(r.get("engine") or "")
+                    if eng:
+                        sc = r.get("score")
+                        by_q[qid]["scores"][eng] = int(sc) if sc is not None else 0
+                    if r.get("cited_sku"):
+                        by_q[qid]["cited_sku"] = r.get("cited_sku")
+                results = list(by_q.values())
+
+            cur.execute(
+                """
+                SELECT id, decay_status, decay_consecutive_zeros
+                FROM skus
+                WHERE category = %s AND COALESCE(decay_consecutive_zeros, 0) > 0
+                """,
+                (cat,),
+            )
+            valid_decay = {"yellow_flag", "alert", "auto_brief", "escalated"}
+            for r in cur.fetchall() or []:
+                st = str(r.get("decay_status") or "").lower()
+                if st not in valid_decay:
+                    continue
+                decay_alerts.append(
+                    {
+                        "sku_id": str(r.get("id")),
+                        "decay_status": st,
+                        "consecutive_zero_weeks": int(r.get("decay_consecutive_zeros") or 0),
+                    }
+                )
+    finally:
+        conn.close()
+
+    from datetime import date
+
+    rd_out = run_date or date.today().isoformat()
+    target = float(BusinessRules.get("decay.hero_citation_target"))
+    pass_fail: Optional[str]
+    if citation_rate is None:
+        pass_fail = None
+    else:
+        pass_fail = "pass" if citation_rate >= target else "fail"
+
+    return {
+        "run_id": latest_run_id,
+        "category": cat,
+        "run_date": rd_out,
+        "aggregate_citation_rate": citation_rate,
+        "pass_fail": pass_fail,
+        "results": results,
+        "decay_alerts": decay_alerts,
+        "quorum": quorum,
+        "run_status": run_status,
+    }
+
+
+# SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — GET /api/v1/taxonomy/intents
+@app.get("/api/v1/taxonomy/intents")
+def taxonomy_intents(tier: Optional[str] = None):
+    import json as _json
+
+    conn = _db_connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT intent_id, intent_key, label, definition, tier_access FROM intent_taxonomy ORDER BY intent_id"
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    tf = (tier or "").strip().lower() or None
+    intents: List[Dict[str, Any]] = []
+    for r in rows or []:
+        ta = r.get("tier_access")
+        if isinstance(ta, (bytes, str)):
+            try:
+                tier_list = _json.loads(ta)
+            except Exception:
+                tier_list = []
+        elif isinstance(ta, (list, tuple)):
+            tier_list = list(ta)
+        else:
+            tier_list = []
+        tier_norm = [str(x).lower() for x in tier_list]
+        if tf and tf not in tier_norm:
+            continue
+        intents.append(
+            {
+                "intent_id": int(r["intent_id"]),
+                "intent_key": r["intent_key"],
+                "label": r["label"],
+                "definition": r["definition"],
+                "tier_access": tier_list,
+            }
+        )
+    return {"intents": intents, "tier_rules": _load_tier_rules_dict()}
+
+
+# SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — GET /api/v1/clusters
+@app.get("/api/v1/clusters")
+def api_v1_clusters(category: Optional[str] = None):
+    conn = _db_connect()
+    try:
+        with conn.cursor() as cur:
+            if category and str(category).strip():
+                c = str(category).strip().lower()
+                cur.execute(
+                    """
+                    SELECT cluster_id, category, intent_statement, is_active
+                    FROM cluster_master
+                    WHERE is_active = TRUE AND category = %s
+                    ORDER BY cluster_id
+                    """,
+                    (c,),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT cluster_id, category, intent_statement, is_active
+                    FROM cluster_master
+                    WHERE is_active = TRUE
+                    ORDER BY category, cluster_id
+                    """
+                )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    clusters = [
+        {
+            "cluster_id": r["cluster_id"],
+            "category": r["category"],
+            "intent_statement": r["intent_statement"],
+            "is_active": bool(r.get("is_active", True)),
+        }
+        for r in (rows or [])
+    ]
+    return {"clusters": clusters}
+
+
+# SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — GET /api/v1/audit/results/{category}
+@app.get("/api/v1/audit/results/{category}")
+def api_v1_audit_results(category: str, run_id: Optional[str] = None):
+    cat = (category or "").strip().lower()
+    if cat not in ALLOWED_AUDIT_CATEGORIES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "INVALID_CATEGORY", "message": "Invalid category"},
+        )
+    try:
+        payload = _build_audit_results_envelope(cat, run_id)
+    except Exception as exc:
+        logger.warning("audit/results build failed: %s", exc, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "AUDIT_RESULTS_FAILED", "message": str(exc)[:500]},
+        )
+    return {"data": payload}
+
+
+# SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — POST /api/v1/brief/generate (proxy to Laravel CMS)
+@app.post("/api/v1/brief/generate")
+async def api_v1_brief_generate(request: Request):
+    import httpx
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            status_code=422,
+            content={"error": "INVALID_JSON", "message": "Request body must be JSON"},
+        )
+    cms = (os.environ.get("CIE_CMS_URL") or os.environ.get("APP_URL") or "").rstrip("/")
+    if not cms:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "CMS_URL_NOT_CONFIGURED",
+                "message": "Set CIE_CMS_URL or APP_URL to forward brief generation to Laravel",
+            },
+        )
+    token = (os.environ.get("CIE_INTERNAL_API_KEY") or "").strip()
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    url = f"{cms}/api/v1/brief/generate"
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(url, json=body, headers=headers)
+    except Exception as exc:
+        logger.exception("brief/generate proxy: %s", exc)
+        return JSONResponse(
+            status_code=502,
+            content={"error": "CMS_UNREACHABLE", "message": str(exc)[:200]},
+        )
+    try:
+        out = resp.json()
+    except Exception:
+        out = {"message": resp.text[:500]}
+    return JSONResponse(status_code=resp.status_code, content=out)
 
 
 # SOURCE: ENF§2.2 — tier-gate applicability matrix
