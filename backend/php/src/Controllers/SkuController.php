@@ -984,27 +984,20 @@ class SkuController {
             $sku->priority_score = $score;
         }
 
-        $tierGroup = static function (Sku $sku): int {
-            $t = $sku->tier instanceof TierType ? $sku->tier->value : strtolower((string) ($sku->tier ?? ''));
-            if (in_array($t, ['hero', 'support'], true)) {
-                return 0;
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1; openapi.yaml /queue/today — global priority_score DESC, tier rank tiebreaker
+        $tierRank = ['hero' => 0, 'support' => 1, 'harvest' => 2, 'kill' => 3];
+        $sorted = $candidates->sort(function (Sku $a, Sku $b) use ($tierRank) {
+            $ta = $a->tier instanceof TierType ? $a->tier->value : strtolower((string) ($a->tier ?? ''));
+            $tb = $b->tier instanceof TierType ? $b->tier->value : strtolower((string) ($b->tier ?? ''));
+            $ra = $tierRank[$ta] ?? 9;
+            $rb = $tierRank[$tb] ?? 9;
+            $pa = (int) ($a->priority_score ?? 0);
+            $pb = (int) ($b->priority_score ?? 0);
+            if ($pb !== $pa) {
+                return $pb <=> $pa;
             }
-            if ($t === 'harvest') {
-                return 1;
-            }
-            if ($t === 'kill') {
-                return 2;
-            }
-            return 3;
-        };
 
-        $sorted = $candidates->sort(function (Sku $a, Sku $b) use ($tierGroup) {
-            $ga = $tierGroup($a);
-            $gb = $tierGroup($b);
-            if ($ga !== $gb) {
-                return $ga <=> $gb;
-            }
-            return ($b->priority_score ?? 0) <=> ($a->priority_score ?? 0);
+            return $ra <=> $rb;
         })->values();
         $top10 = $sorted->take(10);
 
