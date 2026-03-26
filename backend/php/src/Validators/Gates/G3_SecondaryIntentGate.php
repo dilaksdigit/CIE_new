@@ -124,6 +124,25 @@ class G3_SecondaryIntentGate implements GateInterface
             }
         }
 
+        // SOURCE: CIE_v2.3_Enforcement_Edition.pdf §1.1 — G3 requires uniqueness across the full secondary intent set.
+        $secondaryNormalized = $secondaryIntents
+            ->map(fn ($si) => self::normalizeIntentKey((string) ($si->intent->name ?? '')))
+            ->filter(fn ($k) => $k !== '')
+            ->values();
+        if ($secondaryNormalized->count() !== $secondaryNormalized->unique()->count()) {
+            return new GateResult(
+                gate: GateType::G3_SECONDARY_INTENT,
+                passed: false,
+                reason: 'Duplicate secondary intents detected',
+                blocking: true,
+                metadata: [
+                    'error_code' => 'CIE_G3_SECONDARY_DUPLICATE',
+                    'detail' => 'Duplicate secondary intents detected',
+                    'user_message' => 'Each secondary intent must be unique. Remove duplicate selections.'
+                ]
+            );
+        }
+
         // Min 1 for Hero/Support (CLAUDE.md Section 6 G3)
         if ($tier === TierType::HERO->value || $tier === TierType::SUPPORT->value) {
             if ($count < 1) {
