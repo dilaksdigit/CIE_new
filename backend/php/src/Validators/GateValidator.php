@@ -194,7 +194,8 @@ class GateValidator
             // SOURCE: CIE_Master_Developer_Build_Spec.docx §8.3 — Harvest executes only G1, G2, G6.
             // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §2.1 G6.1 — HARVEST: Specification + 1 other; G6.1 results MUST be recorded.
             // FIX: G6.1-03 — Do not skip G6_1_TIER_LOCK on Harvest (orchestrator must call recordGateResult for all G6.1 outcomes).
-            foreach ([new G1_BasicInfoGate(), new G2_IntentGate(), new G6_TierTagGate()] as $gate) {
+            // SOURCE: CIE_Master_Developer_Build_Spec.docx §7 — Harvest keeps G1/G2/G3/G6/G6.1 active; G4/G5/G7 are suspended.
+            foreach ([new G1_BasicInfoGate(), new G2_IntentGate(), new G3_SecondaryIntentGate(), new G6_TierTagGate()] as $gate) {
                 $rawResult = $gate->validate($sku);
                 $gateResults = is_array($rawResult) ? $rawResult : [$rawResult];
                 foreach ($gateResults as $result) {
@@ -208,6 +209,18 @@ class GateValidator
                         $hasVectorWarn
                     );
                 }
+            }
+
+            foreach ([GateType::G4_ANSWER_BLOCK, GateType::G5_BEST_NOT_FOR, GateType::G7_EXPERT] as $naGate) {
+                $this->recordGateResult(
+                    $sku,
+                    GateResult::notApplicable($naGate, 'Harvest tier: gate suspended'),
+                    $results,
+                    $overallPassed,
+                    $blockingFailure,
+                    $isDegraded,
+                    $hasVectorWarn
+                );
             }
         } else {
             foreach ($this->gates as $gateClass) {
