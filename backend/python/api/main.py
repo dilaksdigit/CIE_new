@@ -8,6 +8,8 @@ import json
 import logging
 import os
 
+import pymysql.err
+
 # Load .env from project root and backend so GSC/GA4 config is set (backend/.env often holds GA4_PROPERTY_ID, GSC_SITE_URL, GOOGLE_APPLICATION_CREDENTIALS)
 _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 load_dotenv(os.path.join(_root, ".env"))
@@ -342,27 +344,56 @@ def _build_audit_results_envelope(category: str, run_id: Optional[str] = None) -
     conn = _db_connect()
     try:
         with conn.cursor() as cur:
+            meta = None
             if run_id and str(run_id).strip():
-                cur.execute(
-                    """
-                    SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, run_status, status
-                    FROM ai_audit_runs
-                    WHERE run_id = %s AND category = %s
-                    """,
-                    (str(run_id).strip(), cat),
-                )
+                rid = str(run_id).strip()
+                try:
+                    cur.execute(
+                        """
+                        SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, run_status, status
+                        FROM ai_audit_runs
+                        WHERE run_id = %s AND category = %s
+                        """,
+                        (rid, cat),
+                    )
+                except pymysql.err.OperationalError as exc:
+                    if exc.args[0] != 1054:
+                        raise
+                    cur.execute(
+                        """
+                        SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, status
+                        FROM ai_audit_runs
+                        WHERE run_id = %s AND category = %s
+                        """,
+                        (rid, cat),
+                    )
+                meta = cur.fetchone()
             else:
-                cur.execute(
-                    """
-                    SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, run_status, status
-                    FROM ai_audit_runs
-                    WHERE category = %s AND status = 'completed'
-                    ORDER BY run_date DESC, created_at DESC
-                    LIMIT 1
-                    """,
-                    (cat,),
-                )
-            meta = cur.fetchone()
+                try:
+                    cur.execute(
+                        """
+                        SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, run_status, status
+                        FROM ai_audit_runs
+                        WHERE category = %s AND status = 'completed'
+                        ORDER BY run_date DESC, created_at DESC
+                        LIMIT 1
+                        """,
+                        (cat,),
+                    )
+                except pymysql.err.OperationalError as exc:
+                    if exc.args[0] != 1054:
+                        raise
+                    cur.execute(
+                        """
+                        SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, status
+                        FROM ai_audit_runs
+                        WHERE category = %s AND status = 'completed'
+                        ORDER BY run_date DESC, created_at DESC
+                        LIMIT 1
+                        """,
+                        (cat,),
+                    )
+                meta = cur.fetchone()
             if meta:
                 latest_run_id = str(meta.get("run_id") or "")
                 rd = meta.get("run_date")
