@@ -41,6 +41,7 @@ class EngineQuestionResult:
     score: Optional[int]  # 0–3 or None when unavailable / skipped
     response_hash: str  # DB column response_hash (spec §12)
     skip_reason: Optional[str]  # None, 'timeout', 'rate_limited', 'api_error', 'engine_down'
+    cited_sku_id: Optional[str] = None  # primary target SKU for this question (skus.id)
 
 
 @dataclass
@@ -50,15 +51,19 @@ class EngineRunSummary:
     results: List[EngineQuestionResult]
 
 
-def load_golden_queries(db, category: str) -> List[Dict[str, Any]]:
+def load_golden_queries(db, category: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """
     Load golden queries JSON for a category from ai_golden_queries.
-    Returns list of dicts with at least: question_id, question_text, target_skus (list of sku_codes).
+    Returns (queries, None) on success, or ([], reason) when audit must not run for this category.
+
+    SOURCE: CIE_v2.3_Enforcement_Edition §4.1 — fixed golden-query count; NULL locked_until blocked.
     """
     sql = """
         SELECT question_id,
                question_text,
-               target_skus
+               target_skus,
+               locked_until,
+               created_at
         FROM ai_golden_queries
         WHERE category = %s
           AND is_active = 1
@@ -67,17 +72,81 @@ def load_golden_queries(db, category: str) -> List[Dict[str, Any]]:
     """
     cur = db.cursor()
     cur.execute(sql, (category,))
-    rows = cur.fetchall()
+    rows = list(cur.fetchall())
     cur.close()
+
+    expected_count = int(BusinessRules.get("decay.audit_question_count", 20))
+
+    for row in rows:
+        if isinstance(row, tuple):
+            question_id = row[0]
+            locked_until = row[3] if len(row) > 3 else None
+        else:
+            question_id = row["question_id"]
+            locked_until = row.get("locked_until")
+        if locked_until is None:
+            logger.error(
+                "AUDIT BLOCKED: Category %r question %s has NULL locked_until.",
+                category,
+                question_id,
+            )
+            return [], f"null_locked_until:{question_id}"
+
+    n = len(rows)
+    if n < expected_count:
+        logger.error(
+            "AUDIT BLOCKED: Category %r has %s active golden queries, need %s.",
+            category,
+            n,
+            expected_count,
+        )
+        return [], f"insufficient_questions:{n}/{expected_count}"
+
+    if n > expected_count:
+        logger.warning(
+            "Category %s: %s active queries exceeds expected %s; using first %s.",
+            category,
+            n,
+            expected_count,
+            expected_count,
+        )
+        rows = rows[:expected_count]
 
     import json
 
     queries: List[Dict[str, Any]] = []
     for row in rows:
         # Row is either tuple or mapping depending on cursor type
-        question_id = row[0] if isinstance(row, tuple) else row["question_id"]
-        question_text = row[1] if isinstance(row, tuple) else row["question_text"]
-        raw_targets = row[2] if isinstance(row, tuple) else row["target_skus"]
+        if isinstance(row, tuple):
+            question_id = row[0]
+            question_text = row[1]
+            raw_targets = row[2]
+            locked_until = row[3] if len(row) > 3 else None
+            created_at = row[4] if len(row) > 4 else None
+        else:
+            question_id = row["question_id"]
+            question_text = row["question_text"]
+            raw_targets = row["target_skus"]
+            locked_until = row.get("locked_until")
+            created_at = row.get("created_at")
+
+        if locked_until is not None and created_at is not None:
+            try:
+                lu = locked_until.date() if hasattr(locked_until, "date") else locked_until
+                ca = created_at.date() if hasattr(created_at, "date") else created_at
+                if hasattr(lu, "__sub__") and hasattr(ca, "__sub__"):
+                    days = (lu - ca).days
+                    if days >= 0 and days < 90:
+                        logger.warning(
+                            "Category %s question %s: locked_until is only %s days after created_at "
+                            "(spec: minimum 90-day lock window).",
+                            category,
+                            question_id,
+                            days,
+                        )
+            except Exception:
+                pass
+
         try:
             target_skus = json.loads(raw_targets) if isinstance(raw_targets, str) else raw_targets
         except Exception:
@@ -91,7 +160,7 @@ def load_golden_queries(db, category: str) -> List[Dict[str, Any]]:
                 "target_skus": target_skus,
             }
         )
-    return queries
+    return queries, None
 
 
 def _load_sku_metadata(db, sku_codes: Sequence[str]) -> Dict[str, Dict[str, Any]]:
@@ -102,7 +171,7 @@ def _load_sku_metadata(db, sku_codes: Sequence[str]) -> Dict[str, Dict[str, Any]
     if not sku_codes:
         return {}
     sql = """
-        SELECT sku_code, title, ai_answer_block
+        SELECT id, sku_code, title, ai_answer_block
         FROM skus
         WHERE sku_code IN ({placeholders})
     """.format(
@@ -114,10 +183,12 @@ def _load_sku_metadata(db, sku_codes: Sequence[str]) -> Dict[str, Dict[str, Any]
     cur.close()
     meta: Dict[str, Dict[str, Any]] = {}
     for row in rows:
-        sku_code = row[0]
-        title = row[1]
-        answer_block = row[2] if len(row) > 2 else None
+        sku_row_id = row[0]
+        sku_code = row[1]
+        title = row[2]
+        answer_block = row[3] if len(row) > 3 else None
         meta[sku_code] = {
+            "id": str(sku_row_id) if sku_row_id is not None else None,
             "product_name": title,
             "answer_block": answer_block or "",
         }
@@ -183,6 +254,41 @@ def evaluate_citation(
     return score
 
 
+def _fetch_previous_consecutive_weeks(
+    db, cited_sku_id: Optional[str], question_id: str, engine: str
+) -> int:
+    """Prior streak for (cited_sku_id, question_id, engine) for decay columns on INSERT."""
+    if not cited_sku_id:
+        return 0
+    cur = db.cursor()
+    cur.execute(
+        """
+        SELECT consecutive_zero_weeks
+        FROM ai_audit_results
+        WHERE cited_sku_id = %s AND question_id = %s AND engine = %s
+        ORDER BY COALESCE(week_ending, run_date) DESC
+        LIMIT 1
+        """,
+        (cited_sku_id, question_id, engine),
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row or row[0] is None:
+        return 0
+    return int(row[0])
+
+
+def _next_consecutive_zero_weeks(prev: int, is_available: bool, score: Optional[int]) -> int:
+    """SOURCE: CIE_Master_Developer_Build_Spec.docx §12.2 — unavailable engine does not advance citation-zero streak."""
+    if not is_available:
+        return prev
+    if score is None:
+        return prev
+    if score >= 1:
+        return 0
+    return prev + 1
+
+
 def run_audit_for_engine(
     engine: str,
     questions: Sequence[Dict[str, Any]],
@@ -204,6 +310,7 @@ def run_audit_for_engine(
         meta = sku_meta.get(primary_sku_code or "", {})
         product_name = meta.get("product_name")
         answer_block = meta.get("answer_block")
+        cited_sku_id = meta.get("id")
 
         try:
             response = query_engine(engine, text, brand_name)
@@ -216,6 +323,7 @@ def run_audit_for_engine(
                     score=score,
                     response_hash=snippet,
                     skip_reason=None,
+                    cited_sku_id=cited_sku_id,
                 )
             )
             consecutive_failures = 0
@@ -231,6 +339,7 @@ def run_audit_for_engine(
                         score=None,
                         response_hash=str(exc),
                         skip_reason="engine_down",
+                        cited_sku_id=cited_sku_id,
                     )
                 )
                 return EngineRunSummary(engine=engine, status="engine_down", results=results)
@@ -242,6 +351,7 @@ def run_audit_for_engine(
                         score=None,
                         response_hash=str(exc),
                         skip_reason="api_error",
+                        cited_sku_id=cited_sku_id,
                     )
                 )
                 continue
@@ -332,7 +442,9 @@ def compare_decay_last_weeks(db, category: str, current_run_date: dt.date) -> Di
     return {"previous_runs": previous}
 
 
-def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
+def run_weekly_audit(
+    db, category: str, brand_name: str, run_id: Optional[str] = None
+) -> Dict[str, Any]:
     """
     Entry point: run weekly AI citation audit for a category.
 
@@ -345,8 +457,21 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
     """
     today = dt.date.today()
 
-    questions = load_golden_queries(db, category)
-    expected_count = int(BusinessRules.get('decay.audit_question_count'))
+    questions, block_reason = load_golden_queries(db, category)
+    if block_reason is not None:
+        logger.error(
+            "AUDIT BLOCKED: category=%s reason=%s (no ai_audit_runs row created).",
+            category,
+            block_reason,
+        )
+        return {
+            "status": "audit_blocked",
+            "reason": block_reason,
+            "category": category,
+            "run_date": str(today),
+        }
+
+    expected_count = int(BusinessRules.get("decay.audit_question_count", 20))
     questions = questions[:expected_count]
     if not questions:
         logger.warning("No golden queries found for category=%s", category)
@@ -360,7 +485,15 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
                 all_skus.append(code)
     sku_meta = _load_sku_metadata(db, all_skus)
 
-    run_id = str(uuid.uuid4())
+    # SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 2 §2.1 — PHP proxy may supply run_id for 202/async alignment
+    if run_id:
+        try:
+            rid = str(uuid.UUID(str(run_id).strip()))
+        except (ValueError, AttributeError, TypeError):
+            rid = str(uuid.uuid4())
+    else:
+        rid = str(uuid.uuid4())
+    run_id = rid
     total_questions = len(questions)
 
     # Insert initial run row with status='running'
@@ -402,6 +535,14 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
         decay_action = "frozen"
         quorum_met = False
 
+    # SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 2 §2.1 — OpenAPI run_status (BusinessRules-sourced thresholds)
+    if engines_responded >= quorum_advance:
+        openapi_run_status = "complete"
+    elif engines_responded == quorum_pause:
+        openapi_run_status = "partial"
+    else:
+        openapi_run_status = "failed"
+
     agg_rate, questions_scored = compute_aggregate(engine_summaries)
 
     threshold = float(BusinessRules.get('decay.hero_citation_target'))
@@ -411,15 +552,23 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
     cur = db.cursor()
     insert_sql = """
         INSERT INTO ai_audit_results
-            (run_id, question_id, engine, score, response_hash, skip_reason)
-        VALUES (%s, %s, %s, %s, %s, %s)
+            (run_id, question_id, engine, score, response_hash, skip_reason,
+             cited_sku_id, week_ending, is_available, consecutive_zero_weeks)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON DUPLICATE KEY UPDATE
             score = VALUES(score),
             response_hash = VALUES(response_hash),
-            skip_reason = VALUES(skip_reason)
+            skip_reason = VALUES(skip_reason),
+            cited_sku_id = VALUES(cited_sku_id),
+            week_ending = VALUES(week_ending),
+            is_available = VALUES(is_available),
+            consecutive_zero_weeks = VALUES(consecutive_zero_weeks)
     """
     for summary in engine_summaries:
         for r in summary.results:
+            is_available = r.score is not None and r.skip_reason is None
+            prev_c = _fetch_previous_consecutive_weeks(db, r.cited_sku_id, r.question_id, r.engine)
+            consec = _next_consecutive_zero_weeks(prev_c, is_available, r.score)
             cur.execute(
                 insert_sql,
                 (
@@ -429,6 +578,10 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
                     r.score,
                     r.response_hash,
                     r.skip_reason,
+                    r.cited_sku_id,
+                    today,
+                    1 if is_available else 0,
+                    consec,
                 ),
             )
 
@@ -442,7 +595,8 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
             pass_fail = %s,
             engines_available = %s,
             quorum_met = %s,
-            degraded_mode = %s
+            degraded_mode = %s,
+            run_status = %s
         WHERE run_id = %s
         """,
         (
@@ -454,6 +608,7 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
             engines_responded,
             quorum_met,
             degraded_mode,
+            openapi_run_status,
             run_id,
         ),
     )
@@ -479,6 +634,7 @@ def run_weekly_audit(db, category: str, brand_name: str) -> Dict[str, Any]:
 
     return {
         "status": quorum_status,
+        "run_status": openapi_run_status,
         "decay_action": decay_action,
         "category": category,
         "run_id": run_id,

@@ -65,7 +65,43 @@ class PythonWorkerClient
     }
 
     /**
-     * Queue an AI audit job
+     * SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — POST /api/v1/audit/run (category-wide weekly audit).
+     * SOURCE: openapi.yaml AuditRunResponse — async 202; quorum/run_status finalized in ai_audit_runs (weekly_service).
+     */
+    public function auditRunForCategory(string $runId, string $category): array
+    {
+        try {
+            $response = $this->client->post('/api/v1/audit/run', [
+                'json' => [
+                    'category' => $category,
+                    'run_id' => $runId,
+                ],
+            ]);
+
+            if ($response->getStatusCode() !== 200 && $response->getStatusCode() !== 202) {
+                Log::warning('Python audit/run returned '.$response->getStatusCode(), [
+                    'body' => $response->getBody()->getContents(),
+                ]);
+
+                return ['ok' => false, 'error' => 'Audit dispatch failed'];
+            }
+
+            $body = json_decode($response->getBody()->getContents(), true) ?? [];
+            $body['ok'] = true;
+
+            return $body;
+        } catch (RequestException $e) {
+            Log::error('auditRunForCategory request failed: '.$e->getMessage(), [
+                'category' => $category,
+                'run_id' => $runId,
+            ]);
+
+            return ['ok' => false, 'error' => 'Service unavailable'];
+        }
+    }
+
+    /**
+     * Queue an AI audit job (legacy per-SKU path; retained for callers not migrated to audit/run).
      */
     public function queueAudit(int $skuId): array
     {

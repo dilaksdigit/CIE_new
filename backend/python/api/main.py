@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # Add parent to path for src imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import FastAPI, Request
+from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError as PydanticValidationError
@@ -42,6 +42,11 @@ class EmbedRequest(BaseModel):
 class SimilarityRequest(BaseModel):
     description: str = ""
     cluster_id: str = ""
+
+
+class AuditRunRequest(BaseModel):
+    category: str = ""
+    run_id: Optional[str] = None
 
 
 class BaselineUrlRequest(BaseModel):
@@ -125,6 +130,31 @@ PENDING_MESSAGE = (
     "Description validation temporarily unavailable. Your changes are saved "
     "but publishing is paused until validation completes (typically within 30 minutes)."
 )
+
+ALLOWED_AUDIT_CATEGORIES = frozenset(
+    {"cables", "lampshades", "bulbs", "pendants", "floor_lamps"}
+)
+
+
+def _weekly_audit_background(category: str, run_id: str) -> None:
+    """SOURCE: CIE_Master_Developer_Build_Spec.docx §12.1 — delegates to weekly_service.run_weekly_audit."""
+    try:
+        from src.utils.mysql_connect import pymysql_connect_dict_cursor
+        from src.ai_audit.weekly_service import run_weekly_audit
+
+        brand = (os.environ.get("CIE_AUDIT_BRAND_NAME") or "CIE").strip() or "CIE"
+        db = pymysql_connect_dict_cursor()
+        try:
+            run_weekly_audit(db, category, brand, run_id=run_id)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.exception(
+            "Background weekly audit failed category=%s run_id=%s: %s",
+            category,
+            run_id,
+            exc,
+        )
 
 
 @app.post("/api/v1/sku/embed")
@@ -224,6 +254,44 @@ def sku_similarity(body: SimilarityRequest):
             "status": "pending",
             "message": PENDING_MESSAGE,
         }
+
+
+# SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — POST /api/v1/audit/run
+@app.post("/api/v1/audit/run")
+def audit_run(body: AuditRunRequest, background_tasks: BackgroundTasks):
+    """
+    Trigger weekly AI citation audit for a category (async). PHP proxy dispatches here;
+    quorum/run_status are persisted on ai_audit_runs by weekly_service (Hardening Patch 2 §2.1).
+    """
+    cat = (body.category or "").strip().lower()
+    if cat not in ALLOWED_AUDIT_CATEGORIES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "INVALID_CATEGORY", "message": "Invalid category"},
+        )
+    rid = (body.run_id or "").strip()
+    if rid:
+        try:
+            uuid.UUID(rid)
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "INVALID_RUN_ID", "message": "run_id must be a UUID"},
+            )
+    else:
+        rid = str(uuid.uuid4())
+    background_tasks.add_task(_weekly_audit_background, cat, rid)
+    # SOURCE: openapi.yaml AuditRunResponse; CIE_v232_Hardening_Addendum.pdf Patch 2 — placeholders until run completes
+    return JSONResponse(
+        status_code=202,
+        content={
+            "run_id": rid,
+            "status": "running",
+            "estimated_duration_minutes": 15,
+            "quorum": 0,
+            "run_status": "complete",
+        },
+    )
 
 
 # SOURCE: ENF§2.2 — tier-gate applicability matrix
@@ -510,32 +578,217 @@ def baseline_ga4_metrics(body: BaselineUrlRequest):
     if not url:
         return JSONResponse(status_code=400, content={"error": "url required"})
     try:
-        from datetime import date, timedelta
         from urllib.parse import urlparse
-        from src.utils.config import Config
-        from src.utils.business_rules import get_business_rule
-        from src.integrations.ga4_client import pull_ga4_for_landing_page
-        property_id = Config.GA4_PROPERTY_ID or os.environ.get("GA4_PROPERTY_ID", "")
-        if not property_id:
-            return {"sessions": None, "bounce_rate": None, "conversion_rate": None, "revenue": None}
-        # GA4 landingPage dimension is path-only (e.g. "/" or "/products/x"), not full URL
-        parsed = urlparse(url)
+        from src.utils.url_utils import normalise_url
+
+        norm_url = normalise_url(url)
+        parsed = urlparse(norm_url)
         landing_path = parsed.path if parsed.path else "/"
-        end = date.today()
-        lookback_weeks = int(get_business_rule("sync.baseline_lookback_weeks", 2))
-        start = end - timedelta(days=lookback_weeks * 7)
-        snapshot = pull_ga4_for_landing_page(property_id, landing_path, start, end)
-        if snapshot is None:
-            return {"sessions": None, "bounce_rate": None, "conversion_rate": None, "revenue": None}
+
+        # SOURCE: CIE_Master_Developer_Build_Spec.docx §9.4, §10.3
+        # Baseline from 2 most recent weekly rows (fail-soft if none).
+        conn = _db_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT organic_sessions, organic_conversion_rate, bounce_rate, revenue_organic
+                    FROM ga4_landing_performance
+                    WHERE landing_page IN (%s, %s)
+                    ORDER BY COALESCE(week_ending, window_end) DESC
+                    LIMIT 2
+                    """,
+                    (landing_path, norm_url),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        if not rows:
+            return {"sessions": None, "bounce_rate": None, "conversion_rate": None, "revenue_organic": None}
+
+        sessions_vals = [float(r.get("organic_sessions") or 0) for r in rows]
+        bounce_vals = [float(r.get("bounce_rate") or 0) for r in rows]
+        conv_vals = [r.get("organic_conversion_rate") for r in rows]
+        rev_vals = [r.get("revenue_organic") for r in rows]
+
+        has_ecommerce = any((v is not None and float(v) > 0) for v in rev_vals) or any(
+            (v is not None and float(v) > 0) for v in conv_vals
+        )
+        conv_clean = [float(v) for v in conv_vals if v is not None]
+        rev_clean = [float(v) for v in rev_vals if v is not None]
+
+        sessions = int(round(sum(sessions_vals) / max(len(sessions_vals), 1)))
+        bounce_rate = round(sum(bounce_vals) / max(len(bounce_vals), 1), 4)
+        conversion_rate = round(sum(conv_clean) / len(conv_clean), 6) if conv_clean and has_ecommerce else 0
+        revenue_organic = round(sum(rev_clean) / len(rev_clean), 2) if rev_clean and has_ecommerce else 0
+
         return {
-            "sessions": snapshot.sessions,
-            "bounce_rate": snapshot.bounce_rate,
-            "conversion_rate": snapshot.conversion_rate,
-            "revenue": snapshot.revenue,
+            "sessions": sessions,
+            "bounce_rate": bounce_rate,
+            "conversion_rate": conversion_rate,
+            "revenue_organic": revenue_organic,
         }
     except Exception as e:
         logger.warning("baseline GA4 metrics failed for url=%s: %s", url, e, exc_info=True)
-        return {"sessions": None, "bounce_rate": None, "conversion_rate": None, "revenue": None}
+        return {"sessions": None, "bounce_rate": None, "conversion_rate": None, "revenue_organic": None}
+
+
+# SOURCE: CIE_Master_Developer_Build_Spec.docx Section 9.1 (auth)
+# SOURCE: CIE_Master_Developer_Build_Spec.docx Phase 2 Item 2.1
+#   "returns 200 with verified property list using service account credentials"
+def _db_connect():
+    from src.utils.mysql_connect import pymysql_connect_dict_cursor
+
+    return pymysql_connect_dict_cursor()
+
+
+def _gsc_verify_last_sync_date() -> Optional[str]:
+    """Most recent weekly sync marker from url_performance (COALESCE(week_ending, window_end))."""
+    try:
+        conn = _db_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT MAX(COALESCE(week_ending, window_end)) AS d
+                    FROM url_performance
+                    """
+                )
+                row = cur.fetchone()
+                d = row.get("d") if row else None
+                if d is None:
+                    return None
+                if hasattr(d, "isoformat"):
+                    return d.isoformat()
+                return str(d)
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("gsc/verify last_sync query failed: %s", exc)
+        return None
+
+
+def _ga4_verify_last_sync_date() -> Optional[str]:
+    try:
+        conn = _db_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT MAX(COALESCE(week_ending, window_end)) AS d
+                    FROM ga4_landing_performance
+                    """
+                )
+                row = cur.fetchone()
+                d = row.get("d") if row else None
+                if d is None:
+                    return None
+                if hasattr(d, "isoformat"):
+                    return d.isoformat()
+                return str(d)
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning("ga4/health last_sync query failed: %s", exc)
+        return None
+
+
+@app.get("/api/v1/ga4/health")
+def ga4_health():
+    """
+    SOURCE: CIE_Master_Developer_Build_Spec.docx §10.3, §15
+    Internal engine route for GA4 connectivity and ecommerce tracking detection.
+    """
+    try:
+        from datetime import date, timedelta
+        from src.utils.config import Config
+        from src.integrations.ga4_client import _get_client
+        from google.analytics.data_v1beta.types import DateRange, Metric, RunReportRequest
+
+        property_id = Config.GA4_PROPERTY_ID or os.environ.get("GA4_PROPERTY_ID", "")
+        if not property_id:
+            return JSONResponse(status_code=200, content={
+                "connected": False,
+                "ecommerce_tracking_detected": False,
+                "last_sync_date": _ga4_verify_last_sync_date(),
+            })
+
+        client = _get_client()
+        prop = f"properties/{property_id}" if not property_id.startswith("properties/") else property_id
+        end = date.today()
+        start = end - timedelta(days=7)
+        req = RunReportRequest(
+            property=prop,
+            metrics=[Metric(name="purchaseRevenue")],
+            date_ranges=[DateRange(start_date=start.isoformat(), end_date=end.isoformat())],
+            limit=1,
+        )
+        resp = client.run_report(req)
+        revenue = 0.0
+        if resp.rows:
+            revenue = float(resp.rows[0].metric_values[0].value or 0)
+        return JSONResponse(status_code=200, content={
+            "connected": True,
+            "ecommerce_tracking_detected": revenue > 0,
+            "last_sync_date": _ga4_verify_last_sync_date(),
+        })
+    except Exception as exc:
+        logger.warning("ga4/health failed: %s", exc, exc_info=True)
+        return JSONResponse(status_code=200, content={
+            "connected": False,
+            "ecommerce_tracking_detected": False,
+            "last_sync_date": _ga4_verify_last_sync_date(),
+        })
+
+
+@app.get("/api/v1/gsc/verify")
+def gsc_verify():
+    """
+    Internal engine route: GSC auth + sites.list + last url_performance sync date.
+    Used by PHP GET /api/gsc/status. Always returns 200 with a JSON body (fail-soft).
+    """
+    try:
+        from src.integrations.gsc_client import get_gsc_service
+
+        service = get_gsc_service()
+        resp = service.sites().list().execute()
+        entries = resp.get("siteEntry") or []
+        verified = [e.get("siteUrl") for e in entries if e.get("siteUrl")]
+        last_sync = _gsc_verify_last_sync_date()
+        return JSONResponse(
+            status_code=200,
+            content={
+                "connected": True,
+                "verified_properties": verified,
+                "last_sync_date": last_sync,
+            },
+        )
+    except Exception as exc:
+        err_type = "unknown"
+        try:
+            from google.auth.exceptions import DefaultCredentialsError
+            from googleapiclient.errors import HttpError
+
+            if isinstance(exc, DefaultCredentialsError):
+                err_type = "auth_error"
+            elif isinstance(exc, HttpError):
+                err_type = "api_error"
+        except Exception:
+            pass
+        msg = str(exc).lower()
+        if "credential" in msg or "authentication" in msg or "invalid_grant" in msg:
+            err_type = "auth_error"
+        logger.warning("gsc/verify failed: %s", exc, exc_info=True)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "connected": False,
+                "verified_properties": [],
+                "last_sync_date": None,
+                "error": err_type,
+            },
+        )
 
 
 # SOURCE: CIE_Master_Developer_Build_Spec.docx §4.4

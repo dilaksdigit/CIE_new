@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use App\Models\AuditLog;
 use App\Support\BusinessRules;
+use Illuminate\Support\Str;
 
 class AuditController {
     private $pythonClient;
@@ -25,7 +26,8 @@ class AuditController {
     public function runByCategory(Request $request) {
         $request->validate(['category' => 'required|string|in:cables,lampshades,bulbs,pendants,floor_lamps']);
         $category = $request->input('category');
-        $runId = bin2hex(random_bytes(16));
+        // SOURCE: openapi.yaml AuditRunResponse — run_id format uuid; CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1
+        $runId = (string) Str::uuid();
         AuditLog::create([
             'entity_type' => 'audit',
             'entity_id'   => $runId,
@@ -39,11 +41,19 @@ class AuditController {
             'user_agent'  => $request->userAgent(),
             'timestamp'   => now(),
         ]);
-        // SOURCE: openapi.yaml AuditRunResponse; CIE_v232_Hardening_Addendum.pdf Patch 2
+        // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — PHP dispatches to Python weekly_service (actual engines + 0–3 scores)
+        $dispatch = $this->pythonClient->auditRunForCategory($runId, (string) $category);
+        if (empty($dispatch['ok'])) {
+            Log::warning('Audit run Python dispatch did not accept job', [
+                'category' => $category,
+                'run_id' => $runId,
+                'dispatch' => $dispatch,
+            ]);
+        }
+        // SOURCE: openapi.yaml AuditRunResponse; CIE_v232_Hardening_Addendum.pdf Patch 2 §2.1 — placeholders until ai_audit_runs row completes
         return response()->json([
             'run_id' => $runId,
             'status' => 'running',
-            // Async trigger response: quorum/run_status are initialized and finalized by the worker run output.
             'quorum' => 0,
             'run_status' => 'complete',
             'estimated_duration_minutes' => 15,
@@ -63,10 +73,70 @@ class AuditController {
         $citationRate = null;
         $results = [];
         $runDate = null;
+        $latestRunId = null;
+        $quorum = null;
+        $runStatus = null;
 
         try {
-            if (Schema::hasTable('audit_results') && Schema::hasTable('skus')) {
-                // Get most recent audit run date for this category
+            // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 2 §2.1 — canonical row in ai_audit_runs (Python weekly_service)
+            if (Schema::hasTable('ai_audit_runs')) {
+                $metaRun = DB::table('ai_audit_runs')
+                    ->where('category', $category)
+                    ->where('status', 'completed')
+                    ->orderByDesc('run_date')
+                    ->orderByDesc('created_at')
+                    ->first();
+
+                if ($metaRun) {
+                    $latestRunId = (string) ($metaRun->run_id ?? '');
+                    $runDate = $metaRun->run_date
+                        ? \Carbon\Carbon::parse($metaRun->run_date)->toDateString()
+                        : now()->toDateString();
+                    if ($metaRun->aggregate_citation_rate !== null) {
+                        $citationRate = round((float) $metaRun->aggregate_citation_rate, 4);
+                    }
+                    $quorum = isset($metaRun->engines_available) ? (int) $metaRun->engines_available : null;
+                    if (Schema::hasColumn('ai_audit_runs', 'run_status')) {
+                        $runStatus = $metaRun->run_status !== null && $metaRun->run_status !== ''
+                            ? (string) $metaRun->run_status
+                            : null;
+                    }
+                }
+            }
+
+            if ($latestRunId !== null && $latestRunId !== '' && Schema::hasTable('ai_audit_results') && Schema::hasTable('ai_golden_queries')) {
+                $rows = DB::table('ai_audit_results as air')
+                    ->leftJoin('ai_golden_queries as gq', 'gq.question_id', '=', 'air.question_id')
+                    ->leftJoin('skus', 'skus.id', '=', 'air.cited_sku_id')
+                    ->where('air.run_id', $latestRunId)
+                    ->orderBy('air.question_id')
+                    ->orderBy('air.engine')
+                    ->get(['air.question_id', 'gq.question_text', 'air.engine', 'air.score', 'skus.sku_code as cited_sku']);
+
+                $byQ = [];
+                foreach ($rows as $r) {
+                    $qid = (string) ($r->question_id ?? '');
+                    if ($qid === '') {
+                        continue;
+                    }
+                    if (!isset($byQ[$qid])) {
+                        $byQ[$qid] = [
+                            'question_id' => $qid,
+                            'question_text' => (string) ($r->question_text ?? $qid),
+                            'scores' => [],
+                            'cited_sku' => $r->cited_sku ?? null,
+                        ];
+                    }
+                    $eng = (string) ($r->engine ?? '');
+                    if ($eng !== '') {
+                        $byQ[$qid]['scores'][$eng] = $r->score !== null ? (int) $r->score : 0;
+                    }
+                    if (!empty($r->cited_sku)) {
+                        $byQ[$qid]['cited_sku'] = $r->cited_sku;
+                    }
+                }
+                $results = array_values($byQ);
+            } elseif (Schema::hasTable('audit_results') && Schema::hasTable('skus')) {
                 $latestRun = DB::table('audit_results as ar')
                     ->join('skus', 'ar.sku_id', '=', 'skus.id')
                     ->where('skus.category', $category)
@@ -77,7 +147,6 @@ class AuditController {
                 if ($latestRun) {
                     $runDate = \Carbon\Carbon::parse($latestRun)->toDateString();
 
-                    // Aggregate citation rate = avg(score) / 100 for that run date
                     $row = DB::table('audit_results as ar')
                         ->join('skus', 'ar.sku_id', '=', 'skus.id')
                         ->where('skus.category', $category)
@@ -90,7 +159,6 @@ class AuditController {
                         $citationRate = round((float) $row->avg_score / 100, 4);
                     }
 
-                    // Recent results (up to 50)
                     $results = DB::table('audit_results as ar')
                         ->join('skus', 'ar.sku_id', '=', 'skus.id')
                         ->where('skus.category', $category)
@@ -115,13 +183,15 @@ class AuditController {
         // SOURCE: openapi.yaml AuditResults schema; decay_alerts from sku decay fields (CIE_Master_Developer_Build_Spec.docx §6.1)
         return response()->json([
             'data' => [
-                'run_id'                  => null,
+                'run_id'                  => $latestRunId,
                 'category'                => $category,
                 'run_date'                => $runDate ?? now()->toDateString(),
                 'aggregate_citation_rate' => $citationRate,
                 'pass_fail'               => $passFail,
                 'results'                 => $results,
                 'decay_alerts'            => $decayAlerts,
+                'quorum'                  => $quorum,
+                'run_status'              => $runStatus,
             ],
         ]);
     }
