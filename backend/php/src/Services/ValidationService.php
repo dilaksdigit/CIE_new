@@ -136,12 +136,14 @@ class ValidationService
      * Full validation pipeline for a SKU.
      * Uses GateValidator keys: overall_status, can_publish, gates. Returns all failures with error_code, detail, user_message.
      */
-    public function validate(Sku $sku, bool $preserveStatus = false): array
+    public function validate(Sku $sku, bool $preserveStatus = false, string $action = 'save'): array
     {
         Log::info("Starting validation for SKU {$sku->id}", ['sku_code' => $sku->sku_code]);
 
         try {
-            $validationResults = $this->validator->validateAll($sku, $preserveStatus);
+            // SOURCE: openapi.yaml SkuValidateRequest — action must be consumed by validator contract (save|publish).
+            // Current behavior: gates run identically for save/publish; distinction is response-level save_allowed vs publish_allowed.
+            $validationResults = $this->validator->validateAll($sku, $preserveStatus, $action);
             $gates = $validationResults['gates'] ?? [];
             $resultRows = $validationResults['results'] ?? [];
             $overallStatus = $validationResults['overall_status'] ?? 'invalid';
@@ -222,6 +224,7 @@ class ValidationService
                 'can_publish' => $canPublish,
                 'ai_validation_pending' => $isDegraded,
                 'vector_validation' => $vectorValidation,
+                'action' => $action,
                 'http_status' => ($status === ValidationStatus::VALID || ($status === ValidationStatus::DEGRADED && empty($failures))) ? 200 : 400,
                 'openapi_validation_body' => $this->buildOpenApiValidationBody($validationResults),
             ];
@@ -257,12 +260,16 @@ class ValidationService
     public function validateSku(string $id, array $draft = [])
     {
         $sku = Sku::with(['skuIntents.intent'])->findOrFail($id);
+        $action = strtolower((string) ($draft['action'] ?? 'save'));
+        if (!in_array($action, ['save', 'publish'], true)) {
+            $action = 'save';
+        }
         if ($draft !== []) {
             $this->applyValidationDraft($sku, $draft);
         }
         app()->instance('cie.validation_draft_keys', array_keys($draft));
         try {
-            return $this->validate($sku);
+            return $this->validate($sku, false, $action);
         } finally {
             app()->forgetInstance('cie.validation_draft_keys');
         }

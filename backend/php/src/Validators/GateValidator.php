@@ -18,6 +18,7 @@ use App\Validators\Gates\G7_ExpertAuthorityGate;
 
 class GateValidator
 {
+    private string $action = 'save';
     private array $gates = [
         G1_BasicInfoGate::class,
         G2_IntentGate::class,
@@ -117,8 +118,11 @@ class GateValidator
         }
     }
 
-    public function validateAll(Sku $sku, bool $preserveStatus = false): array
+    public function validateAll(Sku $sku, bool $preserveStatus = false, string $action = 'save'): array
     {
+        // SOURCE: openapi.yaml SkuValidateRequest — action is part of validate contract and must be consumed.
+        // Current implementation keeps gate rules identical for save/publish; response flags control publish strictness.
+        $this->action = in_array(strtolower($action), ['save', 'publish'], true) ? strtolower($action) : 'save';
         $results = [];
         $overallPassed = true;
         $isDegraded = false;
