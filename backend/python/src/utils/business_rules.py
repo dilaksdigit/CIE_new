@@ -7,35 +7,16 @@ SOURCE: CIE_Master_Developer_Build_Spec.docx §5.2–§5.3
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Optional
-from urllib.parse import urlparse
 
-import pymysql
+from .mysql_connect import pymysql_connect_dict_cursor
 
 logger = logging.getLogger(__name__)
 
 
 def _connect():
     # SOURCE: CIE_Master_Developer_Build_Spec.docx §5.2 — same env contract as other Python DB helpers
-    url = os.environ.get("DATABASE_URL", "")
-    if url:
-        parsed = urlparse(url)
-        return pymysql.connect(
-            host=parsed.hostname or os.environ.get("DB_HOST", "localhost"),
-            port=parsed.port or 3306,
-            user=parsed.username or os.environ.get("DB_USER", "root"),
-            password=parsed.password or os.environ.get("DB_PASSWORD", ""),
-            database=(parsed.path or "").lstrip("/") or os.environ.get("DB_DATABASE", "cie"),
-            cursorclass=pymysql.cursors.DictCursor,
-        )
-    return pymysql.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        user=os.environ.get("DB_USER", "root"),
-        password=os.environ.get("DB_PASSWORD", ""),
-        database=os.environ.get("DB_DATABASE", "cie"),
-        cursorclass=pymysql.cursors.DictCursor,
-    )
+    return pymysql_connect_dict_cursor()
 
 
 def get_business_rule(key: str, default: Optional[Any] = None) -> Any:

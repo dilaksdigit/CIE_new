@@ -7,6 +7,7 @@ use App\Services\BriefGenerationService;
 use App\Support\BusinessRules;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 
 class DecayService
@@ -36,12 +37,11 @@ class DecayService
         // Advance decay (consecutive zero weeks)
         $newZeros = (int) ($sku->decay_consecutive_zeros ?? 0) + 1;
 
-        $yellowFlagWeeks = (int) BusinessRules::get('decay.yellow_flag_weeks');
-        $alertWeeks = (int) BusinessRules::get('decay.alert_weeks');
-        // SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3
-        // FIX: DEC-01/DEC-06 — use spec key; fallback to legacy alias.
-        $autoBriefWeeks = (int) (BusinessRules::get('decay.zero_weeks_before_brief') ?: BusinessRules::get('decay.auto_brief_weeks') ?: 3);
-        $escalateWeeks = (int) BusinessRules::get('decay.escalate_weeks');
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §12.2 — thresholds from business_rules only (no silent code fallbacks).
+        $yellowFlagWeeks = $this->requireDecayConfigInt('decay.yellow_flag_weeks');
+        $alertWeeks = $this->requireDecayConfigInt('decay.alert_weeks');
+        $autoBriefWeeks = $this->requireDecayConfigInt('decay.auto_brief_weeks');
+        $escalateWeeks = $this->requireDecayConfigInt('decay.escalate_weeks');
 
         $status = match (true) {
             $newZeros >= $escalateWeeks => 'escalated',
@@ -70,7 +70,7 @@ class DecayService
         $week4 = 'escalated';
         switch ($status) {
             case $week1:
-                $this->notify($sku, 'yellow_flag', "Citation zero in week 1. Monitoring.");
+                // SOURCE: CIE_Master_Developer_Build_Spec.docx §12.2 — Week 1 yellow_flag: no notification, no user-facing action.
                 break;
             case $week2:
                 $this->notify($sku, 'alert', "Citation alert! Week 2 with zero visibility.");
@@ -85,10 +85,46 @@ class DecayService
         }
     }
 
+    /**
+     * SOURCE: CIE_Master_Developer_Build_Spec.docx §12.2 — Week 2+ in-app + email to writer/reviewer roles.
+     * Week 1 yellow_flag: no call from handleDecayEscalation (no user notification).
+     */
     private function notify(Sku $sku, string $type, string $message): void
     {
-        // Integration with NotificationService (Assumed mock for now)
-        \Log::info("Decay Escalation: [{$type}] {$message}", ['sku_id' => $sku->id]);
+        $productLabel = (string) ($sku->title ?: $sku->sku_code ?: $sku->id);
+        $skuRef = (string) ($sku->sku_code ?: $sku->id);
+        $body = $message."\n\nSKU: {$skuRef} — {$productLabel}";
+
+        // TODO: notifications table + UI bell for in-app alerts. Email is primary per §12.2.
+        try {
+            if (class_exists(\App\Models\Notification::class)) {
+                // Reserved for future Notification model + persistence.
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Decay in-app notification skipped: '.$e->getMessage(), ['sku_id' => $sku->id]);
+        }
+
+        try {
+            $q = DB::table('users')
+                ->join('user_roles', 'users.id', '=', 'user_roles.user_id')
+                ->join('roles', 'user_roles.role_id', '=', 'roles.id')
+                ->whereIn('roles.name', ['CONTENT_EDITOR', 'PRODUCT_SPECIALIST', 'CONTENT_LEAD', 'SEO_GOVERNOR'])
+                ->distinct()
+                ->select('users.email');
+            if (Schema::hasColumn('users', 'is_active')) {
+                $q->where('users.is_active', true);
+            }
+            $emails = $q->pluck('users.email')->filter()->unique()->values()->all();
+            if ($emails !== []) {
+                Mail::raw($body, function ($m) use ($emails, $type, $productLabel) {
+                    $m->to($emails)->subject('[CIE Decay] '.$type.': '.$productLabel);
+                });
+            }
+        } catch (\Throwable $e) {
+            Log::error('Decay email failed: '.$e->getMessage(), ['sku_id' => $sku->id]);
+        }
+
+        Log::info("Decay Escalation: [{$type}] {$message}", ['sku_id' => $sku->id]);
     }
 
     private function generateAutoBrief(Sku $sku): void
@@ -122,5 +158,15 @@ class DecayService
             ->limit(80);
 
         return $q->pluck('question_id')->unique()->values()->map(fn ($id) => (string) $id)->all();
+    }
+
+    private function requireDecayConfigInt(string $key): int
+    {
+        $v = BusinessRules::get($key);
+        if ($v === null || $v === '') {
+            throw new \RuntimeException('Missing required config: '.$key);
+        }
+
+        return (int) $v;
     }
 }

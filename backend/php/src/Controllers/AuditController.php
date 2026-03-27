@@ -23,6 +23,7 @@ class AuditController {
 
     /**
      * POST /api/v1/audit/run — trigger AI citation audit for a category (20 questions). Unified API 7.1.
+     * SOURCE: openapi.yaml /audit/run (async receipt); CIE_v232_Hardening_Addendum.pdf Patch 2 §2.1
      */
     public function runByCategory(Request $request) {
         // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §7.2 API-15 — consistent validation error envelope
@@ -61,13 +62,15 @@ class AuditController {
                 'dispatch' => $dispatch,
             ]);
         }
-        // SOURCE: openapi.yaml AuditRunResponse; CIE_v232_Hardening_Addendum.pdf Patch 2 §2.1 — placeholders until ai_audit_runs row completes
+        // SOURCE: openapi.yaml AuditRunResponse; CIE_v232_Hardening_Addendum.pdf Patch 2 §2.1
+        // Async dispatch: quorum/run_status are initial values. Final engine-derived values are written
+        // by the Python service to ai_audit_runs and read via GET /audit/results/{category}.
         return response()->json([
-            'run_id' => $runId,
-            'status' => 'running',
-            'quorum' => 0,
-            'run_status' => 'complete',
+            'run_id'                     => $runId,
+            'status'                     => 'running',
             'estimated_duration_minutes' => 15,
+            'quorum'                     => 0,
+            'run_status'                 => 'running',
         ], 202);
     }
 

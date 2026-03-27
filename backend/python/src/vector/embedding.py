@@ -30,7 +30,8 @@ def get_embedding(text, model=None):
     Embed text with Gemini embeddings.
     Fails soft on timeout/provider errors (warns, returns None).
     """
-    api_key = os.getenv("GEMINI_API_KEY")
+    # Normalize env value to avoid fail-soft false negatives from accidental spaces in .env values.
+    api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
     if not api_key or api_key == "...":
         logger.warning("Embedding API error (fail-soft): GEMINI_API_KEY missing")
         return None

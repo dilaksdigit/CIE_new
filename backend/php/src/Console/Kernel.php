@@ -12,9 +12,12 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule($schedule): void
     {
-        // SOURCE: CIE_Master_Developer_Build_Spec.docx §12.1 — ai_audit_cron_schedule
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §12.1 — AI citation audit first, then decay escalation.
         $aiAuditCron = (string) BusinessRules::get('sync.ai_audit_cron_schedule', '0 9 * * 1');
-        $schedule->command('decay:run')->cron($aiAuditCron);
+        $schedule->command('audit:run-weekly')->cron($aiAuditCron);
+
+        $decayCron = (string) BusinessRules::get('sync.decay_cron_schedule', '0 10 * * 1');
+        $schedule->command('decay:run')->cron($decayCron);
         $schedule->command('cie:decay-check')->weeklyOn(1, '09:30');
     }
 

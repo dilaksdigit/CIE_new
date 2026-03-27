@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Validator;
 
 /**
  * CIE v2.3.2 — Dashboard data for S4 Maturity, Decay Monitor, Effort Allocation, Staff KPIs.
@@ -99,6 +100,28 @@ class DashboardController
         $effort = $this->safeBuild('buildEffortAllocation', ['hero_pct' => 0]);
         $heroTimePct = isset($effort['hero_pct']) ? round((float) $effort['hero_pct'], 1) : 0.0;
 
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §9.5
+        $ga4Delayed = false;
+        $ga4DelayedMessage = null;
+        $ga4Badge = 'ok';
+        if (Schema::hasTable('sync_status')) {
+            try {
+                $ga4 = DB::table('sync_status')->where('service', 'ga4')->first();
+                if ($ga4) {
+                    $status = (string) ($ga4->status ?? 'ok');
+                    $ga4Badge = $status;
+                    $lastSuccess = $ga4->last_success_at ? (string) $ga4->last_success_at : null;
+                    $lastErrorAt = $ga4->last_error_at ? (string) $ga4->last_error_at : null;
+                    if ($status === 'delayed' || ($lastErrorAt && (!$lastSuccess || $lastErrorAt > $lastSuccess))) {
+                        $ga4Delayed = true;
+                        $ga4DelayedMessage = 'GA4 data delayed — last sync: ' . ($lastSuccess ?? 'never');
+                    }
+                }
+            } catch (\Throwable $e) {
+                // fail-soft for dashboard
+            }
+        }
+
         return [
             'hero_skus_at_risk' => $heroSkusAtRisk,
             'avg_readiness_hero' => $avgReadinessHero,
@@ -106,7 +129,149 @@ class DashboardController
             'hero_time_pct' => $heroTimePct,
             'open_briefs_count' => $openBriefs,
             'skus_published_this_week' => $publishedThisWeek,
+            'ga4_delayed' => $ga4Delayed,
+            'ga4_delayed_message' => $ga4DelayedMessage,
+            'ga4_badge' => $ga4Badge,
+            'products_completed_this_week' => $this->computeProductsCompletedThisWeek(),
+            'first_submit_pass_rate' => $this->computeFirstSubmitPassRateThisWeek(),
+            'avg_time_per_sku' => $this->computeAvgTimePerSkuMinutesThisWeek(),
+            'hero_skus_pct' => $this->computeHeroSkusPortfolioPct(),
         ];
+    }
+
+    /**
+     * SOURCE: CIE_v232_UI_Restructure_Instructions.docx §5 — share of SKUs in Hero tier (portfolio “Hero %”).
+     */
+    private function computeHeroSkusPortfolioPct(): ?float
+    {
+        $q = Sku::query();
+        if (Schema::hasColumn((new Sku)->getTable(), 'is_active')) {
+            $q->where('is_active', true);
+        }
+        $total = (clone $q)->count();
+        if ($total === 0) {
+            return null;
+        }
+        $hero = (clone $q)->where('tier', 'hero')->count();
+
+        return round(100.0 * $hero / $total, 1);
+    }
+
+    /**
+     * SOURCE: CIE_v232_UI_Restructure_Instructions.docx §5 — SKUs published since Monday 00:00 app timezone (aligned with staff KPI week).
+     */
+    private function computeProductsCompletedThisWeek(): ?int
+    {
+        if (!Schema::hasColumn((new Sku)->getTable(), 'last_published_at')) {
+            return null;
+        }
+        $start = now()->startOfWeek();
+
+        return (int) Sku::query()
+            ->whereNotNull('last_published_at')
+            ->where('last_published_at', '>=', $start)
+            ->count();
+    }
+
+    /**
+     * Approximation: share of SKUs whose first validation_logs row this week has passed=true.
+     */
+    private function computeFirstSubmitPassRateThisWeek(): ?float
+    {
+        if (!Schema::hasTable('validation_logs') || !Schema::hasColumn('validation_logs', 'passed')) {
+            return null;
+        }
+        $hasCreated = Schema::hasColumn('validation_logs', 'created_at');
+        $hasValidated = Schema::hasColumn('validation_logs', 'validated_at');
+        if (!$hasCreated && !$hasValidated) {
+            return null;
+        }
+        $start = now()->startOfWeek();
+        $skuIds = DB::table('validation_logs')
+            ->select('sku_id')
+            ->where(function ($q) use ($hasCreated, $hasValidated, $start) {
+                if ($hasCreated && $hasValidated) {
+                    $q->whereRaw('COALESCE(validation_logs.created_at, validation_logs.validated_at) >= ?', [$start]);
+                } elseif ($hasCreated) {
+                    $q->where('created_at', '>=', $start);
+                } else {
+                    $q->where('validated_at', '>=', $start);
+                }
+            })
+            ->distinct()
+            ->pluck('sku_id');
+        if ($skuIds->isEmpty()) {
+            return null;
+        }
+        $firstPassed = 0;
+        $total = 0;
+        foreach ($skuIds as $sid) {
+            $q = DB::table('validation_logs')->where('sku_id', $sid);
+            if ($hasCreated && $hasValidated) {
+                $q->whereRaw('COALESCE(validation_logs.created_at, validation_logs.validated_at) >= ?', [$start]);
+                $q->orderByRaw('COALESCE(validation_logs.created_at, validation_logs.validated_at) ASC');
+            } elseif ($hasCreated) {
+                $q->where('created_at', '>=', $start)->orderBy('created_at');
+            } else {
+                $q->where('validated_at', '>=', $start)->orderBy('validated_at');
+            }
+            $row = $q->orderBy('id')->first(['passed']);
+            if ($row) {
+                $total++;
+                if ((int) ($row->passed ?? 0) === 1) {
+                    $firstPassed++;
+                }
+            }
+        }
+
+        return $total > 0 ? round(100.0 * $firstPassed / $total, 1) : null;
+    }
+
+    /**
+     * Average minutes from first sku audit_log (create/update) to last_published_at for SKUs published this week.
+     */
+    private function computeAvgTimePerSkuMinutesThisWeek(): ?float
+    {
+        if (!Schema::hasTable('audit_log') || !Schema::hasColumn((new Sku)->getTable(), 'last_published_at')) {
+            return null;
+        }
+        $start = now()->startOfWeek();
+        $skus = Sku::query()
+            ->whereNotNull('last_published_at')
+            ->where('last_published_at', '>=', $start)
+            ->get(['id', 'last_published_at']);
+        if ($skus->isEmpty()) {
+            return null;
+        }
+        $useTs = Schema::hasColumn('audit_log', 'timestamp');
+        $diffs = [];
+        foreach ($skus as $sku) {
+            $pub = $sku->last_published_at;
+            if ($pub === null) {
+                continue;
+            }
+            $pubCarbon = \Carbon\Carbon::parse((string) $pub);
+            $q = DB::table('audit_log')
+                ->where('entity_type', 'sku')
+                ->where('entity_id', (string) $sku->id)
+                ->whereIn('action', ['create', 'update']);
+            if ($useTs) {
+                $q->whereRaw('COALESCE(`timestamp`, created_at) <= ?', [$pubCarbon]);
+                $q->orderByRaw('COALESCE(`timestamp`, created_at) ASC');
+            } else {
+                $q->where('created_at', '<=', $pubCarbon)->orderBy('created_at');
+            }
+            $first = $q->first(['created_at', 'timestamp']);
+            if (!$first) {
+                continue;
+            }
+            $t0 = $useTs && $first->timestamp
+                ? \Carbon\Carbon::parse((string) $first->timestamp)
+                : \Carbon\Carbon::parse((string) $first->created_at);
+            $diffs[] = max(0, $t0->diffInMinutes($pubCarbon));
+        }
+
+        return $diffs !== [] ? round(array_sum($diffs) / count($diffs), 1) : null;
     }
 
     private function safeBuild(string $method, $default)
@@ -127,12 +292,12 @@ class DashboardController
         if (!Schema::hasTable('gsc_baselines')) {
             return ['sku_ids' => [], 'count' => 0];
         }
-        $hasCisStatus = Schema::hasColumn('gsc_baselines', 'cis_status');
-        if (!$hasCisStatus) {
+        $hasMeasurementStatus = Schema::hasColumn('gsc_baselines', 'measurement_status');
+        if (!$hasMeasurementStatus) {
             return ['sku_ids' => [], 'count' => 0];
         }
         $ids = DB::table('gsc_baselines')
-            ->where('cis_status', 'complete')
+            ->where('measurement_status', 'complete')
             ->whereNotNull('d30_position')
             ->whereNotNull('baseline_avg_position')
             ->whereRaw('d30_position > baseline_avg_position')
@@ -144,10 +309,132 @@ class DashboardController
     }
 
     /**
-     * GET /api/audit-results/weekly-scores
-     * Returns weekly score trend rows for reviewer KPI view.
+     * GET /api/v1/audit-results/weekly-scores
+     * SOURCE: openapi.yaml WeeklyScoresResponse; CIE_Master_Developer_Build_Spec.docx §12 — AI audit aggregates (Concept B).
      */
-    public function weeklyScores()
+    public function getAuditWeeklyScores(Request $request)
+    {
+        if (!Schema::hasTable('ai_audit_results') || !Schema::hasTable('ai_audit_runs')) {
+            return response()->json(['scores' => []], 200);
+        }
+
+        $weeks = (int) $request->query('weeks', 12);
+        $weeks = max(1, min(52, $weeks));
+        $categoryFilter = $request->query('category');
+        $allowedCategories = ['cables', 'lampshades', 'bulbs', 'pendants'];
+        if ($categoryFilter !== null && $categoryFilter !== '' && !in_array($categoryFilter, $allowedCategories, true)) {
+            return ResponseFormatter::error('Invalid category', 400);
+        }
+
+        $bindings = [];
+        $catSql = '';
+        if ($categoryFilter !== null && $categoryFilter !== '') {
+            $catSql = ' AND r.category = ? ';
+            $bindings[] = $categoryFilter;
+        }
+
+        $weekBuckets = DB::select(
+            'SELECT week_start_date FROM (
+                SELECT DISTINCT DATE(COALESCE(air.week_ending, r.run_date)) AS week_start_date
+                FROM ai_audit_results AS air
+                INNER JOIN ai_audit_runs AS r ON r.run_id = air.run_id
+                WHERE r.status = \'completed\' ' . $catSql . '
+            ) AS w
+            ORDER BY week_start_date DESC
+            LIMIT ' . (int) $weeks,
+            $bindings
+        );
+
+        if (empty($weekBuckets)) {
+            return response()->json(['scores' => []], 200);
+        }
+
+        $weekDates = array_map(fn ($w) => (string) $w->week_start_date, $weekBuckets);
+        $scoresOut = [];
+
+        foreach ($weekDates as $weekStartDate) {
+            $cats = $categoryFilter ? [$categoryFilter] : $allowedCategories;
+            foreach ($cats as $cat) {
+                $row = $this->buildWeeklyScoreEntryForWeekCategory($weekStartDate, $cat);
+                if ($row !== null) {
+                    $scoresOut[] = $row;
+                }
+            }
+        }
+
+        usort($scoresOut, function ($a, $b) {
+            return strcmp((string) $b['week_start_date'], (string) $a['week_start_date']);
+        });
+
+        // SOURCE: openapi.yaml WeeklyScoresResponse — JSON root { scores: [...] } (no ResponseFormatter envelope).
+        return response()->json(['scores' => $scoresOut], 200);
+    }
+
+    /**
+     * Aggregate ai_audit_results for one calendar week bucket and category.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function buildWeeklyScoreEntryForWeekCategory(string $weekStartDate, string $category): ?array
+    {
+        $engines = ['chatgpt', 'gemini', 'perplexity', 'google_sge'];
+
+        $base = DB::table('ai_audit_results as air')
+            ->join('ai_audit_runs as r', 'r.run_id', '=', 'air.run_id')
+            ->where('r.status', 'completed')
+            ->where('r.category', $category)
+            ->whereRaw('DATE(COALESCE(air.week_ending, r.run_date)) = ?', [$weekStartDate]);
+
+        $count = (clone $base)->count();
+        if ($count === 0) {
+            return null;
+        }
+
+        $avgRow = (clone $base)
+            ->where(function ($q) {
+                $q->whereNull('air.is_available')->orWhere('air.is_available', '=', 1)->orWhere('air.is_available', '=', true);
+            })
+            ->whereNotNull('air.score')
+            ->selectRaw('AVG(air.score) as v')
+            ->first();
+        $avgScore = $avgRow && $avgRow->v !== null ? round((float) $avgRow->v, 4) : 0.0;
+
+        $engineScores = [];
+        foreach ($engines as $eng) {
+            $er = (clone $base)
+                ->where('air.engine', $eng)
+                ->where(function ($q) {
+                    $q->whereNull('air.is_available')->orWhere('air.is_available', '=', 1)->orWhere('air.is_available', '=', true);
+                })
+                ->whereNotNull('air.score')
+                ->selectRaw('AVG(air.score) as v')
+                ->first();
+            $engineScores[$eng] = $er && $er->v !== null ? round((float) $er->v, 4) : 0.0;
+        }
+
+        $qZero = (clone $base)
+            ->where('air.score', 0)
+            ->where(function ($q) {
+                $q->whereNull('air.is_available')->orWhere('air.is_available', '=', 1)->orWhere('air.is_available', '=', true);
+            })
+            ->selectRaw('COUNT(DISTINCT air.question_id) AS qz')
+            ->first();
+        $questionsAtZero = (int) ($qZero->qz ?? 0);
+
+        return [
+            'week_start_date' => $weekStartDate,
+            'category' => $category,
+            'avg_score' => $avgScore,
+            'engine_scores' => $engineScores,
+            'questions_at_zero' => $questionsAtZero,
+        ];
+    }
+
+    /**
+     * GET /api/v1/review/weekly-scores
+     * SOURCE: CIE_v232_UI_Restructure_Instructions.docx §5 Step 5 — manual KPI weekly scores (Concept A).
+     */
+    public function weeklyKpiScores()
     {
         if (!Schema::hasTable('weekly_scores')) {
             return ResponseFormatter::format([]);
@@ -212,11 +499,19 @@ class DashboardController
      */
     public function storeWeeklyScore(Request $request)
     {
-        $request->validate([
+        // SOURCE: Weekly score validation audit — HTTP 400 on invalid body (not Laravel default 422).
+        $validator = Validator::make($request->all(), [
             'week_start' => 'required|date',
-            'score' => 'required|integer|min:0|max:100',
+            'score' => 'required|integer|min:1|max:10',
             'notes' => 'nullable|string|max:500',
         ]);
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $validator->errors(),
+            ], 400);
+        }
 
         if (!Schema::hasTable('weekly_scores')) {
             return ResponseFormatter::error('weekly_scores table does not exist', 500);
@@ -339,17 +634,40 @@ class DashboardController
         if (!Schema::hasColumn((new Sku)->getTable(), 'decay_status')) {
             return [];
         }
+        $hasBriefs = Schema::hasTable('content_briefs');
+
         return Sku::where('tier', 'HERO')
             ->whereNotNull('decay_status')
             ->where('decay_status', '!=', 'none')
             ->get(['id', 'sku_code', 'title', 'decay_status', 'decay_consecutive_zeros'])
-            ->map(fn ($s) => [
-                'sku_id' => $s->id,
-                'sku_code' => $s->sku_code,
-                'title' => $s->title,
-                'decay_status' => $s->decay_status ?? 'none',
-                'consecutive_zero_weeks' => (int) ($s->decay_consecutive_zeros ?? 0),
-            ])
+            ->map(function ($s) use ($hasBriefs) {
+                $row = [
+                    'sku_id' => $s->id,
+                    'sku_code' => $s->sku_code,
+                    'title' => $s->title,
+                    'decay_status' => $s->decay_status ?? 'none',
+                    'consecutive_zero_weeks' => (int) ($s->decay_consecutive_zeros ?? 0),
+                    'brief_status' => null,
+                    'brief_deadline' => null,
+                    'brief_completed_at' => null,
+                ];
+                if ($hasBriefs && in_array((string) ($s->decay_status ?? ''), ['auto_brief', 'escalated'], true)) {
+                    $brief = DB::table('content_briefs')
+                        ->where('sku_id', $s->id)
+                        ->where('brief_type', 'DECAY_REFRESH')
+                        ->orderByDesc('created_at')
+                        ->first(['status', 'deadline', 'completed_at']);
+                    if ($brief) {
+                        $row['brief_status'] = $brief->status ?? null;
+                        $row['brief_deadline'] = $brief->deadline ? (string) $brief->deadline : null;
+                        $row['brief_completed_at'] = isset($brief->completed_at) && $brief->completed_at
+                            ? (string) $brief->completed_at
+                            : null;
+                    }
+                }
+
+                return $row;
+            })
             ->values()
             ->all();
     }

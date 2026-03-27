@@ -8,6 +8,8 @@ SOURCE: CIE_Master_Developer_Build_Spec.docx — Layer L8 (D+30)
 
 from __future__ import annotations
 
+from . import _bootstrap  # noqa: F401 — sys.path + load repo .env
+
 import logging
 import os
 from dataclasses import dataclass
@@ -15,9 +17,9 @@ from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 from urllib.parse import urlparse
 
-import pymysql
-
 from utils.business_rules import get_business_rule
+from utils.mysql_connect import pymysql_connect_dict_cursor
+from utils.url_utils import normalise_url
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -46,30 +48,13 @@ class GscSnapshot:
 class Ga4Snapshot:
     sessions: int
     bounce_rate: float
-    conversion_rate: float
+    conversion_rate: float | None
     revenue: float
 
 
 def _get_db():
     """PEP-249 connection — same pattern as api.gates_validate."""
-    url = os.environ.get("DATABASE_URL", "")
-    if url:
-        parsed = urlparse(url)
-        return pymysql.connect(
-            host=parsed.hostname or os.environ.get("DB_HOST", "localhost"),
-            port=parsed.port or 3306,
-            user=parsed.username or os.environ.get("DB_USER", "root"),
-            password=parsed.password or os.environ.get("DB_PASSWORD", ""),
-            database=(parsed.path or "").lstrip("/") or os.environ.get("DB_DATABASE", "cie"),
-            cursorclass=pymysql.cursors.DictCursor,
-        )
-    return pymysql.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        user=os.environ.get("DB_USER", "root"),
-        password=os.environ.get("DB_PASSWORD", ""),
-        database=os.environ.get("DB_DATABASE", "cie"),
-        cursorclass=pymysql.cursors.DictCursor,
-    )
+    return pymysql_connect_dict_cursor()
 
 
 def get_due_baselines(target_date: datetime) -> List[BaselineRow]:
@@ -154,10 +139,14 @@ def pull_current_ga4(url: str) -> Optional[Ga4Snapshot]:
         property_id = Config.GA4_PROPERTY_ID or os.environ.get("GA4_PROPERTY_ID", "")
         if not property_id:
             return None
+        # SOURCE: CIE_Master_Developer_Build_Spec.docx §9.3
+        norm = normalise_url(url)
+        parsed = urlparse(norm)
+        landing_path = parsed.path if parsed.path else "/"
         end = date.today()
         lookback_weeks = int(get_business_rule("sync.baseline_lookback_weeks", 2))
         start = end - timedelta(days=lookback_weeks * 7)
-        return pull_ga4_for_landing_page(property_id, url, start, end)
+        return pull_ga4_for_landing_page(property_id, landing_path, start, end)
     except Exception as exc:
         logger.warning("pull_current_ga4 failed for url=%s: %s", url, exc)
         return None
@@ -185,11 +174,13 @@ def compute_cis_score(baseline_avg_position: Optional[float],
 
     if baseline_avg_position is not None and d30_avg_position is not None:
         pos_large_min = int(BusinessRules.get('cis.position_improvement_large_min'))
+        pos_small_min = int(BusinessRules.get('cis.position_small_improvement_threshold'))
+        pos_small_pts = int(BusinessRules.get('cis.position_small_improvement_points'))
         pos_improvement = baseline_avg_position - d30_avg_position
         if pos_improvement >= pos_large_min:
             score += int(BusinessRules.get('cis.position_improvement_large_pts'))
-        elif pos_improvement >= 1:
-            score += int(BusinessRules.get('cis.position_improvement_small_pts'))
+        elif pos_improvement >= pos_small_min:
+            score += pos_small_pts
 
     if d30_ctr and baseline_ctr and d30_ctr > baseline_ctr:
         score += int(BusinessRules.get('cis.ctr_improvement_pts'))
@@ -234,10 +225,11 @@ def update_d30_and_cis(row: BaselineRow,
             """
             UPDATE gsc_baselines SET
               d30_impressions = %s, d30_clicks = %s, d30_ctr = %s, d30_position = %s,
-              d30_sessions = %s, d30_conversion_rate = %s, d30_revenue = %s,
-              cis_score = %s, cis_status = %s
+              d30_organic_sessions = %s, d30_conversion_rate = %s, d30_revenue_organic = %s,
+              cis_score = %s, measurement_status = %s
             WHERE id = %s
             """,
+            # SOURCE: CIE_Master_Developer_Build_Spec.docx §6.4
             (
                 gsc.impressions, gsc.clicks, gsc.ctr, gsc.position,
                 ga4.sessions, ga4.conversion_rate, ga4.revenue,
@@ -284,7 +276,6 @@ def run() -> None:
 
     SOURCE: CIE_Master_Developer_Build_Spec.docx §11 step 7; §5.3 cis.measurement_window_d30
     FIX: CIS-01 — D+30 offset from business_rules (not hardcoded 30)
-    NOTE: cis_status column vs spec measurement_status — see GAP_LOG GAP-P6-2
     """
     now = datetime.now(timezone.utc)
     d30_days = int(get_business_rule("cis.measurement_window_d30", 30))

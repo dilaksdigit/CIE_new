@@ -116,10 +116,15 @@ class BaselineService
             ]);
             return;
         }
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx §10.3
+        // Graceful degradation when e-commerce tracking is absent.
+        $conversionRate = $ga4['conversion_rate'] ?? 0;
+        $revenueOrganic = $ga4['revenue_organic'] ?? ($ga4['revenue'] ?? 0);
         DB::table('gsc_baselines')->where('id', $baselineId)->update([
             'baseline_organic_sessions' => $ga4['sessions'] ?? null,
-            'baseline_conversion_rate' => $ga4['conversion_rate'] ?? null,
-            'baseline_revenue' => $ga4['revenue'] ?? null,
+            'baseline_conversion_rate' => $conversionRate,
+            'baseline_bounce_rate' => $ga4['bounce_rate'] ?? null,
+            'baseline_revenue_organic' => $revenueOrganic,
             'ga4_status' => 'captured',
         ]);
     }
@@ -218,7 +223,7 @@ class BaselineService
         }
         $row = DB::table('gsc_baselines')
             ->where('sku_id', $skuId)
-            ->where('cis_status', 'complete')
+            ->where('measurement_status', 'complete')
             ->whereNotNull('d30_position')
             ->whereNotNull('baseline_avg_position')
             ->orderByDesc('id')

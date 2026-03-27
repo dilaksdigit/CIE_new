@@ -178,7 +178,10 @@ export const dashboardApi = {
 export const auditResultApi = {
     getBySkuId: (skuId) => api.get(`/v1/sku/${skuId}/audit-results`),
     getDecayAlerts: () => api.get('/v1/dashboard/decay-alerts'),
-    getWeeklyScores: () => api.get('/v1/audit-results/weekly-scores', { params: { weeks: 12 } }),
+    // SOURCE: openapi.yaml WeeklyScoresResponse — AI audit aggregates (Concept B)
+    getWeeklyScores: (params) => api.get('/v1/audit-results/weekly-scores', { params: { weeks: 12, ...params } }),
+    // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §5 — manual reviewer KPI scores (Concept A)
+    getReviewerWeeklyScores: () => api.get('/v1/review/weekly-scores', { params: { weeks: 12 } }),
     saveWeeklyScore: (payload) => api.post('/v1/audit-results/weekly-scores', payload),
 };
 

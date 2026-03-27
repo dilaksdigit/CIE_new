@@ -8,6 +8,8 @@ SOURCE: CIE_Master_Developer_Build_Spec.docx — Layer L8 (D+15)
 
 from __future__ import annotations
 
+from . import _bootstrap  # noqa: F401 — sys.path + load repo .env
+
 import logging
 import os
 from dataclasses import dataclass
@@ -15,10 +17,10 @@ from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 from urllib.parse import urlparse
 
-import pymysql
-
 from api.gates_validate import BusinessRules
 from utils.business_rules import get_business_rule
+from utils.mysql_connect import pymysql_connect_dict_cursor
+from utils.url_utils import normalise_url
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -43,30 +45,13 @@ class GscSnapshot:
 class Ga4Snapshot:
     sessions: int
     bounce_rate: float
-    conversion_rate: float
+    conversion_rate: float | None
     revenue: float
 
 
 def _get_db():
     """PEP-249 connection — same pattern as api.gates_validate."""
-    url = os.environ.get("DATABASE_URL", "")
-    if url:
-        parsed = urlparse(url)
-        return pymysql.connect(
-            host=parsed.hostname or os.environ.get("DB_HOST", "localhost"),
-            port=parsed.port or 3306,
-            user=parsed.username or os.environ.get("DB_USER", "root"),
-            password=parsed.password or os.environ.get("DB_PASSWORD", ""),
-            database=(parsed.path or "").lstrip("/") or os.environ.get("DB_DATABASE", "cie"),
-            cursorclass=pymysql.cursors.DictCursor,
-        )
-    return pymysql.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        user=os.environ.get("DB_USER", "root"),
-        password=os.environ.get("DB_PASSWORD", ""),
-        database=os.environ.get("DB_DATABASE", "cie"),
-        cursorclass=pymysql.cursors.DictCursor,
-    )
+    return pymysql_connect_dict_cursor()
 
 
 def get_due_baselines(target_date: datetime) -> List[BaselineRow]:
@@ -148,10 +133,14 @@ def pull_current_ga4(url: str) -> Optional[Ga4Snapshot]:
         if not property_id:
             logger.debug("GA4_PROPERTY_ID not set")
             return None
+        # SOURCE: CIE_Master_Developer_Build_Spec.docx §9.3
+        norm = normalise_url(url)
+        parsed = urlparse(norm)
+        landing_path = parsed.path if parsed.path else "/"
         end = date.today()
         lookback_weeks = int(get_business_rule("sync.baseline_lookback_weeks", 2))
         start = end - timedelta(days=lookback_weeks * 7)
-        return pull_ga4_for_landing_page(property_id, url, start, end)
+        return pull_ga4_for_landing_page(property_id, landing_path, start, end)
     except Exception as exc:
         logger.warning("pull_current_ga4 failed for url=%s: %s", url, exc)
         return None
@@ -175,12 +164,15 @@ def update_d15_columns(row: BaselineRow,
             """
             UPDATE gsc_baselines SET
               d15_impressions = %s, d15_clicks = %s, d15_ctr = %s, d15_position = %s,
-              d15_sessions = %s, d15_conversion_rate = %s, d15_revenue = %s
+              d15_organic_sessions = %s, d15_conversion_rate = %s, d15_revenue = %s,
+              measurement_status = %s
             WHERE id = %s
             """,
+            # SOURCE: CIE_Master_Developer_Build_Spec.docx §6.4
             (
                 gsc.impressions, gsc.clicks, gsc.ctr, gsc.position,
                 ga4.sessions, ga4.conversion_rate, ga4.revenue,
+                "d15_captured",
                 row.id,
             ),
         )

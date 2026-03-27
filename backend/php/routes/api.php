@@ -17,6 +17,7 @@ use App\Controllers\ShopifyProductPullController;
 use App\Controllers\TierChangeController;
 use App\Controllers\FAQController;
 use App\Controllers\GscController;
+use App\Controllers\Ga4Controller;
 use App\Controllers\BulkOpsController;
 use Illuminate\Support\Facades\Route;
 
@@ -71,6 +72,8 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     // Baseline capture — SOURCE: openapi.yaml
     // SOURCE: CIE_Master_Developer_Build_Spec.docx §17 Phase 2.1 + route table §2029
     Route::get('/gsc/status', [GscController::class, 'status'])->middleware('rbac:ADMIN');
+    // SOURCE: CIE_Master_Developer_Build_Spec.docx §15
+    Route::get('/ga4/status', [Ga4Controller::class, 'status'])->middleware('rbac:ADMIN');
     Route::post('/gsc/baseline/{sku_id}', [BaselineController::class, 'captureGsc']);
     Route::post('/ga4/baseline/{sku_id}', [BaselineController::class, 'captureGa4']);
 
@@ -79,8 +82,11 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     Route::get('/dashboard/decay-alerts', [DashboardController::class, 'decayAlerts']);
     Route::get('/dashboard/channel-stats', [DashboardController::class, 'channelStats']);
-    Route::get('/audit-results/weekly-scores', [DashboardController::class, 'weeklyScores']);
-    Route::post('/audit-results/weekly-scores', [DashboardController::class, 'storeWeeklyScore']);
+    Route::get('/audit-results/weekly-scores', [DashboardController::class, 'getAuditWeeklyScores']);
+    Route::get('/review/weekly-scores', [DashboardController::class, 'weeklyKpiScores']);
+    // SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §3.1 — manual weekly score write: reviewer roles only
+    Route::post('/audit-results/weekly-scores', [DashboardController::class, 'storeWeeklyScore'])
+        ->middleware('rbac:CONTENT_LEAD,SEO_GOVERNOR');
 
     // Taxonomy & clusters
     Route::get('/clusters', [ClusterController::class, 'index']);
@@ -98,8 +104,11 @@ Route::prefix('v1')->middleware('auth')->group(function () {
 
     Route::post('/tiers/recalculate', [TierController::class, 'recalculate'])->middleware('rbac:FINANCE,ADMIN');
 
-    // ERP sync — admin only (spec: POST /api/v1/erp/sync)
-    Route::post('/erp/sync', [TierController::class, 'erpSync'])->middleware('rbac:ADMIN');
+    // ERP sync — spec: POST /api/v1/erp/sync
+    // SOURCE: CIE_v231_Developer_Build_Pack.pdf Section 3.2 —
+    //   ERP sync trigger: Finance=YES, Admin=YES, System=YES
+    // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 1.4
+    Route::post('/erp/sync', [TierController::class, 'erpSync'])->middleware('rbac:ADMIN,FINANCE');
 
     Route::get('/config', [ConfigController::class, 'index']);
     Route::put('/config', [ConfigController::class, 'update'])->middleware('rbac:ADMIN');

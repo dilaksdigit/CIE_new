@@ -19,26 +19,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 def get_db():
     """PEP-249 style connection from env (e.g. MySQL)."""
     try:
-        import pymysql
-        from urllib.parse import urlparse
-        url = os.environ.get("DATABASE_URL", "")
-        if url:
-            parsed = urlparse(url)
-            return pymysql.connect(
-                host=parsed.hostname or os.environ.get("DB_HOST", "localhost"),
-                port=parsed.port or 3306,
-                user=parsed.username or os.environ.get("DB_USER", "root"),
-                password=parsed.password or os.environ.get("DB_PASSWORD", ""),
-                database=(parsed.path or "").lstrip("/") or os.environ.get("DB_DATABASE", "cie"),
-                cursorclass=pymysql.cursors.DictCursor,
-            )
-        return pymysql.connect(
-            host=os.environ.get("DB_HOST", "localhost"),
-            user=os.environ.get("DB_USER", "root"),
-            password=os.environ.get("DB_PASSWORD", ""),
-            database=os.environ.get("DB_DATABASE", "cie"),
-            cursorclass=pymysql.cursors.DictCursor,
-        )
+        from src.utils.mysql_connect import pymysql_connect_dict_cursor
+
+        return pymysql_connect_dict_cursor()
     except Exception as e:
         logger.error("DB connection failed: %s", e)
         raise

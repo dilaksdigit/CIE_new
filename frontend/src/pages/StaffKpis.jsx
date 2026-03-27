@@ -24,7 +24,7 @@ const StaffKpis = () => {
             const res = await dashboardApi.getSummary();
             const data = res.data?.data ?? {};
             setDashboardData(data || {});
-            const weeklyRes = await auditResultApi.getWeeklyScores().catch(() => ({ data: { data: [] } }));
+            const weeklyRes = await auditResultApi.getReviewerWeeklyScores().catch(() => ({ data: { data: [] } }));
             setStaffKpis(data.staff_kpis ?? []);
             setWeeklyScores(Array.isArray(weeklyRes.data?.data) ? weeklyRes.data.data : []);
         } catch (e) {
@@ -85,11 +85,21 @@ const StaffKpis = () => {
         value: Number(row.score || 0),
         color: Number(row.score || 0) >= (thresholds?.staff?.weekly_score_green ?? 8) ? 'var(--green)' : Number(row.score || 0) >= (thresholds?.staff?.weekly_score_amber ?? 6) ? 'var(--amber)' : 'var(--red)',
     }));
-    // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §7 Step 5
+    // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §7 Step 5 — writer weekly stats + null-safe display
+    const formatKpiDisplay = (key, raw) => {
+        if (raw === null || raw === undefined) {
+            if (['avg_time_per_sku', 'first_submit_pass_rate', 'products_completed_this_week', 'hero_skus_pct'].includes(key)) {
+                return 'N/A';
+            }
+        }
+        return raw ?? '—';
+    };
     const KPI_DEFINITIONS = [
         { key: 'products_completed_this_week', label: 'Products Completed This Week' },
+        { key: 'hero_skus_pct', label: 'Hero %', suffix: '%' },
         { key: 'hero_time_pct', label: 'Hero Time %', suffix: '%' },
         { key: 'first_submit_pass_rate', label: 'First-Submit Pass Rate', suffix: '%' },
+        { key: 'avg_time_per_sku', label: 'Avg Time per SKU', suffix: ' min' },
         { key: 'avg_readiness_hero', label: 'Avg Hero Readiness' },
         { key: 'skus_published_this_week', label: 'Published This Week' },
         { key: 'open_briefs_count', label: 'Open Briefs' },
@@ -104,7 +114,10 @@ const StaffKpis = () => {
                 <div className="page-subtitle">KPI tracking per staff member plus weekly score trend</div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
-                {KPI_DEFINITIONS.map((kpi) => (
+                {KPI_DEFINITIONS.map((kpi) => {
+                    const v = formatKpiDisplay(kpi.key, dashboardData?.[kpi.key]);
+                    const sfx = kpi.suffix && v !== 'N/A' && v !== '—' ? kpi.suffix : '';
+                    return (
                     <div
                         key={kpi.key}
                         style={{
@@ -116,10 +129,11 @@ const StaffKpis = () => {
                     >
                         <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '4px' }}>{kpi.label}</div>
                         <div style={{ color: 'var(--text)', fontSize: '24px', fontFamily: "var(--mono)", fontWeight: 600 }}>
-                            {dashboardData?.[kpi.key] ?? '—'}{kpi.suffix || ''}
+                            {v}{sfx}
                         </div>
                     </div>
-                ))}
+                    );
+                })}
             </div>
 
             <div className="data-table mb-16">

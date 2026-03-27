@@ -8,6 +8,7 @@ Credentials via GOOGLE_SERVICE_ACCOUNT_JSON or Config.GOOGLE_SERVICE_ACCOUNT_JSO
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import List, Optional
@@ -20,7 +21,7 @@ class Ga4Snapshot:
     """Single landing-page GA4 metrics (for CIS D+15/D+30)."""
     sessions: int
     bounce_rate: float
-    conversion_rate: float
+    conversion_rate: float | None
     revenue: float
 
 
@@ -36,7 +37,8 @@ class Ga4Row:
 
 def _get_client():
     """Build GA4 Data API client with default credentials."""
-    import os
+    # SOURCE: CIE_Master_Developer_Build_Spec.docx §10.1
+    # Same service account as GSC; explicit analytics.readonly scope.
     from google.analytics.data_v1beta import BetaAnalyticsDataClient
     from google.oauth2 import service_account
 
@@ -47,11 +49,17 @@ def _get_client():
     except Exception:
         pass
     if not creds_path:
+        creds_path = os.environ.get("GSC_SERVICE_ACCOUNT_JSON")
+    if not creds_path:
         creds_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not creds_path:
         creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if creds_path and os.path.isfile(creds_path):
-        return BetaAnalyticsDataClient.from_service_account_file(creds_path)
+        creds = service_account.Credentials.from_service_account_file(
+            creds_path,
+            scopes=["https://www.googleapis.com/auth/analytics.readonly"],
+        )
+        return BetaAnalyticsDataClient(credentials=creds)
     return BetaAnalyticsDataClient()
 
 
@@ -84,9 +92,10 @@ def pull_ga4_for_landing_page(
             dimensions=[Dimension(name="landingPage")],
             metrics=[
                 Metric(name="sessions"),
-                Metric(name="bounceRate"),
                 Metric(name="conversions"),
-                Metric(name="totalRevenue"),
+                Metric(name="bounceRate"),
+                # SOURCE: CIE_Master_Developer_Build_Spec.docx §10.2 (metric order)
+                Metric(name="purchaseRevenue"),
             ],
             date_ranges=[DateRange(start_date=start_date.isoformat(), end_date=end_date.isoformat())],
             dimension_filter=FilterExpression(
@@ -119,10 +128,10 @@ def pull_ga4_for_landing_page(
             return None
         row = response.rows[0]
         sessions = int(row.metric_values[0].value or 0)
-        bounce_rate = float(row.metric_values[1].value or 0)
-        conversions = float(row.metric_values[2].value or 0)
+        conversions = float(row.metric_values[1].value or 0)
+        bounce_rate = float(row.metric_values[2].value or 0)
         revenue = float(row.metric_values[3].value or 0)
-        conv_rate = (conversions / sessions) if sessions else 0.0
+        conv_rate = round((conversions / sessions), 6) if sessions else None
         return Ga4Snapshot(sessions=sessions, bounce_rate=bounce_rate, conversion_rate=conv_rate, revenue=revenue)
     except Exception as exc:
         logger.warning("GA4 pull_ga4_for_landing_page failed for url=%s: %s", landing_page_url, exc)
@@ -156,9 +165,10 @@ def pull_weekly_ga4_rows(
             dimensions=[Dimension(name="landingPage")],
             metrics=[
                 Metric(name="sessions"),
-                Metric(name="bounceRate"),
                 Metric(name="conversions"),
-                Metric(name="totalRevenue"),
+                Metric(name="bounceRate"),
+                # SOURCE: CIE_Master_Developer_Build_Spec.docx §10.2 (metric order)
+                Metric(name="purchaseRevenue"),
             ],
             date_ranges=[
                 DateRange(
@@ -175,14 +185,24 @@ def pull_weekly_ga4_rows(
                     ),
                 )
             ),
+            # SOURCE: CIE_Master_Developer_Build_Spec.docx §10.2
+            limit=25000,
+        )
+        logger.info(
+            "GA4 RunReport: property=%s start=%s end=%s organic_filter=sessionDefaultChannelGroup EXACT 'Organic Search'",
+            prop,
+            start_date.strftime("%Y-%m-%d"),
+            end_date.strftime("%Y-%m-%d"),
         )
         response = client.run_report(request)
+        raw_rows = response.rows or []
+        logger.info("GA4 RunReport raw row count: %s", len(raw_rows))
         out = []
-        for row in (response.rows or []):
+        for row in raw_rows:
             landing = (row.dimension_values[0].value or "").strip()
             sessions = int(row.metric_values[0].value or 0)
-            bounce_rate = float(row.metric_values[1].value or 0)
-            conversions = float(row.metric_values[2].value or 0)
+            conversions = float(row.metric_values[1].value or 0)
+            bounce_rate = float(row.metric_values[2].value or 0)
             revenue = float(row.metric_values[3].value or 0)
             out.append(
                 Ga4Row(
@@ -196,4 +216,4 @@ def pull_weekly_ga4_rows(
         return out
     except Exception as exc:
         logger.warning("GA4 pull_weekly_ga4_rows failed: %s", exc)
-        return []
+        raise

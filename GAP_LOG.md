@@ -3,6 +3,10 @@
 
 ---
 
+## GAP-ERP-ROUTE-01 | 2026-03-26 | Extra ERP Alias Route | POST /api/admin/erp-sync exists at backend/php/routes/api.php:27-28 but is not in the OpenAPI contract. Violates CLAUDE.md R1. The spec-mandated route is POST /api/v1/erp/sync at backend/php/routes/api.php:107-111. Cannot remove safely without confirming no integration depends on it. Architect must confirm: (a) remove alias route, or (b) add to OpenAPI as approved exception. | Blocking: NO
+
+---
+
 ## GAP-INTENT-01 | 2026-03-25 | Intent Taxonomy Keys | CLAUDE.md §6 lists display labels "Safety/Compliance" and "Bulk/Trade" which differ from canonical JSON keys "troubleshooting", "regulatory", "replacement" in Enforcement Spec §8.3 and Build Pack schema. Codebase and OpenAPI correctly use §8.3 keys. CLAUDE labels are display-layer, not enum-layer. No code change needed unless architect mandates key rename. | Blocking: NO
 
 ---
@@ -574,5 +578,33 @@ Three seed users (admin + writer + reviewer): Amendment Pack v2 §3 — two *bus
 **Risk:** LOW/MEDIUM depending on whether environment already has correct columns from canonical migration path.
 
 **Action:** Verify live DB (`DESCRIBE skus` / `DESCRIBE sku_master`) for `decay_status` + `decay_consecutive_zeros` presence and enum values.
+
+---
+
+## CHECK 4.4 | AI audit scoring heuristic vs categorical spec | 2026-03-26
+
+**Issue:** The weekly AI citation pipeline scores responses using substring / `SequenceMatcher`-style heuristics rather than the spec’s categorical scale (Not Present / Cited / Summarised / Selected).
+
+**Risk:** MEDIUM — scores may diverge from human review of engine output until the classifier is redesigned.
+
+**Action:** Deferred per Round 2 fix scope (no pipeline logic change). Requires a dedicated improvement task: replace heuristic with categorical classification aligned to CLAUDE.md §12 (0–3 scale definitions).
+
+---
+
+## GAP: CHECK 4.4 — AI Audit Scoring Heuristic
+
+**Status:** DEFERRED — not a bug fix, requires pipeline redesign  
+**Check:** AI audit scoring uses substring/SequenceMatcher heuristic  
+**Spec:** Master Build Spec §12 / Enforcement Dev Spec §5.2 define categorical classification:
+
+- 0 = Not Present (product not mentioned)
+- 1 = Cited (mentioned as one of several)
+- 2 = Summarised (AI summarises our content)
+- 3 = Selected (AI selects as primary recommendation)
+
+**Current:** `weekly_service.py:144-186` uses brand/product name presence + SequenceMatcher ratio  
+**Impact:** Scores may not precisely match spec definitions  
+**Recommendation:** Redesign scoring as LLM-based classification (prompt the engine responses through a classifier that maps to the 4 categories). Separate task, not weekly-score scope.  
+**Filed:** 2026-03-26
 
 ---

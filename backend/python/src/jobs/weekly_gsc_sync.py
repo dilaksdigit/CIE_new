@@ -10,18 +10,22 @@ SOURCE: CIE_Master_Developer_Build_Spec.docx
 
 from __future__ import annotations
 
+from . import _bootstrap  # noqa: F401 — sys.path + load repo .env
+
 import logging
 import os
 import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, List, Optional, Set
-from urllib.parse import urlparse, urlunparse
+from typing import Iterable, List, Optional
 
 import pymysql
 
 from utils.config import Config
+from utils.mysql_connect import pymysql_connect_dict_cursor
+from utils.sku_master_url_lookup import load_sku_url_lookup, log_sku_master_url_diagnostics, match_url
+from utils.url_utils import normalise_url
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -37,102 +41,7 @@ class GscRow:
 
 
 def _get_db():
-    url = os.environ.get("DATABASE_URL", "")
-    if url:
-        parsed = urlparse(url)
-        return pymysql.connect(
-            host=parsed.hostname or os.environ.get("DB_HOST", "localhost"),
-            port=parsed.port or 3306,
-            user=parsed.username or os.environ.get("DB_USER", "root"),
-            password=parsed.password or os.environ.get("DB_PASSWORD", ""),
-            database=(parsed.path or "").lstrip("/") or os.environ.get("DB_DATABASE", "cie"),
-            cursorclass=pymysql.cursors.DictCursor,
-        )
-    return pymysql.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        user=os.environ.get("DB_USER", "root"),
-        password=os.environ.get("DB_PASSWORD", ""),
-        database=os.environ.get("DB_DATABASE", "cie"),
-        cursorclass=pymysql.cursors.DictCursor,
-    )
-
-
-def normalise_url(raw: str) -> str:
-    """
-    Canonical URL for matching (lowercase, no query/fragment, no trailing slash on path).
-
-    SOURCE: CIE_Master_Developer_Build_Spec.docx §9.3 — urlparse(url.lower().strip()); urlunparse strip path /
-    FIX: GSC-03 — full lowercase normalisation per spec
-    """
-    if not raw:
-        return ""
-    p = urlparse(raw.lower().strip())
-    path = p.path or ""
-    if path.endswith("/") and path != "/":
-        path = path.rstrip("/")
-    return urlunparse((p.scheme, p.netloc, path, "", "", ""))
-
-
-def load_all_sku_landing_urls_normalized() -> Set[str]:
-    """
-    Normalised landing URLs for all SKUs with sku_code (any tier).
-
-    SOURCE: CIE_Master_Developer_Build_Spec.docx §9.3 — unmatched = no SKU match
-    """
-    base = (Config.CIE_LANDING_BASE_URL or os.environ.get("CIE_LANDING_BASE_URL", "")).rstrip("/")
-    if not base:
-        return set()
-    db = _get_db()
-    try:
-        cur = db.cursor()
-        cur.execute(
-            """
-            SELECT sku_code FROM skus
-            WHERE sku_code IS NOT NULL AND TRIM(sku_code) <> ''
-            """
-        )
-        rows = cur.fetchall()
-        cur.close()
-        out: Set[str] = set()
-        for row in rows:
-            code = (row.get("sku_code") or "").strip()
-            if code:
-                out.add(normalise_url(f"{base}/{code.lstrip('/')}"))
-        return out
-    finally:
-        db.close()
-
-
-def load_hero_support_landing_urls_normalized() -> Set[str]:
-    """
-    Normalised landing URLs for Hero and Support SKUs only.
-
-    SOURCE: CIE_Master_Developer_Build_Spec.docx §9.2; FINAL Dev Instruction Phase 2.2
-    FIX: GSC-02d — url_performance scope Hero + Support only
-    """
-    base = (Config.CIE_LANDING_BASE_URL or os.environ.get("CIE_LANDING_BASE_URL", "")).rstrip("/")
-    if not base:
-        return set()
-    db = _get_db()
-    try:
-        cur = db.cursor()
-        cur.execute(
-            """
-            SELECT sku_code FROM skus
-            WHERE sku_code IS NOT NULL AND TRIM(sku_code) <> ''
-              AND tier IN ('hero', 'support')
-            """
-        )
-        rows = cur.fetchall()
-        cur.close()
-        out: Set[str] = set()
-        for row in rows:
-            code = (row.get("sku_code") or "").strip()
-            if code:
-                out.add(normalise_url(f"{base}/{code.lstrip('/')}"))
-        return out
-    finally:
-        db.close()
+    return pymysql_connect_dict_cursor()
 
 
 def pull_weekly_gsc(start_date: datetime, end_date: datetime) -> List[GscRow]:
@@ -145,6 +54,7 @@ def pull_weekly_gsc(start_date: datetime, end_date: datetime) -> List[GscRow]:
         logger.warning("GSC_PROPERTY not set; skipping weekly GSC pull")
         return []
     from integrations.gsc_client import pull_weekly_gsc_rows
+
     return pull_weekly_gsc_rows(site_url, start_date, end_date)
 
 
@@ -185,10 +95,7 @@ def save_gsc_weekly_performance(rows: Iterable[GscRow], window_end: datetime) ->
 
 def save_url_performance(rows: Iterable[GscRow], window_end: datetime) -> None:
     """
-    Persist GSC rows into url_performance (spec §9.2).
-
-    SOURCE: CIE_Master_Developer_Build_Spec.docx §9.2
-    FIX: GSC-02c — populate url_performance (Hero + Support rows supplied by caller)
+    Persist GSC rows into url_performance (spec §9.2) — Hero + Support only (Phase 2.2).
     """
     rows_list = list(rows)
     if not rows_list:
@@ -225,13 +132,24 @@ def save_unmatched_urls(urls: Iterable[str], window_end: datetime) -> None:
         try:
             cur = db.cursor()
             for raw_url in urls_list:
-                cur.execute(
-                    """
-                    INSERT INTO gsc_unmatched_urls (url, window_end)
-                    VALUES (%s, %s)
-                    """,
-                    (raw_url[:1000], window_date),
-                )
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO gsc_unmatched_urls (url, source, window_end)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (raw_url[:1000], "gsc", window_date),
+                    )
+                except pymysql.err.OperationalError as exc:
+                    if exc.args and exc.args[0] != 1054:
+                        raise
+                    cur.execute(
+                        """
+                        INSERT INTO gsc_unmatched_urls (url, window_end)
+                        VALUES (%s, %s)
+                        """,
+                        (raw_url[:1000], window_date),
+                    )
             db.commit()
             cur.close()
             logger.info("gsc_unmatched_urls: inserted %s rows for window_end=%s", len(urls_list), window_date)
@@ -249,6 +167,7 @@ def run() -> None:
     7‑day window ending the day before the run (UTC).
     """
     logger.info("Starting weekly GSC sync (cron=%s)", Config.GSC_CRON_SCHEDULE)
+    log_sku_master_url_diagnostics()
 
     today_utc = datetime.now(timezone.utc).date()
     window_end = today_utc - timedelta(days=1)
@@ -260,8 +179,6 @@ def run() -> None:
     try:
         rows = pull_weekly_gsc(start_dt, end_dt)
     except Exception as exc:
-        # Spec §9.5: 500 queue for next cron; fail‑soft, log and exit non‑zero so the
-        # scheduler can reschedule if desired.
         logger.error("GSC pull failed (queued for next cron): %s", exc, exc_info=True)
         sys.exit(1)
 
@@ -269,11 +186,13 @@ def run() -> None:
         logger.warning("No GSC rows returned for %s → %s", window_start, window_end)
         return
 
-    all_sku_urls = load_all_sku_landing_urls_normalized()
-    hero_support_urls = load_hero_support_landing_urls_normalized()
+    lookup = load_sku_url_lookup()
+    has_catalog = len(lookup.full_url_to_id_tier) > 0
 
     normalised_rows: List[GscRow] = []
     unmatched_urls: List[str] = []
+    url_perf_rows: List[GscRow] = []
+
     for row in rows:
         norm_url = normalise_url(row.url)
         if not norm_url:
@@ -287,10 +206,13 @@ def run() -> None:
             avg_position=row.avg_position,
         )
         normalised_rows.append(gr)
-        if len(all_sku_urls) > 0 and norm_url not in all_sku_urls:
+        matched = match_url(norm_url, lookup)
+        if not has_catalog or matched is None:
             unmatched_urls.append(row.url)
-
-    url_perf_rows = [r for r in normalised_rows if r.url in hero_support_urls]
+            continue
+        _sku_id, tier = matched
+        if tier in ("hero", "support"):
+            url_perf_rows.append(gr)
 
     save_gsc_weekly_performance(normalised_rows, end_dt)
     save_url_performance(url_perf_rows, end_dt)

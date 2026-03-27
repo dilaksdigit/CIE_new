@@ -25,6 +25,14 @@ from api.gates_validate import BusinessRules
 # SOURCE: CIE_Master_Developer_Build_Spec.docx Section 12
 logger = logging.getLogger(__name__)
 
+
+def _require_decay_int(key: str) -> int:
+    """Decay thresholds must exist in business_rules — no silent code fallbacks (§12.2)."""
+    v = BusinessRules.get(key)
+    if v is None or v == "":
+        raise RuntimeError(f"Missing required config: {key}")
+    return int(v)
+
 # SOURCE: CIE_Master_Developer_Build_Spec.docx §4.2
 # FIX: AI-04/AI-05 — canonical ai_agent_call + standard system prompt
 from src.utils.ai_agent import ai_agent_call
@@ -154,10 +162,30 @@ def _load_hero_skus_by_code(db, sku_codes: Sequence[str]) -> Dict[str, Dict[str,
     return out
 
 
+def _max_consecutive_from_audit_results(db, sku_id: str, run_id: str) -> int:
+    """SKU-level cached streak from ai_audit_results.consecutive_zero_weeks for this run."""
+    cur = db.cursor()
+    cur.execute(
+        """
+        SELECT COALESCE(MAX(consecutive_zero_weeks), 0)
+        FROM ai_audit_results
+        WHERE run_id = %s
+          AND cited_sku_id = %s
+          AND (is_available IS NULL OR is_available = 1 OR is_available = TRUE)
+        """,
+        (run_id, sku_id),
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row or row[0] is None:
+        return 0
+    return int(row[0])
+
+
 def _load_question_scores_for_run(db, run_id: str) -> Dict[str, int]:
     """
-    For a run, return per-question max score across engines (0–3) where score is not NULL.
-    If all engine rows for a question are NULL, the question is treated as score 0.
+    For a run, return per-question max score across engines (0–3) for available rows only.
+    Rows with is_available = 0 are excluded. If no available scores exist for a question, -1 (insufficient data).
     """
     cur = db.cursor()
     cur.execute(
@@ -165,6 +193,7 @@ def _load_question_scores_for_run(db, run_id: str) -> Dict[str, int]:
         SELECT question_id, score
         FROM ai_audit_results
         WHERE run_id = %s
+          AND (is_available IS NULL OR is_available = 1 OR is_available = TRUE)
         """,
         (run_id,),
     )
@@ -178,7 +207,7 @@ def _load_question_scores_for_run(db, run_id: str) -> Dict[str, int]:
     agg: Dict[str, int] = {}
     for qid, scores in per_question.items():
         numeric = [s for s in scores if s is not None]
-        agg[qid] = max(numeric) if numeric else 0
+        agg[qid] = max(numeric) if numeric else -1
     return agg
 
 
@@ -201,7 +230,10 @@ def _compute_zero_flag_for_sku(
     if not relevant_qids:
         return False
     for qid in relevant_qids:
-        if question_scores.get(qid, 0) > 0:
+        sc = question_scores.get(qid, -1)
+        if sc < 0:
+            return False
+        if sc > 0:
             return False
     return True
 
@@ -211,9 +243,11 @@ def _update_sku_decay(
     sku: Dict[str, Any],
     is_zero_week: bool,
     now: Optional[dt.date] = None,
+    run_id: Optional[str] = None,
 ) -> Tuple[int, str]:
     """
     Apply decay escalation rules to a single SKU using skus.decay_consecutive_zeros / decay_status.
+    Zero-week streak is taken from ai_audit_results when run_id is set (§12.2).
     Returns (new_consecutive_zeros, new_status).
     """
     cur = db.cursor()
@@ -246,18 +280,17 @@ def _update_sku_decay(
         return 0, "none"
 
     # Zero week: increment counter — §5.3 / §12.2 thresholds from BusinessRules
-    yellow_flag_weeks = int(BusinessRules.get('decay.yellow_flag_weeks'))
-    alert_weeks = int(BusinessRules.get('decay.alert_weeks'))
-    # SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3
-    # FIX: DEC-01/DEC-06 — use spec key; fallback to legacy alias.
-    auto_brief_weeks = int(
-        BusinessRules.get('decay.zero_weeks_before_brief')
-        or BusinessRules.get('decay.auto_brief_weeks')
-        or 3
-    )
-    escalate_weeks = int(BusinessRules.get('decay.escalate_weeks'))
+    yellow_flag_weeks = _require_decay_int("decay.yellow_flag_weeks")
+    alert_weeks = _require_decay_int("decay.alert_weeks")
+    auto_brief_weeks = _require_decay_int("decay.auto_brief_weeks")
+    escalate_weeks = _require_decay_int("decay.escalate_weeks")
 
-    new_zeros = current_zeros + 1
+    if run_id:
+        new_zeros = _max_consecutive_from_audit_results(db, str(sku["id"]), run_id)
+        if new_zeros == 0 and is_zero_week:
+            new_zeros = current_zeros + 1
+    else:
+        new_zeros = current_zeros + 1
     if new_zeros >= escalate_weeks:
         status = "escalated"
     elif new_zeros >= auto_brief_weeks:
@@ -339,7 +372,7 @@ def _create_decay_brief(db, sku: Dict[str, Any]) -> None:
                 "Auto-generated decay brief (legacy shell).",
                 sku.get("ai_answer_block") or "",
                 json.dumps({"failing_questions": [], "competitor_answers": [], "ai_suggested_revision": ""}),
-                (dt.date.today() + dt.timedelta(days=int(BusinessRules.get("decay.auto_brief_deadline_days") or 7))).isoformat(),
+                (dt.date.today() + dt.timedelta(days=_require_decay_int("decay.auto_brief_deadline_days"))).isoformat(),
             ),
         )
         db.commit()
@@ -596,7 +629,7 @@ def run_decay_escalation(
 
         for sku_code, sku in hero_skus.items():
             is_zero_week = _compute_zero_flag_for_sku(sku_code, questions, question_scores)
-            new_zeros, status = _update_sku_decay(db, sku, is_zero_week)
+            new_zeros, status = _update_sku_decay(db, sku, is_zero_week, run_id=run_id)
 
             action = {
                 "category": category,
@@ -656,7 +689,7 @@ def run_decay_escalation(
                     sku=sku,
                     failing_questions=failing_qs,
                     competitor_answers=competitor_answers,
-                    deadline_days=int(BusinessRules.get("decay.auto_brief_deadline_days")),
+                    deadline_days=_require_decay_int("decay.auto_brief_deadline_days"),
                 )
                 try:
                     _persist_complete_auto_brief(db, sku, payload)

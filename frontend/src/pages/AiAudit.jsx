@@ -2,13 +2,57 @@ import React, { useState, useEffect, useCallback, useContext } from 'react';
 import {
     StatCard,
     TrendLine,
-    ReadinessBar,
     SectionTitle
 } from '../components/common/UIComponents';
-import { auditApi, auditResultApi } from '../services/api';
+import { auditResultApi } from '../services/api';
 import { AppContext } from '../App';
 import { canRunAIAudit } from '../lib/rbac';
 import THEME from '../theme';
+
+const ENGINE_KEYS = ['chatgpt', 'gemini', 'perplexity', 'google_sge'];
+
+/** Week 3+ decay rows: brief completion / overdue from dashboard decay-alerts payload. */
+function decayBriefBadge(alert) {
+    const ds = String(alert.decay_status || alert.status || '').toLowerCase();
+    if (!['auto_brief', 'escalated'].includes(ds)) {
+        return null;
+    }
+    const bs = String(alert.brief_status || '').toLowerCase();
+    const deadline = alert.brief_deadline;
+    const completedAt = alert.brief_completed_at;
+    const done = bs === 'completed' || !!completedAt;
+    const dateDone = (completedAt || '').slice(0, 10);
+    if (done) {
+        return {
+            text: dateDone ? `Brief completed ${dateDone}` : 'Brief completed',
+            bg: THEME.greenBg,
+            border: THEME.greenBorder,
+            color: THEME.green,
+        };
+    }
+    let overdue = bs === 'overdue';
+    if (deadline && !done) {
+        const t = new Date(`${deadline}T12:00:00Z`);
+        if (!Number.isNaN(t.getTime()) && t < new Date()) {
+            overdue = true;
+        }
+    }
+    const dueBit = deadline ? ` — due ${deadline}` : '';
+    if (overdue) {
+        return {
+            text: `Brief OVERDUE${dueBit}`,
+            bg: THEME.redBg,
+            border: THEME.redBorder,
+            color: THEME.red,
+        };
+    }
+    return {
+        text: deadline ? `Brief due ${deadline}` : 'Brief pending',
+        bg: THEME.amberBg,
+        border: THEME.amberBorder,
+        color: THEME.amber,
+    };
+}
 
 const AiAudit = () => {
     const [auditScores, setAuditScores] = useState([]);
@@ -37,7 +81,7 @@ const AiAudit = () => {
                 setError(null);
                 await fetchDecayAlerts();
                 const weeklyRes = await auditResultApi.getWeeklyScores().catch(() => ({ data: {} }));
-                const weekly = weeklyRes.data?.data;
+                const weekly = weeklyRes.data?.scores;
                 if (!cancelled && weekly && Array.isArray(weekly)) {
                     setAuditScores(weekly);
                 } else if (!cancelled) {
@@ -55,6 +99,38 @@ const AiAudit = () => {
         fetchAuditData();
         return () => { cancelled = true; };
     }, [fetchDecayAlerts]);
+
+    const sortedScores = [...auditScores].sort((a, b) =>
+        String(a.week_start_date || '').localeCompare(String(b.week_start_date || ''))
+    );
+    const byWeek = {};
+    sortedScores.forEach((s) => {
+        const w = s.week_start_date;
+        if (!w) return;
+        if (!byWeek[w]) byWeek[w] = { sumAvg: 0, n: 0, zeros: 0 };
+        byWeek[w].sumAvg += Number(s.avg_score ?? 0);
+        byWeek[w].n += 1;
+        byWeek[w].zeros += Number(s.questions_at_zero ?? 0);
+    });
+    const weekKeys = Object.keys(byWeek).sort();
+    const avgCitationSeries = weekKeys.map((w) =>
+        byWeek[w].n ? byWeek[w].sumAvg / byWeek[w].n : 0
+    );
+    const engineLineData = ENGINE_KEYS.map((eng) => ({
+        eng,
+        label: eng.replace('_', ' '),
+        data: weekKeys.map((w) => {
+            const entries = sortedScores.filter((s) => s.week_start_date === w);
+            if (!entries.length) return 0;
+            const vals = entries
+                .map((s) => Number(s.engine_scores?.[eng] ?? 0))
+                .filter((x) => !Number.isNaN(x));
+            return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+        }),
+        color: eng === 'chatgpt' ? THEME.accent : eng === 'gemini' ? '#3D6B8E' : eng === 'perplexity' ? '#8B6914' : '#6B6B6B',
+    }));
+    const latestWeek = weekKeys.length ? weekKeys[weekKeys.length - 1] : null;
+    const latestZeros = latestWeek ? byWeek[latestWeek].zeros : 0;
 
     return (
         <div>
@@ -77,22 +153,32 @@ const AiAudit = () => {
             <div>
                 <div className="flex gap-12 mb-18">
                     <StatCard label="Decay Alerts" value={String(decayAlerts.length)} sub="Hero SKUs with consecutive zero" color={decayAlerts.length > 0 ? "var(--red)" : "var(--text-muted)"} />
-                    <StatCard label="Citation trend" value={auditScores.length > 0 ? `${auditScores.length} weeks` : "—"} sub="From audit runs" />
+                    <StatCard label="Questions at zero (latest week)" value={latestWeek ? String(latestZeros) : "—"} sub={latestWeek ? `Week of ${latestWeek}` : "No audit aggregates yet"} color={latestZeros > 0 ? "var(--amber)" : "var(--text-muted)"} />
                 </div>
 
             <div className="card mb-18">
-                <SectionTitle sub="Weekly citation score from audit runs (existing weekly-scores endpoint)">Citation Trends</SectionTitle>
-                {auditScores.length > 0 ? (
+                <SectionTitle sub="Avg citation score (0–3) and per-engine averages from ai_audit_results">Citation Trends</SectionTitle>
+                {weekKeys.length > 0 ? (
                 <div className="flex gap-20 flex-wrap">
                     <div style={{ flex: 1, minWidth: 300 }}>
-                        {[
-                            { cat: "Citation score", data: auditScores.map(s => (s.score != null ? Number(s.score) * 10 : 0)), color: THEME.accent },
-                        ].filter(line => line.data.length > 0).map(line => (
-                            <div key={line.cat} className="mb-12">
+                        <div className="mb-12">
+                            <div className="flex items-center gap-8 mb-4">
+                                <div style={{ width: 10, height: 3, borderRadius: 2, background: THEME.accent }} />
+                                <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>Avg Citation Score (0–3)</span>
+                                <span style={{ fontSize: "0.7rem", color: THEME.accent, fontFamily: "var(--mono)", fontWeight: 700 }}>
+                                    {avgCitationSeries.length ? avgCitationSeries[avgCitationSeries.length - 1].toFixed(2) : '—'}
+                                </span>
+                            </div>
+                            <TrendLine data={avgCitationSeries} width={380} height={30} color={THEME.accent} />
+                        </div>
+                        {engineLineData.map((line) => (
+                            <div key={line.eng} className="mb-12">
                                 <div className="flex items-center gap-8 mb-4">
                                     <div style={{ width: 10, height: 3, borderRadius: 2, background: line.color }} />
-                                    <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>{line.cat}</span>
-                                    <span style={{ fontSize: "0.7rem", color: line.color, fontFamily: "var(--mono)", fontWeight: 700 }}>{line.data[line.data.length - 1]}%</span>
+                                    <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>{line.label}</span>
+                                    <span style={{ fontSize: "0.7rem", color: line.color, fontFamily: "var(--mono)", fontWeight: 700 }}>
+                                        {line.data.length ? line.data[line.data.length - 1].toFixed(2) : '—'}
+                                    </span>
                                 </div>
                                 <TrendLine data={line.data} width={380} height={30} color={line.color} />
                             </div>
@@ -100,7 +186,7 @@ const AiAudit = () => {
                     </div>
                 </div>
                 ) : (
-                    <div style={{ padding: 16, color: 'var(--text-dim)', fontSize: '0.85rem' }}>No weekly citation trend data yet. Add entries via POST /v1/audit-results/weekly-scores to see the trend.</div>
+                    <div style={{ padding: 16, color: 'var(--text-dim)', fontSize: '0.85rem' }}>No weekly AI audit aggregates yet. Run the weekly citation audit job to populate ai_audit_results.</div>
                 )}
             </div>
 
@@ -109,7 +195,9 @@ const AiAudit = () => {
                 {decayAlerts.length === 0 ? (
                     <div style={{ padding: 16, color: 'var(--text-dim)', fontSize: '0.85rem' }}>No decay alerts.</div>
                 ) : (
-                    decayAlerts.map((alert) => (
+                    decayAlerts.map((alert) => {
+                        const brief = decayBriefBadge(alert);
+                        return (
                         <div key={alert.sku_id || alert.sku_code} className="flex items-center justify-between" style={{ padding: "12px 0", borderBottom: '1px solid var(--border-light)' }}>
                             <div>
                                 <div className="flex items-center gap-8">
@@ -118,12 +206,21 @@ const AiAudit = () => {
                                     <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{alert.title ?? alert.name}</span>
                                 </div>
                             </div>
-                            <span style={{
-                                fontSize: "0.58rem", padding: "2px 8px", borderRadius: 3, fontWeight: 700, textTransform: 'uppercase',
-                                background: THEME.amberBg, color: THEME.amber, border: `1px solid ${THEME.amberBorder}`,
-                            }}>{alert.decay_status ?? alert.status ?? '—'}</span>
+                            <div className="flex items-center gap-8" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                {brief && (
+                                    <span style={{
+                                        fontSize: "0.58rem", padding: "2px 8px", borderRadius: 3, fontWeight: 700,
+                                        background: brief.bg, color: brief.color, border: `1px solid ${brief.border}`,
+                                    }}>{brief.text}</span>
+                                )}
+                                <span style={{
+                                    fontSize: "0.58rem", padding: "2px 8px", borderRadius: 3, fontWeight: 700, textTransform: 'uppercase',
+                                    background: THEME.amberBg, color: THEME.amber, border: `1px solid ${THEME.amberBorder}`,
+                                }}>{alert.decay_status ?? alert.status ?? '—'}</span>
+                            </div>
                         </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
             </div>

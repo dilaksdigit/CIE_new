@@ -260,6 +260,20 @@ def sku_similarity(body: SimilarityRequest):
         }
 
 
+# ─── §7.1 SERVICE ENDPOINTS ──────────────────────────────────────────
+# SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — Core API Endpoints
+# These routes are new registrations (not renames of prior routes).
+# Each has its own handler because the Python service owns the logic for:
+#   - taxonomy/intents: intent JSON loader + tier filtering
+#   - clusters: cluster master list query
+#   - audit/run: async dispatch to weekly audit service
+#   - audit/results: DB query for stored audit scores + decay status
+#   - brief/generate: content refresh brief generator
+# Prior routes (/queue/audit, /queue/brief-generation) were internal
+# paths used by PythonWorkerClient; these §7.1 paths are the public
+# contract and replace the internal paths.
+# ─────────────────────────────────────────────────────────────────────
+
 # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — POST /api/v1/audit/run
 @app.post("/api/v1/audit/run")
 def audit_run(body: AuditRunRequest, background_tasks: BackgroundTasks):
@@ -285,7 +299,8 @@ def audit_run(body: AuditRunRequest, background_tasks: BackgroundTasks):
     else:
         rid = str(uuid.uuid4())
     background_tasks.add_task(_weekly_audit_background, cat, rid)
-    # SOURCE: openapi.yaml AuditRunResponse; CIE_v232_Hardening_Addendum.pdf Patch 2 — placeholders until run completes
+    # SOURCE: openapi.yaml AuditRunResponse; CIE_v232_Hardening_Addendum.pdf Patch 2 §2.1
+    # Async receipt: quorum/run_status are initial; weekly_service persists final values on ai_audit_runs.
     return JSONResponse(
         status_code=202,
         content={
@@ -293,7 +308,7 @@ def audit_run(body: AuditRunRequest, background_tasks: BackgroundTasks):
             "status": "running",
             "estimated_duration_minutes": 15,
             "quorum": 0,
-            "run_status": "complete",
+            "run_status": "running",
         },
     )
 

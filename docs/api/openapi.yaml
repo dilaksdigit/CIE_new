@@ -523,6 +523,156 @@ paths:
                     items:
                       type: string
 
+  /admin/erp-sync:
+    # SOURCE: backend/php/routes/api.php legacy alias route for TierController::erpSync
+    post:
+      summary: Legacy alias for ERP sync
+      description: Backward-compatible alias for ERP sync; processes the same payload as /erp/sync.
+      tags: [ERP Integration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ErpSyncPayload'
+      responses:
+        '200':
+          description: ERP sync completed
+
+  /gsc/status:
+    # SOURCE: backend/php/routes/api.php -> GscController::status
+    get:
+      summary: Get Google Search Console integration status
+      tags: [ERP Integration]
+      responses:
+        '200':
+          description: GSC status returned
+
+  /ga4/status:
+    # SOURCE: backend/php/routes/api.php -> Ga4Controller::status
+    get:
+      summary: Get Google Analytics 4 integration status
+      tags: [ERP Integration]
+      responses:
+        '200':
+          description: GA4 status returned
+
+  /gsc/baseline/{sku_id}:
+    # SOURCE: backend/php/routes/api.php -> BaselineController::captureGsc
+    post:
+      summary: Capture GSC baseline for SKU
+      tags: [ERP Integration]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Baseline captured
+
+  /ga4/baseline/{sku_id}:
+    # SOURCE: backend/php/routes/api.php -> BaselineController::captureGa4
+    post:
+      summary: Capture GA4 baseline for SKU
+      tags: [ERP Integration]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Baseline captured
+
+  /shopify/status:
+    # SOURCE: backend/php/routes/api.php — GET /api/v1/shopify/status
+    get:
+      summary: Check Shopify pull configuration status
+      description: Returns whether Shopify pull credentials are configured.
+      tags: [ERP Integration]
+      responses:
+        '200':
+          description: Configuration status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+
+  /shopify/products:
+    # SOURCE: backend/php/routes/api.php — GET /api/v1/shopify/products
+    get:
+      summary: List Shopify products and optional sync preview
+      description: |
+        Pulls products from Shopify. Admin-only endpoint.
+        Optional query params:
+        - limit: integer, max products to fetch
+        - sync: boolean, when true also syncs pulled products into matched CIE SKUs
+      tags: [ERP Integration]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: sync
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Product list fetched
+        '403':
+          description: Forbidden (admin only)
+        '503':
+          description: Shopify pull not configured
+
+  /shopify/sync:
+    # SOURCE: backend/php/routes/api.php — POST /api/v1/shopify/sync
+    post:
+      summary: Pull and sync Shopify products to CIE SKUs
+      description: Admin-only endpoint. Matches by variant SKU to existing CIE sku_code.
+      tags: [ERP Integration]
+      responses:
+        '200':
+          description: Sync completed
+        '403':
+          description: Forbidden (admin only)
+        '503':
+          description: Shopify pull not configured
+
+  /admin/semrush-import/latest:
+    # SOURCE: backend/php/routes/api.php -> SemrushImportController::latest
+    get:
+      summary: Get latest Semrush import snapshot
+      tags: [Semrush]
+      responses:
+        '200':
+          description: Latest Semrush import returned
+
+  /admin/semrush-import/{batch_date}:
+    # SOURCE: backend/php/routes/api.php -> SemrushImportController::delete
+    delete:
+      summary: Delete Semrush import batch by date
+      tags: [Semrush]
+      parameters:
+        - name: batch_date
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Batch deleted
+        '404':
+          description: Batch not found
+
   # ─────────────────────────────────────────────────────────────────────────────
   # PHP CMS ENDPOINTS
   # SOURCE: INSTRUCTION 6 — CIE_v232_Developer_Amendment_Pack_v2.docx Section 3;
@@ -940,6 +1090,9 @@ components:
 
     ErpSyncPayload:
       # SOURCE: cie_v231_openapi.yaml components/schemas/ErpSyncPayload
+      # SOURCE: CIE_Integration_Specification.pdf §1.2 — ERP Data Contract
+      # NOTE: Fields are required (key must be present) but nullable (value may be null).
+      # Null values trigger default/flag behavior per Integration Spec §1.2.
       type: object
       required: [sync_date, skus]
       properties:
@@ -956,15 +1109,23 @@ components:
                 type: string
               contribution_margin_pct:
                 type: number
+                nullable: true
+                # SOURCE: CIE_Integration_Specification.pdf §1.2 — If null: SKU flagged, tier = null, alert.
                 example: 62.0
               cppc:
                 type: number
+                nullable: true
+                # SOURCE: CIE_Integration_Specification.pdf §1.2 — If null: default to 1.00 (neutral), flag.
                 example: 0.18
               velocity_90d:
                 type: integer
+                nullable: true
+                # SOURCE: CIE_Integration_Specification.pdf §1.2 — If null: default to 0, flag as no sales data.
                 example: 847
               return_rate_pct:
                 type: number
+                nullable: true
+                # SOURCE: CIE_Integration_Specification.pdf §1.2 — If null: default to 5% (industry average), flag.
                 example: 2.1
 
     # ── NEW CMS SCHEMAS ────────────────────────────────────────────────────────

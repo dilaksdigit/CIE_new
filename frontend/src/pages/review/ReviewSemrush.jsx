@@ -116,6 +116,8 @@ const ReviewSemrush = () => {
           <option value="">All Tiers</option>
           <option value="hero">Hero</option>
           <option value="support">Support</option>
+          <option value="harvest">Harvest</option>
+          <option value="kill">Kill</option>
         </select>
         <input
           type="text"
@@ -137,6 +139,7 @@ const ReviewSemrush = () => {
               <tr>
                 <th style={tableHeaderStyle}>Keyword</th>
                 <th style={tableHeaderStyle}>SKU</th>
+                <th style={tableHeaderStyle}>Tier</th>
                 <th style={tableHeaderStyle}>Position</th>
                 <th style={tableHeaderStyle}>Prev</th>
                 <th style={tableHeaderStyle}>Change</th>
@@ -146,7 +149,7 @@ const ReviewSemrush = () => {
             <tbody>
               {filteredRankMovement.length === 0 ? (
                 <tr>
-                  <td colSpan={6} style={{ padding: 16, fontSize: '0.8rem', color: 'var(--text-muted)', background: SURFACE }}>
+                  <td colSpan={7} style={{ padding: 16, fontSize: '0.8rem', color: 'var(--text-muted)', background: SURFACE }}>
                     No rank movement data for the latest batch.
                   </td>
                 </tr>
@@ -155,10 +158,12 @@ const ReviewSemrush = () => {
                   const pos = row.position != null ? Number(row.position) : null;
                   const prev = row.prev_position != null ? Number(row.prev_position) : null;
                   const change = prev != null && pos != null ? prev - pos : null;
+                  const tierLabel = row?.tier ? `${String(row.tier).charAt(0).toUpperCase()}${String(row.tier).slice(1)}` : '—';
                   return (
                     <tr key={`rm-${idx}-${row.keyword}-${row.sku_code}`}>
                       <td style={tableCellStyle(idx)}>{row.keyword ?? '—'}</td>
                       <td style={tableCellStyle(idx)}>{row.sku_code ?? '—'}</td>
+                      <td style={tableCellStyle(idx)}>{tierLabel}</td>
                       <td style={tableCellStyle(idx)}>{pos ?? '—'}</td>
                       <td style={tableCellStyle(idx)}>{prev ?? '—'}</td>
                       <td style={tableCellStyle(idx)}>
@@ -231,6 +236,7 @@ const ReviewSemrush = () => {
               <tr>
                 <th style={tableHeaderStyle}>Keyword</th>
                 <th style={tableHeaderStyle}>SKU</th>
+                <th style={tableHeaderStyle}>Tier</th>
                 <th style={tableHeaderStyle}>Position</th>
                 <th style={tableHeaderStyle}>Prev</th>
                 <th style={tableHeaderStyle}>Volume</th>
@@ -239,20 +245,24 @@ const ReviewSemrush = () => {
             <tbody>
               {filteredQuickWins.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: 16, fontSize: '0.8rem', color: 'var(--text-muted)', background: SURFACE }}>
+                  <td colSpan={6} style={{ padding: 16, fontSize: '0.8rem', color: 'var(--text-muted)', background: SURFACE }}>
                     No quick wins (position 11–30, difficulty &lt; 40, volume &gt; 500, Hero/Support).
                   </td>
                 </tr>
               ) : (
-                filteredQuickWins.map((row, idx) => (
-                  <tr key={`qw-${idx}-${row.keyword}-${row.sku_code}`}>
-                    <td style={tableCellStyle(idx)}>{row.keyword ?? '—'}</td>
-                    <td style={tableCellStyle(idx)}>{row.sku_code ?? '—'}</td>
-                    <td style={tableCellStyle(idx)}>{row.position ?? '—'}</td>
-                    <td style={tableCellStyle(idx)}>{row.prev_position ?? '—'}</td>
-                    <td style={tableCellStyle(idx)}>{row.search_volume ?? '—'}</td>
-                  </tr>
-                ))
+                filteredQuickWins.map((row, idx) => {
+                  const tierLabel = row?.tier ? `${String(row.tier).charAt(0).toUpperCase()}${String(row.tier).slice(1)}` : '—';
+                  return (
+                    <tr key={`qw-${idx}-${row.keyword}-${row.sku_code}`}>
+                      <td style={tableCellStyle(idx)}>{row.keyword ?? '—'}</td>
+                      <td style={tableCellStyle(idx)}>{row.sku_code ?? '—'}</td>
+                      <td style={tableCellStyle(idx)}>{tierLabel}</td>
+                      <td style={tableCellStyle(idx)}>{row.position ?? '—'}</td>
+                      <td style={tableCellStyle(idx)}>{row.prev_position ?? '—'}</td>
+                      <td style={tableCellStyle(idx)}>{row.search_volume ?? '—'}</td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

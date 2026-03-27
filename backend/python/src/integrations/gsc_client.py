@@ -49,13 +49,28 @@ def _get_service():
     if not creds_path:
         creds_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not creds_path:
+        creds_path = os.environ.get("GSC_SERVICE_ACCOUNT_JSON")
+    if not creds_path:
         creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    _scopes = ("https://www.googleapis.com/auth/webmasters.readonly",)
     if creds_path and os.path.isfile(creds_path):
-        credentials = service_account.Credentials.from_service_account_file(creds_path)
+        credentials = service_account.Credentials.from_service_account_file(
+            creds_path, scopes=_scopes
+        )
     else:
         import google.auth
-        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/webmasters.readonly"])
+        credentials, _ = google.auth.default(scopes=list(_scopes))
     return build("webmasters", "v3", credentials=credentials, cache_discovery=False)
+
+
+def get_gsc_service():
+    """
+    Public entrypoint for Search Console API service (sites.list, searchAnalytics, etc.).
+
+    SOURCE: CIE_Master_Developer_Build_Spec.docx Section 9.1 (auth)
+    SOURCE: CIE_Master_Developer_Build_Spec.docx Phase 2 Item 2.1
+    """
+    return _get_service()
 
 
 def pull_gsc_for_page(

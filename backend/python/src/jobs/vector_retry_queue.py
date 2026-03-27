@@ -5,9 +5,8 @@ SOURCE: CIE_v232_Hardening_Addendum.pdf §1.3
 import logging
 import os
 from datetime import datetime, timedelta
-from urllib.parse import urlparse
-
 from api.gates_validate import BusinessRules
+from utils.mysql_connect import pymysql_connect_dict_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -15,25 +14,7 @@ BATCH_LIMIT = 50
 
 
 def _get_db():
-    import pymysql
-    url = os.environ.get("DATABASE_URL", "")
-    if url:
-        parsed = urlparse(url)
-        return pymysql.connect(
-            host=parsed.hostname or os.environ.get("DB_HOST", "localhost"),
-            port=parsed.port or 3306,
-            user=parsed.username or os.environ.get("DB_USER", "root"),
-            password=parsed.password or os.environ.get("DB_PASSWORD", ""),
-            database=(parsed.path or "").lstrip("/") or os.environ.get("DB_DATABASE", "cie"),
-            cursorclass=pymysql.cursors.DictCursor,
-        )
-    return pymysql.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        user=os.environ.get("DB_USER", "root"),
-        password=os.environ.get("DB_PASSWORD", ""),
-        database=os.environ.get("DB_DATABASE", "cie"),
-        cursorclass=pymysql.cursors.DictCursor,
-    )
+    return pymysql_connect_dict_cursor()
 
 
 def _get_embedding(text: str):
