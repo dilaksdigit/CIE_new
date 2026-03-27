@@ -13,13 +13,14 @@ import { TIER_FIELD_MAP } from '../lib/tierFieldMap';
 const C = THEME;
 
 const FIELD_LABELS = {
-    title: 'Title',
+    title: 'Product Title',
     description: 'Description',
     specification: 'Basic Specification',
     answer_block: 'Answer Block',
-    best_for: 'Best For',
-    not_for: 'Not For',
-    expert_authority: 'Expert Authority',
+    best_for: 'Best For (who should buy this)',
+    not_for: 'Not For (who should NOT buy this)',
+    expert_authority: 'Expert Authority (certifications & proof)',
+    main_customer_reason: 'Main Customer Reason',
     secondary_intents_3_9: 'Secondary Intents (3–9)',
     faq_tab: 'FAQ',
     wikidata_uri: 'Wikidata URI',
@@ -33,6 +34,7 @@ const FIELD_TYPES = {
     best_for: 'textarea',
     not_for: 'textarea',
     expert_authority: 'textarea',
+    main_customer_reason: 'readonly',
 };
 
 // Field min/max from BusinessRules (content.title_max_length, gates.description_word_count_min, etc.) — loaded on mount
@@ -181,6 +183,7 @@ const gateKeysForField = (field) => {
     if (field === 'answer_block') return ['g4'];
     if (field === 'best_for' || field === 'not_for') return ['g5'];
     if (field === 'expert_authority') return ['g7'];
+    if (field === 'main_customer_reason') return ['g2', 'g3'];
     return [];
 };
 
@@ -266,6 +269,12 @@ const pickList = (...values) => {
     return '';
 };
 
+const toList = (value) =>
+    String(value || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+
 const normalizeSuggestions = (raw) => {
     if (!Array.isArray(raw)) return [];
     // SOURCE: README_First_CIE_v232_Developer_README.docx §5 — AI Suggestions Panel normalisation
@@ -312,7 +321,7 @@ const gateHintText = (gateKey, gate, values, abMin, abMax) => {
             const [keyFeature, productType, differentiator] = elementsArr;
             return `Title format needs fixing. Follow: ${keyFeature} + ${productType} + ${differentiator}.`;
         }
-        return 'Title format needs fixing. Check your title includes a key feature, product type, and a differentiator.';
+        return 'Title format needs fixing. Follow: [Key Feature] + [Product Type] + [Differentiator].';
     }
     if (gateKey === 'g2') {
         if (termsStr) return `Main search intent missing. Add ${termsStr} to match what customers search for.`;
@@ -323,13 +332,10 @@ const gateHintText = (gateKey, gate, values, abMin, abMax) => {
         return 'Supporting intent phrases missing. Add related use cases.';
     }
     if (gateKey === 'g4') {
-        const parts = [];
-        if (currentChars != null && currentChars !== '') parts.push(`Currently ${currentChars} chars`);
-        if (minChars != null && maxChars != null) parts.push(`needs ${minChars}-${maxChars}`);
-        else if (minChars != null) parts.push(`needs at least ${minChars}`);
-        else if (maxChars != null) parts.push(`needs up to ${maxChars}`);
-        if (elementsArr.length) parts.push(`Add: ${elementsArr.join(', ')}`);
-        if (parts.length) return `Too short. ${parts.join('. ')}.`;
+        if (currentChars != null && minChars != null && maxChars != null) {
+            const missing = elementsArr.length ? elementsArr.join(', ') : 'more detail';
+            return `Too short (${currentChars} chars). Needs ${minChars}-${maxChars}. Add ${missing}.`;
+        }
         return 'Answer block is too short. Add more detail to meet the required length.';
     }
     if (gateKey === 'g5') return 'Technical details incomplete. Add certifications, specs, or standards that prove quality.';
@@ -390,6 +396,9 @@ const fieldStateAndHint = (field, gates, values, abMin, abMax) => {
 /** Client-side completion: field has enough content to count as "complete" for progress. When answerBlockMin/Max are null, skip answer_block validation (no fail). */
 const isFieldComplete = (field, values, answerBlockMin, answerBlockMax, fieldRanges) => {
     const v = String((values && values[field]) || '').trim();
+    if (field === 'main_customer_reason') {
+        return v.length > 0;
+    }
     if (field === 'answer_block') {
         if (answerBlockMin == null || answerBlockMax == null) return false; // skip until API loads
         const len = v.length;
@@ -417,12 +426,28 @@ const counterText = (field, value, answerBlockMin, answerBlockMax, fieldRanges) 
     const len = String(value || '').length;
     if (field === 'answer_block') {
         if (answerBlockMin == null || answerBlockMax == null) return `${len} / —`;
-        return `${len} / ${answerBlockMin}-${answerBlockMax}`;
+        return `${len}/${answerBlockMin}-${answerBlockMax}`;
     }
     const range = (fieldRanges || getDefaultFieldRanges())[field] || { min: null, max: null };
-    if (range.min != null && range.max != null) return `${len} / ${range.min}-${range.max}`;
-    if (range.max != null) return `${len} / max ${range.max}`;
-    return `${len} / —`;
+    if (range.min != null && range.max != null) return `${len}/${range.min}-${range.max}`;
+    if (range.max != null) return `${len}/max ${range.max}`;
+    return `${len}/—`;
+};
+
+const shouldShowCounter = (field) => field === 'title' || field === 'answer_block';
+
+const counterColor = (field, value, answerBlockMin, answerBlockMax, fieldRanges) => {
+    const len = String(value || '').length;
+    if (field === 'answer_block') {
+        if (answerBlockMax != null && len > answerBlockMax) return '#C62828';
+        return '#6B6B6B';
+    }
+    if (field === 'title') {
+        const max = (fieldRanges || getDefaultFieldRanges()).title?.max;
+        if (max != null && len > max) return '#C62828';
+        return '#6B6B6B';
+    }
+    return '#6B6B6B';
 };
 
 const WriterEdit = () => {
@@ -439,6 +464,7 @@ const WriterEdit = () => {
         best_for: '',
         not_for: '',
         expert_authority: '',
+        main_customer_reason: '',
     });
     const [gates, setGates] = useState({});
     const [degradedMode, setDegradedMode] = useState(false);
@@ -463,11 +489,12 @@ const WriterEdit = () => {
                 if (cancelled) return;
                 const raw = res.data?.data ?? res.data ?? {};
                 const gates = raw.gates || {};
+                const thresholds = raw.gate_thresholds || {};
                 const content = raw.content || {};
-                const minVal = gates.answer_block_min_chars;
-                const maxVal = gates.answer_block_max_chars;
-                const titleMaxVal = content.title_max_length;
-                const descMinVal = gates.description_word_count_min;
+                const minVal = gates.answer_block_min_chars ?? thresholds.answer_block_min_chars ?? thresholds.answer_block_min;
+                const maxVal = gates.answer_block_max_chars ?? thresholds.answer_block_max_chars ?? thresholds.answer_block_max;
+                const titleMaxVal = content.title_max_length ?? thresholds.title_max_length;
+                const descMinVal = gates.description_word_count_min ?? thresholds.description_word_count_min;
                 if (minVal != null && minVal !== '') {
                     const n = parseInt(String(minVal), 10);
                     if (!Number.isNaN(n)) setAnswerBlockMin(n);
@@ -540,9 +567,12 @@ const WriterEdit = () => {
                     description: item?.description || item?.long_description || '',
                     specification: item?.specification || item?.description || item?.long_description || '',
                     answer_block: item?.answer_block || item?.short_description || '',
-                    best_for: item?.best_for || '',
-                    not_for: item?.not_for || '',
+                    best_for: pickList(item?.best_for, item?.bestFor),
+                    not_for: pickList(item?.not_for, item?.notFor),
                     expert_authority: item?.expert_authority || item?.expert_authority_name || '',
+                    main_customer_reason: String(item?.primary_intent || '')
+                        .replace(/_/g, ' ')
+                        .replace(/\b\w/g, (c) => c.toUpperCase()),
                 });
                 // SOURCE: CLAUDE.md §15
                 // FIX: UI-23 — CHS weighted component breakdown.
@@ -715,8 +745,8 @@ const WriterEdit = () => {
                     description: values.description,
                     specification: values.specification,
                     answer_block: values.answer_block,
-                    best_for: values.best_for,
-                    not_for: values.not_for,
+                    best_for: toList(values.best_for),
+                    not_for: toList(values.not_for),
                     expert_authority: values.expert_authority,
                 };
                 const res = await writerEditApi.validate(skuId, body);
@@ -934,7 +964,22 @@ const WriterEdit = () => {
                     </div>
 
                     {/* SOURCE: ENF§2.1 G6.1, BUILD§Step3, UI_Restructure §2.1 — Kill: zero content field cards in DOM (banner + header identity only) */}
-                    {normalizeTier(tier) === 'kill' ? null : isReadonly ? (
+                    {normalizeTier(tier) === 'kill' ? (
+                        <div
+                            style={{
+                                background: '#FDEEEB',
+                                border: '1px solid #E5B5AD',
+                                color: '#A63D2F',
+                                borderRadius: 6,
+                                padding: 12,
+                                marginBottom: 12,
+                                fontSize: '0.78rem',
+                                fontWeight: 600,
+                            }}
+                        >
+                            This product is locked and scheduled for removal. No edit capability.
+                        </div>
+                    ) : isReadonly ? (
                         <>
                             {Object.keys(FIELD_LABELS).map((field) => (
                                 <div
@@ -961,6 +1006,7 @@ const WriterEdit = () => {
                                 // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §6, CLAUDE.md §11 — fail + warn/pending show user_message (or PENDING_GATE_HINT)
                                 const showHint = state.state === 'fail' || state.state === 'warning';
                                 const isInput = FIELD_TYPES[field] === 'input';
+                                const isReadonlyField = FIELD_TYPES[field] === 'readonly';
                                 return (
                                     <div
                                         key={field}
@@ -975,7 +1021,20 @@ const WriterEdit = () => {
                                         <div style={{ fontSize: '0.72rem', fontWeight: 700, color: C.text, marginBottom: 6 }}>
                                             {FIELD_LABELS[field]}
                                         </div>
-                                        {isInput ? (
+                                        {isReadonlyField ? (
+                                            <>
+                                                <input
+                                                    className="field-input readonly"
+                                                    value={values[field] || ''}
+                                                    readOnly
+                                                    disabled
+                                                    style={{ background: C.muted, borderColor: C.border, color: C.textMid }}
+                                                />
+                                                <div style={{ marginTop: 6, fontSize: '0.68rem', color: C.textMid }}>
+                                                    (Set by system based on search data)
+                                                </div>
+                                            </>
+                                        ) : isInput ? (
                                             <input
                                                 className="field-input"
                                                 value={values[field] || ''}
@@ -991,11 +1050,29 @@ const WriterEdit = () => {
                                                 style={{ background: C.bg, borderColor: C.border }}
                                             />
                                         )}
-                                        <div style={{ marginTop: 5, fontSize: '0.65rem', color: THEME.textMid }}>
-                                            {counterText(field, values[field], answerBlockMin, answerBlockMax, fieldRanges)}
-                                        </div>
+                                        {shouldShowCounter(field) && (
+                                            <div
+                                                style={{
+                                                    marginTop: 5,
+                                                    fontSize: '0.65rem',
+                                                    color: counterColor(field, values[field], answerBlockMin, answerBlockMax, fieldRanges),
+                                                }}
+                                            >
+                                                {counterText(field, values[field], answerBlockMin, answerBlockMax, fieldRanges)}
+                                            </div>
+                                        )}
                                         {showHint && state.hint && (
-                                            <div style={{ marginTop: 6, fontSize: '0.68rem', color: hintColorForState(state.state) }}>
+                                            <div
+                                                style={{
+                                                    marginTop: 6,
+                                                    fontSize: '0.68rem',
+                                                    color: hintColorForState(state.state),
+                                                    background: state.state === 'fail' ? '#FFEBEE' : '#FFFDE7',
+                                                    border: `1px solid ${state.state === 'fail' ? '#EF9A9A' : '#FFCC80'}`,
+                                                    borderRadius: 4,
+                                                    padding: '6px 8px',
+                                                }}
+                                            >
                                                 {state.hint}
                                             </div>
                                         )}
@@ -1063,7 +1140,15 @@ const WriterEdit = () => {
                 <aside style={{ width: '30%', minWidth: 0 }}>
                     <div className="card">
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: suggestionsOpen ? 10 : 0 }}>
-                            <div style={{ fontSize: '0.76rem', fontWeight: 700, color: C.text }}>AI Suggestions</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', color: C.accent }}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                        <path d="M12 3a7 7 0 0 0-4.6 12.3c.9.8 1.6 1.8 1.8 3h5.6c.2-1.2.9-2.2 1.8-3A7 7 0 0 0 12 3Z" stroke="currentColor" strokeWidth="1.8"/>
+                                        <path d="M9.5 20h5M10 22h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+                                    </svg>
+                                </span>
+                                <div style={{ fontSize: '0.76rem', fontWeight: 700, color: C.text }}>AI Suggestions</div>
+                            </div>
                             <button
                                 type="button"
                                 className="btn btn-secondary btn-sm"
@@ -1081,6 +1166,9 @@ const WriterEdit = () => {
 
                         {suggestionsOpen && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div style={{ fontSize: '0.68rem', color: C.textMid }}>
+                                    Suggestions are built from Semrush, AI Audit, and Google Analytics data.
+                                </div>
                                 {/* SOURCE: CIE_Master_Developer_Build_Spec.docx §4.5 — FIX: AI-10 fail-soft copy */}
                                 {auditUnavailable && (
                                     <p style={{ color: '#6B6860', fontSize: '13px', marginBottom: '12px' }}>

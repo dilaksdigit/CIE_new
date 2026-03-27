@@ -1,17 +1,16 @@
-@import url('https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500;600;700&display=swap');
 /* SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 4; CLAUDE.md Section 3 R6 — desktop only, no responsive breakpoints */
 
 :root {
   /* SOURCE: CIE_v232_UI_Restructure_Instructions.docx §5
      FIX: UI-01 — exact light palette tokens. */
-  --bg: #FAFAF8;
+  --bg: #FAFAFA;
   --surface: #FFFFFF;
-  --surface-alt: #F5F4F1;
-  --border: #E5E3DE;
-  --border-light: #E5E3DE;
-  --text: #2D2B28;
-  --text-muted: #6B6860;
-  --text-dim: #9B978F;
+  --surface-alt: #F5F5F4;
+  --border: #E5E5E5;
+  --border-light: #E5E5E5;
+  --text: #2D2D2D;
+  --text-muted: #6B6B6B;
+  --text-dim: #999999;
   --accent: #5B7A3A;
   --accent-dim: #EEF2E8;
   --accent-border: #C5D4B0;
@@ -45,7 +44,7 @@
   --radius: 6px;
   --radius-sm: 4px;
   --mono: 'Source Code Pro', 'Consolas', monospace;
-  --sans: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 * {
@@ -550,6 +549,10 @@ tr:hover td {
   background: var(--bg);
 }
 
+tbody tr:nth-child(even) td {
+  background: var(--surface-alt);
+}
+
 tr:last-child td {
   border-bottom: none;
 }
@@ -567,7 +570,7 @@ tr:last-child td {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(250, 250, 250, 0.82);
   display: flex;
   align-items: center;
   justify-content: center;

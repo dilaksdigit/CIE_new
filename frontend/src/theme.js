@@ -5,17 +5,17 @@ export const THEME = {
   // SOURCE: CIE_v232_UI_Restructure_Instructions.docx §5
   // FIX: UI-01/UI-02 — exact light palette and harvest color.
   // ── Backgrounds ────────────────────────────────────────────────
-  bg:            "#FAFAF8",
+  bg:            "#FAFAFA",
   surface:       "#FFFFFF",   // white — cards, panels
-  muted:         "#F5F4F1",
+  muted:         "#F5F5F4",
 
   // ── Borders ────────────────────────────────────────────────────
-  border:        "#E5E3DE",
+  border:        "#E5E5E5",
 
   // ── Text ───────────────────────────────────────────────────────
-  text:          "#2D2B28",
-  textMid:       "#6B6860",
-  textLight:     "#9B978F",
+  text:          "#2D2D2D",
+  textMid:       "#6B6B6B",
+  textLight:     "#999999",
 
   // ── Accent ─────────────────────────────────────────────────────
   accent:        "#5B7A3A",   // olive green — primary action
@@ -33,7 +33,7 @@ export const THEME = {
   supportBorder: "#B5D0E3",
 
   // ── Tier: Harvest ──────────────────────────────────────────────
-  harvest:       "#9E7C1A",
+  harvest:       "#B8860B",
   harvestBg:     "#FFF8E7",
   harvestBorder: "#E8D49A",
 

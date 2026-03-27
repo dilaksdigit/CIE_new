@@ -6,10 +6,10 @@ import { TIER_BANNER_COPY } from '../../lib/tierFieldMap';
 // SOURCE: CLAUDE.md §8; CIE_v232_UI_Restructure_Instructions.docx §5
 // FIX: UI-17 — tier banner palette aligned to tier colors.
 const BANNER_STYLES = {
-    hero: { bg: '#8B691410', border: '#8B6914', text: '#8B6914' },
-    support: { bg: '#3D6B8E10', border: '#3D6B8E', text: '#3D6B8E' },
-    harvest: { bg: '#9E7C1A10', border: '#9E7C1A', text: '#9E7C1A' },
-    kill: { bg: '#A63D2F10', border: '#A63D2F', text: '#A63D2F' },
+    hero: { bg: '#FDF6E3', border: '#E8D5A0', text: '#8B6914' },
+    support: { bg: '#EBF3F9', border: '#B5D0E3', text: '#3D6B8E' },
+    harvest: { bg: '#FFF8E7', border: '#E8D49A', text: '#B8860B' },
+    kill: { bg: '#FDEEEB', border: '#E5B5AD', text: '#A63D2F' },
 };
 
 /**

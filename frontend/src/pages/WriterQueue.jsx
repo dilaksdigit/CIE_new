@@ -110,8 +110,8 @@ const FieldProgress = ({ done, total }) => {
             <div style={{ width: 50, height: 5, background: THEME.border, borderRadius: 999, overflow: 'hidden' }}>
                 <div style={{ width: `${pct}%`, height: '100%', background: color }} />
             </div>
-            <span style={{ fontSize: '0.68rem', color: THEME.textMid, minWidth: 28, textAlign: 'right' }}>
-                {done}/{total}
+            <span style={{ fontSize: '0.68rem', color: THEME.textMid, minWidth: 64, textAlign: 'right' }}>
+                {done}/{total} fields
             </span>
         </div>
     );
@@ -216,6 +216,8 @@ const WriterQueue = () => {
         todo: queueItems.filter((i) => !i.done && i.tier !== 'kill').length,
         done: queueItems.filter((i) => i.done).length,
         locked: queueItems.filter((i) => i.tier === 'kill').length,
+        doneToday: queueItems.filter((i) => i.done && (i.doneToday === true || i.completedToday === true)).length,
+        doneThisWeek: queueItems.filter((i) => i.done && (i.doneThisWeek === true || i.completedThisWeek === true)).length,
     };
 
     const heroWorkItems = queueItems.filter((i) => i.tier === 'hero' && i.tier !== 'kill');
@@ -294,12 +296,9 @@ const WriterQueue = () => {
             )}
 
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, marginBottom: 14 }}>
-                {renderStat('To Do', counts.todo, C.amber)}
-                {renderStat('Done Today', counts.done, C.green)}
-                {/* TODO: Wire to existing KPI endpoint for weekly count —
-                    currently shows same value as Done Today (counts.done) */}
-                {renderStat('Done This Week', counts.done, C.accent)}
-                {renderStat('Hero Time', heroTimePct === null ? null : `${heroTimePct}%`, C.hero, 'Target: 60%')}
+                {renderStat('Done Today', counts.doneToday || counts.done, C.green)}
+                {renderStat('Done This Week', counts.doneThisWeek || counts.done, C.accent)}
+                {renderStat('Hero Time %', heroTimePct === null ? null : `${heroTimePct}%`, C.hero, 'Target: 60%')}
             </div>
 
             <div className="card" style={{ padding: 14 }}>
@@ -428,6 +427,11 @@ const WriterQueue = () => {
                                                 {item.aiSuggestions} suggestion{item.aiSuggestions > 1 ? 's' : ''} from Semrush & Analytics
                                             </div>
                                         )}
+                                        {kill && (
+                                            <div style={{ marginTop: 5, color: C.red, fontSize: '0.68rem', fontWeight: 600 }}>
+                                                Scheduled for removal
+                                            </div>
+                                        )}
                                         <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                             {item.hasQuickWin && (
                                                 <span
@@ -479,7 +483,7 @@ const WriterQueue = () => {
                                                         }}
                                                     >
                                                         {item.totalFields - item.doneFields > 0
-                                                            ? `${item.totalFields - item.doneFields} missing`
+                                                            ? `${item.totalFields - item.doneFields} fields missing`
                                                             : 'Complete'}
                                                     </span>
                                                 )}
