@@ -16,6 +16,8 @@ class AiAgentLog extends Model
         'sku_id',
         'function_called',
         'prompt_hash',
+        'prompt_text',
+        'response_text',
         'response_received',
         'confidence_score',
         'status',

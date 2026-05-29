@@ -3,12 +3,14 @@
 namespace App\Services;
 
 use App\Models\Sku;
+use App\Models\AuditLog;
 use App\Services\BriefGenerationService;
 use App\Support\BusinessRules;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 class DecayService
 {
@@ -34,8 +36,29 @@ class DecayService
             return true;
         }
 
-        // Advance decay (consecutive zero weeks)
-        $newZeros = (int) ($sku->decay_consecutive_zeros ?? 0) + 1;
+        // Advance decay only when the SKU previously scored >= 1 on an audit row and now has aggregate zero.
+        $currentWeekStart = now()->startOfWeek()->toDateString();
+        $previouslyHadCitation = false;
+        if (Schema::hasTable('ai_audit_results')) {
+            $q = DB::table('ai_audit_results')
+                ->where('cited_sku_id', $sku->id)
+                ->where('score', '>=', 1)
+                ->where(function ($q2) {
+                    $q2->whereNull('is_available')->orWhere('is_available', true);
+                });
+            if (Schema::hasColumn('ai_audit_results', 'week_ending')) {
+                $q->where(function ($q3) use ($currentWeekStart) {
+                    $q3->whereNull('week_ending')->orWhere('week_ending', '<', $currentWeekStart);
+                });
+            }
+            $previouslyHadCitation = $q->exists();
+        }
+
+        if ($previouslyHadCitation) {
+            $newZeros = (int) ($sku->decay_consecutive_zeros ?? 0) + 1;
+        } else {
+            $newZeros = 0;
+        }
 
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §12.2 — thresholds from business_rules only (no silent code fallbacks).
         $yellowFlagWeeks = $this->requireDecayConfigInt('decay.yellow_flag_weeks');
@@ -43,6 +66,7 @@ class DecayService
         $autoBriefWeeks = $this->requireDecayConfigInt('decay.auto_brief_weeks');
         $escalateWeeks = $this->requireDecayConfigInt('decay.escalate_weeks');
 
+        $oldStatus = (string) ($sku->decay_status ?? 'none');
         $status = match (true) {
             $newZeros >= $escalateWeeks => 'escalated',
             $newZeros >= $autoBriefWeeks => 'auto_brief',
@@ -56,6 +80,12 @@ class DecayService
             'decay_consecutive_zeros' => $newZeros,
             'decay_status'            => $status,
         ]);
+        if (Schema::hasColumn('skus', 'revenue_at_risk')) {
+            $sku->update(['revenue_at_risk' => $newZeros >= $escalateWeeks]);
+        }
+        if ($oldStatus !== $status) {
+            $this->insertAuditLog('decay_status_change', (string) $sku->id, $oldStatus, $status, 'decay_status');
+        }
 
         $this->handleDecayEscalation($sku, $newZeros, $status);
 
@@ -95,13 +125,35 @@ class DecayService
         $skuRef = (string) ($sku->sku_code ?: $sku->id);
         $body = $message."\n\nSKU: {$skuRef} — {$productLabel}";
 
-        // TODO: notifications table + UI bell for in-app alerts. Email is primary per §12.2.
+        // In-app notifications for writer/reviewer roles.
         try {
-            if (class_exists(\App\Models\Notification::class)) {
-                // Reserved for future Notification model + persistence.
+            if (Schema::hasTable('notifications')) {
+                $users = DB::table('users')
+                    ->join('user_roles', 'users.id', '=', 'user_roles.user_id')
+                    ->join('roles', 'user_roles.role_id', '=', 'roles.id')
+                    ->whereIn('roles.name', ['CONTENT_EDITOR', 'PRODUCT_SPECIALIST', 'CONTENT_LEAD', 'SEO_GOVERNOR'])
+                    ->distinct()
+                    ->select('users.id')
+                    ->get();
+                foreach ($users as $u) {
+                    DB::table('notifications')->insert([
+                        'id' => (string) Str::uuid(),
+                        'notifiable_type' => 'user',
+                        'notifiable_id' => (string) $u->id,
+                        'type' => 'decay_alert',
+                        'data' => json_encode([
+                            'sku_id' => (string) $sku->id,
+                            'sku_code' => (string) ($sku->sku_code ?? ''),
+                            'message' => $message,
+                            'severity' => $type,
+                        ]),
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
             }
         } catch (\Throwable $e) {
-            Log::warning('Decay in-app notification skipped: '.$e->getMessage(), ['sku_id' => $sku->id]);
+            Log::warning('Decay in-app notification failed: '.$e->getMessage(), ['sku_id' => $sku->id]);
         }
 
         try {
@@ -132,6 +184,7 @@ class DecayService
         // SOURCE: openapi.yaml POST /brief/generate; CIE_v232_Developer_Build_Guide.pdf — week 3 decay uses same brief path as API (BriefGenerationService)
         $failingQuestions = $this->collectFailingQuestionIdsForSku($sku);
         $brief = app(BriefGenerationService::class)->generateDecayRefreshBrief((string) $sku->id, $failingQuestions);
+        $this->insertAuditLog('brief_created', (string) $sku->id, null, (string) ($brief->id ?? ''), 'content_brief');
 
         Log::info('Auto-brief created for SKU after citation decay (BriefGenerationService)', [
             'sku_id' => $sku->id,
@@ -168,5 +221,24 @@ class DecayService
         }
 
         return (int) $v;
+    }
+
+    private function insertAuditLog(string $action, string $entityId, ?string $oldValue, ?string $newValue, ?string $fieldName = null): void
+    {
+        try {
+            AuditLog::create([
+                'entity_type' => 'sku',
+                'entity_id' => $entityId,
+                'action' => $action,
+                'field_name' => $fieldName,
+                'old_value' => $oldValue,
+                'new_value' => $newValue,
+                'actor_id' => 'SYSTEM',
+                'actor_role' => 'system',
+                'timestamp' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('DecayService audit_log failed: '.$e->getMessage(), ['entity_id' => $entityId, 'action' => $action]);
+        }
     }
 }

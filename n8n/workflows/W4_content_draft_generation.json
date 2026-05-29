@@ -1,0 +1,72 @@
+{
+  "name": "W4 — Content Draft Generation",
+  "id": "W4_content_draft_generation",
+  "nodes": [
+    {
+      "id": "W4_Trigger",
+      "name": "Trigger: Brief Generated (S10)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {
+        "path": "w4-content-draft",
+        "httpMethod": "POST"
+      }
+    },
+    {
+      "id": "W4_PHP_Load",
+      "name": "Load Canonical Data from PHP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [500, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.PHP_BASE_URL}}/api/v1/sku/{{$json.sku_id}}",
+        "responseFormat": "json",
+        "options": { "timeout": 30000 }
+      }
+    },
+    {
+      "id": "W4_Python_Draft",
+      "name": "Call Python /content/draft_blocks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [750, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.PYTHON_BASE_URL}}/api/v1/content/draft_blocks",
+        "responseFormat": "json",
+        "options": { "timeout": 30000 },
+        "jsonParameters": true
+      }
+    },
+    {
+      "id": "W4_PHP_Save",
+      "name": "Save Drafts to PHP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1000, 300],
+      "parameters": {
+        "method": "PUT",
+        "url": "={{$env.PHP_BASE_URL}}/api/v1/sku/{{$json.sku_id}}/drafts",
+        "responseFormat": "json",
+        "options": { "timeout": 30000 },
+        "jsonParameters": true
+      }
+    }
+  ],
+  "connections": {
+    "Trigger: Brief Generated (S10)": {
+      "main": [[{ "node": "Load Canonical Data from PHP", "type": "main", "index": 0 }]]
+    },
+    "Load Canonical Data from PHP": {
+      "main": [[{ "node": "Call Python /content/draft_blocks", "type": "main", "index": 0 }]]
+    },
+    "Call Python /content/draft_blocks": {
+      "main": [[{ "node": "Save Drafts to PHP", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "w4-content-draft-stub-v1"
+}

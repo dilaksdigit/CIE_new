@@ -608,3 +608,33 @@ Three seed users (admin + writer + reviewer): Amendment Pack v2 §3 — two *bus
 **Filed:** 2026-03-26
 
 ---
+
+## GAP-AI-001 | 2026-03-30 | Embedding model recalibration
+
+**Issue:** If local embeddings are used instead of OpenAI `text-embedding-3-small`, the `0.72` cosine threshold may not map to the same similarity distribution.
+
+**Decision needed:** Confirm whether `0.72` has been recalibrated against the local embedding model.
+
+**Workaround:** Threshold remains configurable through `BusinessRules.get('gates.vector_similarity_min')`.
+
+---
+
+## GAP-AI-002 | 2026-03-30 | Golden queries source of truth
+
+**Issue:** Enforcement Dev Spec §10.1 states golden queries are JSON + versioned; some runtime paths still support DB loading.
+
+**Decision needed:** Confirm canonical source and required JSON->DB sync/seed process.
+
+**Workaround:** Runtime now prefers versioned JSON and falls back to DB for legacy environments.
+
+---
+
+## GAP-AI-003 | 2026-03-30 | RBAC role naming mapping
+
+**Issue:** Spec references `writer` while implementation maps writer capability to `CONTENT_EDITOR` + `PRODUCT_SPECIALIST`.
+
+**Decision needed:** Confirm this mapping as official terminology and document it in spec/implementation notes.
+
+**Constraint:** RBAC hierarchy is frozen; no role model change proposed here.
+
+---

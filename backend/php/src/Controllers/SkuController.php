@@ -4,10 +4,8 @@ namespace App\Controllers;
 
 use App\Models\Sku;
 use App\Models\AiAgentLog;
-use App\Models\IntentTaxonomy;
-use App\Models\SkuIntent;
 use App\Models\ContentBrief;
-use App\Models\Intent;
+use App\Models\IntentTaxonomy;
 use App\Models\AuditLog;
 use App\Models\ValidationLog;
 use App\Services\ValidationService;
@@ -27,6 +25,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 class SkuController {
     protected $validationService;
@@ -243,15 +242,30 @@ class SkuController {
             return [];
         }
         // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §3.2 — filter latest batch; optional sku_code column for row-level SKU linkage
-        $skuCode = (string) ($sku->sku_code ?? '');
+        $skuCode = trim((string) ($sku->sku_code ?? ''));
+        $normalizedSkuCode = strtoupper($skuCode);
         try {
-            $latestBatch = DB::table('semrush_imports')->max('import_batch');
+            $hasSkuCodeColumn = Schema::hasColumn('semrush_imports', 'sku_code');
+            $latestBatch = null;
+
+            // Prefer latest batch that actually contains this SKU (prevents false-empty cards
+            // when a newer unrelated import exists).
+            if ($hasSkuCodeColumn && $normalizedSkuCode !== '') {
+                $latestBatch = DB::table('semrush_imports')
+                    ->whereRaw('UPPER(TRIM(sku_code)) = ?', [$normalizedSkuCode])
+                    ->max('import_batch');
+            }
+
+            if ($latestBatch === null) {
+                $latestBatch = DB::table('semrush_imports')->max('import_batch');
+            }
             if ($latestBatch === null) {
                 return [];
             }
+
             $q = DB::table('semrush_imports')->where('import_batch', $latestBatch);
-            if (Schema::hasColumn('semrush_imports', 'sku_code') && $skuCode !== '') {
-                $q->where('sku_code', $skuCode);
+            if ($hasSkuCodeColumn && $normalizedSkuCode !== '') {
+                $q->whereRaw('UPPER(TRIM(sku_code)) = ?', [$normalizedSkuCode]);
             }
             $rows = $q->orderByDesc('search_volume')->limit(100)->get();
             return $rows->map(fn ($row) => (array) $row)->all();
@@ -769,10 +783,13 @@ class SkuController {
 
         if ($sku->tier === TierType::KILL) {
             return response()->json([
-                'error' => 'AI suggestions unavailable — enter manually.',
+                'error' => 'AI suggestions unavailable — enter manually',
                 'fields_editable' => false,
             ], 200);
         }
+
+        // Default max_execution_time (often 30s) is shorter than Http::timeout(120) below — avoid FatalError in Guzzle.
+        $this->allowLongPythonHttpCall(120);
 
         $primaryIntent = null;
         foreach ($sku->skuIntents as $si) {
@@ -783,6 +800,36 @@ class SkuController {
         }
 
         $cluster = $sku->primaryCluster;
+        $topGscQueries = [];
+        if (Schema::hasTable('semrush_imports') && Schema::hasColumn('semrush_imports', 'sku_code')) {
+            $topGscQueries = DB::table('semrush_imports')
+                ->where('sku_code', $sku->sku_code)
+                ->orderByDesc('search_volume')
+                ->limit(10)
+                ->pluck('keyword')
+                ->map(static fn ($k) => (string) $k)
+                ->toArray();
+        }
+
+        $competitorAnswers = [];
+        if (Schema::hasTable('ai_audit_results')) {
+            $cq = DB::table('ai_audit_results')
+                ->where('cited_sku_id', $sku->id)
+                ->whereNotNull('response_hash')
+                ->orderByDesc('run_date')
+                ->limit(5);
+            $competitorAnswers = $cq->pluck('response_hash')
+                ->map(static fn ($s) => (string) $s)
+                ->toArray();
+        }
+
+        $productSpecs = [
+            'expert_authority' => $sku->expert_authority,
+            'best_for' => $sku->best_for,
+            'not_for' => $sku->not_for,
+            'ai_answer_block' => $sku->ai_answer_block,
+        ];
+
         $skuData = [
             'sku_id' => (string) $sku->id,
             'sku_code' => (string) ($sku->sku_code ?? ''),
@@ -793,6 +840,9 @@ class SkuController {
             'primary_intent' => $primaryIntent,
             'tier' => strtolower((string) ($sku->tier instanceof TierType ? $sku->tier->value : $sku->tier)),
             'certifications' => [],
+            'top_gsc_queries' => $topGscQueries,
+            'competitor_answer_blocks' => $competitorAnswers,
+            'product_specs' => $productSpecs,
         ];
 
         $baseUrl = rtrim((string) config('services.python_worker.url', ''), '/');
@@ -814,14 +864,17 @@ class SkuController {
                 if (isset($suggestion['error'])) {
                     if (Schema::hasTable('ai_agent_logs')) {
                         try {
-                            AiAgentLog::create([
+                            $logRow = [
                                 'sku_id' => (string) $sku->id,
                                 'function_called' => 'content_suggest',
                                 'prompt_hash' => hash('sha256', (string) json_encode($skuData)),
                                 'response_received' => false,
                                 'confidence_score' => null,
                                 'status' => 'pending',
-                            ]);
+                            ];
+                            $logRow = $this->appendAiAgentLogTextColumns($logRow, $skuData, $suggestion);
+                            AiAgentLog::create($logRow);
+                            $this->mirrorAiAgentAudit((string) $sku->id, 'content_suggest', $logRow);
                         } catch (\Throwable $e) {
                             Log::warning('AiAgentLog create failed: ' . $e->getMessage(), ['sku_id' => $sku->id]);
                         }
@@ -832,7 +885,7 @@ class SkuController {
 
                 if (Schema::hasTable('ai_agent_logs')) {
                     try {
-                        AiAgentLog::create([
+                        $logRow = [
                             'sku_id' => (string) $sku->id,
                             'function_called' => 'content_suggest',
                             'prompt_hash' => hash('sha256', (string) json_encode($skuData)),
@@ -841,7 +894,10 @@ class SkuController {
                                 ? (float) $suggestion['confidence_score']
                                 : null,
                             'status' => 'pending',
-                        ]);
+                        ];
+                        $logRow = $this->appendAiAgentLogTextColumns($logRow, $skuData, $suggestion);
+                        AiAgentLog::create($logRow);
+                        $this->mirrorAiAgentAudit((string) $sku->id, 'content_suggest', $logRow);
                     } catch (\Throwable $e) {
                         Log::warning('AiAgentLog create failed: ' . $e->getMessage(), ['sku_id' => $sku->id]);
                     }
@@ -852,28 +908,31 @@ class SkuController {
 
             if (Schema::hasTable('ai_agent_logs')) {
                 try {
-                    AiAgentLog::create([
+                    $logRow = [
                         'sku_id' => (string) $sku->id,
                         'function_called' => 'content_suggest',
                         'prompt_hash' => hash('sha256', (string) json_encode($skuData)),
                         'response_received' => false,
                         'confidence_score' => null,
                         'status' => 'pending',
-                    ]);
+                    ];
+                    $logRow = $this->appendAiAgentLogTextColumns($logRow, $skuData, null);
+                    AiAgentLog::create($logRow);
+                    $this->mirrorAiAgentAudit((string) $sku->id, 'content_suggest', $logRow);
                 } catch (\Throwable $e) {
                     Log::warning('AiAgentLog create failed: ' . $e->getMessage(), ['sku_id' => $sku->id]);
                 }
             }
 
             return response()->json([
-                'error' => 'AI suggestions unavailable — enter manually.',
+                'error' => 'AI suggestions unavailable — enter manually',
                 'fields_editable' => true,
             ], 200);
         } catch (\Exception $e) {
             Log::warning('suggest Python call failed: ' . $e->getMessage(), ['sku_id' => $sku->id]);
 
             return response()->json([
-                'error' => 'AI suggestions unavailable — enter manually.',
+                'error' => 'AI suggestions unavailable — enter manually',
                 'fields_editable' => true,
             ], 200);
         }
@@ -886,29 +945,43 @@ class SkuController {
     public function suggestionStatus(Request $request, string $sku_id, string $suggestion_id): JsonResponse
     {
         $status = (string) $request->input('status', 'seen');
-        if (Schema::hasTable('ai_agent_logs')) {
+        // Round 2 audit A8.4 — update the specific ai_agent_logs row by suggestion_id (route param)
+        if (Schema::hasTable('ai_agent_logs') && ctype_digit((string) $suggestion_id)) {
             try {
-                $mapped = in_array((string) $status, ['accepted', 'edited'], true)
-                    ? (string) $status
-                    : 'rejected';
-                AiAgentLog::where('sku_id', $sku_id)
-                    ->where('function_called', 'content_suggest')
-                    ->orderByDesc('id')
-                    ->limit(1)
+                if ($status === 'dismissed') {
+                    $mapped = 'rejected';
+                } elseif (in_array($status, ['accepted', 'edited'], true)) {
+                    $mapped = $status;
+                } else {
+                    $mapped = 'pending';
+                }
+                AiAgentLog::where('id', (int) $suggestion_id)
+                    ->where('sku_id', $sku_id)
                     ->update(['status' => $mapped]);
+                $this->mirrorAiAgentAudit((string) $sku_id, 'suggestion_status', [
+                    'suggestion_id' => (int) $suggestion_id,
+                    'status' => $mapped,
+                ]);
             } catch (\Throwable $e) {
                 Log::warning('suggestionStatus ai_agent_logs: ' . $e->getMessage());
             }
         }
 
-        $engineBase = rtrim((string) env('CIE_ENGINE_BASE_URL', 'http://localhost:8000/api/v1'), '/');
-        $url = $engineBase . '/sku/' . urlencode($sku_id) . '/suggestions/' . urlencode($suggestion_id) . '/status';
+        $baseUrl = rtrim((string) config('services.python_worker.url', ''), '/');
+        if ($baseUrl === '') {
+            $baseUrl = 'http://localhost:8000';
+        }
+        $url = $baseUrl.'/api/v1/sku/'.rawurlencode($sku_id).'/suggestions/'.rawurlencode($suggestion_id).'/status';
         $client = Http::acceptJson();
         $token = env('CIE_ENGINE_TOKEN');
         if (!empty($token)) {
             $client = $client->withToken($token);
         }
         $response = $client->post($url, $request->all());
+
+        if ($response->status() === 404) {
+            return response()->json(['error' => 'Suggestion not found'], 404);
+        }
 
         return response()->json($response->json(), $response->status());
     }
@@ -938,12 +1011,30 @@ class SkuController {
             $q->whereIn('tier', ['hero', 'support', 'harvest', 'kill']);
         }
         $candidates = $q->get();
+        if (Schema::hasTable('ai_agent_logs')) {
+            try {
+                $qlog = [
+                    'sku_id' => 'system',
+                    'function_called' => 'queue_generation',
+                    'prompt_hash' => hash('sha256', 'queue_today:' . (string) now()->format('Y-m-d-H')),
+                    'response_received' => true,
+                    'confidence_score' => null,
+                    'status' => 'pending',
+                ];
+                AiAgentLog::create($qlog);
+                $this->mirrorAiAgentAudit('system', 'queue_generation', $qlog);
+            } catch (\Throwable $e) {
+                Log::warning('queueToday ai_agent_logs: '.$e->getMessage());
+            }
+        }
 
         $amberThreshold = (int) BusinessRules::get('chs.amber_threshold');
+        $redThreshold = (int) BusinessRules::get('chs.red_threshold', $amberThreshold);
         $heroReadinessMin = (int) BusinessRules::get('readiness.hero_primary_channel_min');
 
         foreach ($candidates as $sku) {
             $score = 0;
+            $priorityBand = 5;
             $decayStatus = $sku->decay_status ?? 'none';
 
             $tierLower = $sku->tier instanceof TierType ? $sku->tier->value : strtolower((string) ($sku->tier ?? ''));
@@ -952,36 +1043,32 @@ class SkuController {
             // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1 — 6-factor scoring hero/support only
             // Harvest/Kill included with priority_score=0 for UI display (dimmed/locked).
             if (in_array($tierLower, ['hero', 'support'], true)) {
-                if (in_array($decayStatus, ['auto_brief', 'escalated'], true)) {
-                    $score += (int) BusinessRules::get('queue.decay_critical_bonus', 100);
-                }
-                if ($decayStatus === 'alert') {
-                    $score += (int) BusinessRules::get('queue.decay_alert_bonus', 60);
-                }
                 $chs = (int) ($sku->content_score ?? 0);
-                if ($chs < $amberThreshold) {
-                    $score += (int) BusinessRules::get('queue.low_chs_bonus', 40);
-                }
-                if ($tierLower === 'hero') {
-                    $readiness = (int) ($sku->readiness_score ?? 0);
-                    if ($readiness < $heroReadinessMin) {
-                        $score += (int) BusinessRules::get('queue.hero_readiness_gap_bonus', 35);
-                    }
-                    // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1
-                    // FIX: AI-11 — Hero + no answer_block only (skus.ai_answer_block)
-                    $answerBlockEmpty = trim((string) ($sku->ai_answer_block ?? '')) === '';
-                    if ($answerBlockEmpty) {
-                        $score += (int) BusinessRules::get('queue.hero_missing_answer_bonus', 30);
-                    }
-                }
-                if ($this->hasOpenBrief((string) $sku->id)) {
-                    $score += (int) BusinessRules::get('queue.open_brief_bonus', 25);
+                $readiness = (int) ($sku->readiness_score ?? 0);
+                $answerBlockEmpty = trim((string) ($sku->ai_answer_block ?? '')) === '';
+                $hasOpenBrief = $this->hasOpenBrief((string) $sku->id);
+
+                // Strict priority ladder (P1-3):
+                // 1) active decay briefs, 2) low-CHS Hero, 3) newly Hero incomplete, 4) readiness deadline candidates.
+                if ($hasOpenBrief && in_array($decayStatus, ['auto_brief', 'escalated', 'alert'], true)) {
+                    $priorityBand = 1;
+                    $score = 1000;
+                } elseif ($tierLower === 'hero' && $chs < $redThreshold) {
+                    $priorityBand = 2;
+                    $score = 900 - $chs;
+                } elseif ($tierLower === 'hero' && $answerBlockEmpty) {
+                    $priorityBand = 3;
+                    $score = 800;
+                } elseif ($tierLower === 'hero' && $readiness < $heroReadinessMin) {
+                    $priorityBand = 4;
+                    $score = 700 - max(0, $readiness);
                 }
             } else {
                 $score = 0;
             }
 
             $sku->priority_score = $score;
+            $sku->priority_band = $priorityBand;
         }
 
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §14.1; openapi.yaml /queue/today — global priority_score DESC, tier rank tiebreaker
@@ -993,6 +1080,11 @@ class SkuController {
             $rb = $tierRank[$tb] ?? 9;
             $pa = (int) ($a->priority_score ?? 0);
             $pb = (int) ($b->priority_score ?? 0);
+            $ba = (int) ($a->priority_band ?? 9);
+            $bb = (int) ($b->priority_band ?? 9);
+            if ($ba !== $bb) {
+                return $ba <=> $bb;
+            }
             if ($pb !== $pa) {
                 return $pb <=> $pa;
             }
@@ -1029,7 +1121,32 @@ class SkuController {
             ];
         });
 
-        return response()->json(['items' => $items->values()->all()], 200);
+        $notifications = [];
+        if (Schema::hasTable('notifications') && auth()->check()) {
+            try {
+                $rows = DB::table('notifications')
+                    ->where('notifiable_type', 'user')
+                    ->where('notifiable_id', (string) auth()->id())
+                    ->whereNull('read_at')
+                    ->orderByDesc('created_at')
+                    ->limit(20)
+                    ->get(['id', 'type', 'data', 'created_at']);
+                foreach ($rows as $n) {
+                    $payload = is_string($n->data) ? (json_decode($n->data, true) ?: []) : (array) $n->data;
+                    $notifications[] = [
+                        'id' => (string) $n->id,
+                        'type' => (string) $n->type,
+                        'message' => (string) ($payload['message'] ?? ''),
+                        'sku_id' => (string) ($payload['sku_id'] ?? ''),
+                        'created_at' => (string) $n->created_at,
+                    ];
+                }
+            } catch (\Throwable $e) {
+                Log::warning('queueToday notifications failed: '.$e->getMessage());
+            }
+        }
+
+        return response()->json(['items' => $items->values()->all(), 'notifications' => $notifications], 200);
     }
 
     /**
@@ -1414,6 +1531,273 @@ class SkuController {
         } catch (\Throwable $e) {
             return [];
         }
+    }
+
+    /**
+     * PHP max_execution_time is often 30s while Guzzle Http::timeout(120) waits on Python/Ollama.
+     * Extend the script limit so the request is not killed mid-cURL.
+     */
+    private function allowLongPythonHttpCall(int $httpTimeoutSeconds): void
+    {
+        if (! function_exists('set_time_limit')) {
+            return;
+        }
+        @set_time_limit(max(60, $httpTimeoutSeconds + 30));
+    }
+
+    private function appendAiAgentLogTextColumns(array $row, array $skuData, ?array $suggestionResponse): array
+    {
+        if (! Schema::hasColumn('ai_agent_logs', 'prompt_text')) {
+            return $row;
+        }
+        $row['prompt_text'] = $this->sanitizePii(Str::limit((string) json_encode($skuData), 10000, ''));
+        $row['response_text'] = $suggestionResponse !== null
+            ? $this->sanitizePii(Str::limit((string) json_encode($suggestionResponse), 10000, ''))
+            : null;
+
+        return $row;
+    }
+
+    private function sanitizePii(string $text): string
+    {
+        return (string) preg_replace('/[\w.+-]+@[\w-]+\.[\w.-]+/', '[EMAIL_REDACTED]', $text);
+    }
+
+    private function mirrorAiAgentAudit(string $skuId, string $functionCalled, array $payload): void
+    {
+        try {
+            if (!Schema::hasTable('audit_log')) {
+                return;
+            }
+            AuditLog::create([
+                'entity_type' => 'ai_agent',
+                'entity_id' => $skuId,
+                'action' => 'ai_agent_call',
+                'field_name' => $functionCalled,
+                'old_value' => null,
+                'new_value' => $this->sanitizePii(Str::limit((string) json_encode($payload), 5000, '')),
+                'actor_id' => auth()->check() ? (string) auth()->id() : 'SYSTEM',
+                'actor_role' => auth()->check() ? (string) (optional(auth()->user()->role)->name ?? 'system') : 'system',
+                'timestamp' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('mirrorAiAgentAudit failed: '.$e->getMessage(), ['sku_id' => $skuId, 'function' => $functionCalled]);
+        }
+    }
+
+    /**
+     * POST /api/v1/sku/{sku_id}/titles — intent-first title candidates via Python AI agent.
+     */
+    public function generateTitles(Request $request, string $sku_id): JsonResponse
+    {
+        $sku = Sku::with(['primaryCluster', 'skuIntents.intent'])->findOrFail($sku_id);
+        if ($sku->tier === TierType::KILL) {
+            return response()->json(['titles' => [], 'error' => 'AI titles unavailable for Kill tier.'], 200);
+        }
+        $this->allowLongPythonHttpCall(120);
+        $primaryIntent = null;
+        foreach ($sku->skuIntents as $si) {
+            if ($si->is_primary && $si->intent) {
+                $primaryIntent = (string) ($si->intent->name ?? '');
+                break;
+            }
+        }
+        $attributes = [];
+        if (Schema::hasColumn('skus', 'specifications_json') && $sku->specifications_json) {
+            $decoded = is_string($sku->specifications_json)
+                ? json_decode($sku->specifications_json, true)
+                : $sku->specifications_json;
+            if (is_array($decoded)) {
+                $attributes = $decoded;
+            }
+        }
+        $payload = [
+            'sku_id' => (string) $sku->id,
+            'product_name' => (string) ($sku->title ?? ''),
+            'cluster_id' => $sku->primary_cluster_id,
+            'primary_intent' => $primaryIntent,
+            'tier' => strtolower((string) ($sku->tier instanceof TierType ? $sku->tier->value : $sku->tier)),
+            'attributes' => $attributes,
+        ];
+        $baseUrl = rtrim((string) config('services.python_worker.url', ''), '/');
+        if ($baseUrl === '') {
+            $baseUrl = 'http://localhost:8000';
+        }
+        $url = $baseUrl.'/api/v1/ai-agent/titles';
+        try {
+            $response = Http::timeout(120)->acceptJson()->post($url, $payload);
+            if ($response->successful()) {
+                $body = $response->json();
+                if (Schema::hasTable('ai_agent_logs')) {
+                    try {
+                        $logRow = [
+                            'sku_id' => (string) $sku->id,
+                            'function_called' => 'title_generation',
+                            'prompt_hash' => hash('sha256', (string) json_encode($payload)),
+                            'response_received' => true,
+                            'confidence_score' => null,
+                            'status' => 'pending',
+                        ];
+                        $logRow = $this->appendAiAgentLogTextColumns($logRow, $payload, is_array($body) ? $body : []);
+                        AiAgentLog::create($logRow);
+                        $this->mirrorAiAgentAudit((string) $sku->id, 'title_generation', $logRow);
+                    } catch (\Throwable $e) {
+                        Log::warning('AiAgentLog title_generation: '.$e->getMessage(), ['sku_id' => $sku->id]);
+                    }
+                }
+
+                return response()->json($body, $response->status());
+            }
+        } catch (\Exception $e) {
+            Log::warning('generateTitles Python failed: '.$e->getMessage(), ['sku_id' => $sku->id]);
+        }
+
+        return response()->json(['error' => 'AI service unavailable', 'titles' => [], 'fallback' => true], 200);
+    }
+
+    /**
+     * GET /api/v1/sku/{sku_id}/cluster-suggest — top cluster matches by embedding similarity.
+     */
+    public function clusterSuggest(Request $request, string $sku_id): JsonResponse
+    {
+        $sku = Sku::findOrFail($sku_id);
+        $description = trim((string) ($sku->long_description ?? $sku->short_description ?? $sku->title ?? ''));
+        if ($description === '') {
+            return response()->json(['clusters' => [], 'error' => 'Description required'], 400);
+        }
+        $this->allowLongPythonHttpCall(60);
+        $baseUrl = rtrim((string) config('services.python_worker.url', ''), '/');
+        if ($baseUrl === '') {
+            $baseUrl = 'http://localhost:8000';
+        }
+        $url = $baseUrl.'/api/v1/ai-agent/cluster-suggest';
+        try {
+            $response = Http::timeout(60)->acceptJson()->post($url, [
+                'sku_id' => (string) $sku->id,
+                'description' => $description,
+            ]);
+            if ($response->successful()) {
+                $body = $response->json();
+                if (Schema::hasTable('ai_agent_logs')) {
+                    try {
+                        $ctx = ['sku_id' => (string) $sku->id, 'description' => $description];
+                        $logRow = [
+                            'sku_id' => (string) $sku->id,
+                            'function_called' => 'cluster_suggest',
+                            'prompt_hash' => hash('sha256', $description),
+                            'response_received' => true,
+                            'confidence_score' => null,
+                            'status' => 'pending',
+                        ];
+                        $logRow = $this->appendAiAgentLogTextColumns($logRow, $ctx, is_array($body) ? $body : []);
+                        AiAgentLog::create($logRow);
+                        $this->mirrorAiAgentAudit((string) $sku->id, 'cluster_suggest', $logRow);
+                    } catch (\Throwable $e) {
+                        Log::warning('AiAgentLog cluster_suggest: '.$e->getMessage(), ['sku_id' => $sku->id]);
+                    }
+                }
+
+                return response()->json($body, $response->status());
+            }
+        } catch (\Exception $e) {
+            Log::warning('clusterSuggest Python failed: '.$e->getMessage(), ['sku_id' => $sku->id]);
+        }
+
+        return response()->json(['error' => 'AI service unavailable', 'clusters' => [], 'fallback' => true], 200);
+    }
+
+    /**
+     * POST /api/v1/briefs/{brief_id}/suggest-revision — AI revised answer block for a content brief.
+     */
+    public function suggestRevision(Request $request, string $brief_id): JsonResponse
+    {
+        $brief = ContentBrief::find($brief_id);
+        if (! $brief) {
+            return response()->json(['error' => 'Brief not found'], 404);
+        }
+        $this->allowLongPythonHttpCall(120);
+        $sku = Sku::with(['primaryCluster', 'skuIntents.intent'])->findOrFail($brief->sku_id);
+        $actions = is_array($brief->suggested_actions) ? $brief->suggested_actions : [];
+        $failing = $actions['failing_audit_questions'] ?? [];
+        $fq = [];
+        if (is_array($failing)) {
+            foreach ($failing as $item) {
+                if (is_array($item) && isset($item['question_id'])) {
+                    $fq[] = $item;
+                }
+            }
+        }
+        $competitors = $actions['top_competitor_answers'] ?? $actions['competitor_answers'] ?? [];
+        if (! is_array($competitors)) {
+            $competitors = [];
+        }
+        $primaryIntent = null;
+        foreach ($sku->skuIntents as $si) {
+            if ($si->is_primary && $si->intent) {
+                $primaryIntent = (string) ($si->intent->name ?? '');
+                break;
+            }
+        }
+        $answerBlock = (string) ($actions['current_answer_block'] ?? $brief->current_content ?? $sku->ai_answer_block ?? '');
+        $payload = [
+            'brief_id' => $brief_id,
+            'sku_id' => (string) $sku->id,
+            'failing_questions' => $fq,
+            'current_answer_block' => $answerBlock,
+            'competitor_answers' => $competitors,
+            'cluster_id' => $sku->primary_cluster_id,
+            'primary_intent' => $primaryIntent,
+        ];
+        $baseUrl = rtrim((string) config('services.python_worker.url', ''), '/');
+        if ($baseUrl === '') {
+            $baseUrl = 'http://localhost:8000';
+        }
+        $url = $baseUrl.'/api/v1/ai-agent/suggest-revision';
+        try {
+            $response = Http::timeout(120)->acceptJson()->post($url, $payload);
+            if ($response->successful()) {
+                $body = $response->json();
+                if (Schema::hasTable('ai_agent_logs')) {
+                    try {
+                        $logRow = [
+                            'sku_id' => (string) $sku->id,
+                            'function_called' => 'brief_revision',
+                            'prompt_hash' => hash('sha256', (string) json_encode($payload)),
+                            'response_received' => true,
+                            'confidence_score' => null,
+                            'status' => 'pending',
+                        ];
+                        $logRow = $this->appendAiAgentLogTextColumns($logRow, $payload, is_array($body) ? $body : []);
+                        AiAgentLog::create($logRow);
+                        $this->mirrorAiAgentAudit((string) $sku->id, 'brief_revision', $logRow);
+                    } catch (\Throwable $e) {
+                        Log::warning('AiAgentLog brief_revision: '.$e->getMessage(), ['brief_id' => $brief_id]);
+                    }
+                }
+                // Round 2 audit A7.3 — 7-day deadline on brief after successful AI revision
+                if (Schema::hasTable('content_briefs')) {
+                    try {
+                        $upd = ['updated_at' => now()];
+                        if (Schema::hasColumn('content_briefs', 'deadline')) {
+                            $deadlineDays = (int) BusinessRules::get('decay.auto_brief_deadline_days', 7);
+                            $upd['deadline'] = now()->addDays($deadlineDays)->toDateString();
+                        }
+                        if (Schema::hasColumn('content_briefs', 'status')) {
+                            $upd['status'] = 'in_progress';
+                        }
+                        DB::table('content_briefs')->where('id', $brief_id)->update($upd);
+                    } catch (\Throwable $e) {
+                        Log::warning('suggestRevision brief deadline update failed: '.$e->getMessage(), ['brief_id' => $brief_id]);
+                    }
+                }
+
+                return response()->json($body, $response->status());
+            }
+        } catch (\Exception $e) {
+            Log::warning('suggestRevision Python failed: '.$e->getMessage(), ['brief_id' => $brief_id]);
+        }
+
+        return response()->json(['error' => 'AI service unavailable', 'revision' => null, 'fallback' => true], 200);
     }
 
     private function computeFieldProgress(Sku $sku, string $tier): array

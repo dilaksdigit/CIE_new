@@ -31,9 +31,21 @@ class BusinessRulesTest extends TestCase
     {
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §17 Phase 0.2
         // "Dev: unit test each data_type cast."
+        // Round 2 audit F3.1 — expected float matches DB seed row, not a literal in test source.
+        $pdo = new \PDO(
+            sprintf('mysql:host=%s;dbname=%s', getenv('DB_HOST'), getenv('DB_DATABASE')),
+            getenv('DB_USERNAME'),
+            getenv('DB_PASSWORD')
+        );
+        $stmt = $pdo->prepare('SELECT value FROM business_rules WHERE rule_key = ?');
+        $stmt->execute(['gates.vector_similarity_min']);
+        $raw = $stmt->fetchColumn();
+        $this->assertNotFalse($raw, 'gates.vector_similarity_min must exist in business_rules');
+        $expected = (float) $raw;
+
         $value = \App\Support\BusinessRules::get('gates.vector_similarity_min');
         $this->assertIsFloat($value, 'gates.vector_similarity_min must return a float');
-        $this->assertSame(0.72, $value, 'Default value per §5.3 must be 0.72');
+        $this->assertSame($expected, $value, 'BusinessRules::get must match business_rules.value for gates.vector_similarity_min');
     }
 
     /** @test Phase 0.2 — BusinessRules::get() raises error for missing key without default */

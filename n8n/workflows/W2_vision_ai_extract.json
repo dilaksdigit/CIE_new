@@ -1,0 +1,57 @@
+{
+  "name": "W2 — Vision AI Extract",
+  "id": "W2_vision_ai_extract",
+  "nodes": [
+    {
+      "id": "W2_Trigger",
+      "name": "Trigger: Image Uploaded",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {
+        "path": "w2-vision-extract",
+        "httpMethod": "POST"
+      }
+    },
+    {
+      "id": "W2_Python_Vision",
+      "name": "Call Python /vision/extract",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [500, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.PYTHON_BASE_URL}}/api/v1/vision/extract",
+        "responseFormat": "json",
+        "options": { "timeout": 30000 },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ {\"sku_id\": $json.sku_id, \"image_url\": $json.image_url } }}"
+      }
+    },
+    {
+      "id": "W2_PHP_Save",
+      "name": "Save Attributes to PHP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [750, 300],
+      "parameters": {
+        "method": "PUT",
+        "url": "={{$env.PHP_BASE_URL}}/api/v1/sku/{{$json.sku_id}}/attributes",
+        "responseFormat": "json",
+        "options": { "timeout": 30000 },
+        "jsonParameters": true
+      }
+    }
+  ],
+  "connections": {
+    "Trigger: Image Uploaded": {
+      "main": [[{ "node": "Call Python /vision/extract", "type": "main", "index": 0 }]]
+    },
+    "Call Python /vision/extract": {
+      "main": [[{ "node": "Save Attributes to PHP", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "w2-vision-stub-v1"
+}

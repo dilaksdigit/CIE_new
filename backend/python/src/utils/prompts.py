@@ -32,6 +32,21 @@ def build_suggest_user_prompt(sku_data: Dict[str, Any]) -> str:
     """Builds the user message for content pre-fill suggestion."""
     certs = sku_data.get("certifications") or []
     cert_text = ", ".join(certs) if isinstance(certs, list) else str(certs)
+    extra = ""
+    tq = sku_data.get("top_gsc_queries") or []
+    if isinstance(tq, list) and tq:
+        lines = "\n".join(f"- {q}" for q in tq if q is not None and str(q).strip() != "")
+        if lines:
+            extra += "\n\nTop queries / search terms for this SKU (volume-ranked where available):\n" + lines
+    cab = sku_data.get("competitor_answer_blocks") or []
+    if isinstance(cab, list) and cab:
+        lines = "\n".join(f"- {a}" for a in cab if a is not None and str(a).strip() != "")
+        if lines:
+            extra += "\n\nCompetitor / engine answer excerpts (context only):\n" + lines
+    ps = sku_data.get("product_specs")
+    if isinstance(ps, dict) and ps:
+        extra += "\n\nExisting product specs:\n" + json.dumps(ps, indent=2)
+
     return f"""Generate content suggestions for the following SKU:
 
 SKU Code: {sku_data.get('sku_code', '')}
@@ -41,7 +56,7 @@ Cluster ID: {sku_data.get('cluster_id', '')}
 Cluster Intent: {sku_data.get('cluster_intent', '')}
 Primary Intent: {sku_data.get('primary_intent', '')}
 Tier: {sku_data.get('tier', '')}
-Certifications: {cert_text}
+Certifications: {cert_text}{extra}
 
 Return a JSON object with these exact fields:
 {{
@@ -60,6 +75,65 @@ Return a JSON object with these exact fields:
   "alt_text": "Descriptive alt text, 80-125 chars, no keyword stuffing",
   "confidence_score": 0.87,
   "suggestion_notes": "One sentence explaining the key SEO decision made"
+}}"""
+
+
+def build_titles_user_prompt(data: Dict[str, Any]) -> str:
+    """Intent-first title candidates (3) for POST /api/v1/ai-agent/titles."""
+    attrs = data.get("attributes") or {}
+    if not isinstance(attrs, dict):
+        attrs = {}
+    return f"""Generate exactly 3 intent-first Shopify title candidates for this product.
+
+Product: {data.get('product_name', '')}
+Cluster: {data.get('cluster_id', '')}
+Primary Intent: {data.get('primary_intent', '')}
+Tier: {data.get('tier', '')}
+Attributes: {json.dumps(attrs)}
+
+Rules:
+- Intent keyword MUST lead the title (not attribute-stacking).
+- Each title must be unique and serve a different angle of the primary intent.
+- Max 250 characters per title.
+
+Output ONLY this JSON schema:
+{{
+  "titles": [
+    {{"title": "...", "rationale": "One sentence explaining which intent element this serves"}},
+    {{"title": "...", "rationale": "..."}},
+    {{"title": "...", "rationale": "..."}}
+  ]
+}}"""
+
+
+def build_revision_user_prompt(data: Dict[str, Any]) -> str:
+    """Revised answer block from brief / decay context."""
+    failing = json.dumps(data.get("failing_questions", []), indent=2)
+    competitors = json.dumps(data.get("competitor_answers", []), indent=2)
+    return f"""Generate a revised Answer Block for a Hero SKU that has lost AI citation visibility.
+
+Current Answer Block: {data.get('current_answer_block', '')}
+Cluster: {data.get('cluster_id', '')}
+Primary Intent: {data.get('primary_intent', '')}
+
+Failing audit questions (these are the questions where AI engines no longer cite our product):
+{failing}
+
+Competitor answer blocks (what competitors are saying that IS getting cited):
+{competitors}
+
+Rules:
+- Revised answer block must be 250-300 characters.
+- Must start with a direct answer to the primary intent.
+- Must contain the primary intent keyword.
+- Must be entity-rich and factual — no marketing language.
+- Address the specific failing questions where possible.
+
+Output ONLY this JSON:
+{{
+  "revised_answer_block": "...",
+  "revision_rationale": "One sentence explaining what changed and why",
+  "addressed_questions": ["question_id_1", "question_id_2"]
 }}"""
 
 

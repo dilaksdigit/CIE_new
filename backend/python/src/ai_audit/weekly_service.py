@@ -22,10 +22,14 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
+from pathlib import Path
 import uuid
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+import requests
 
 from api.gates_validate import BusinessRules
 
@@ -42,6 +46,7 @@ class EngineQuestionResult:
     response_hash: str  # DB column response_hash (spec §12)
     skip_reason: Optional[str]  # None, 'timeout', 'rate_limited', 'api_error', 'engine_down'
     cited_sku_id: Optional[str] = None  # primary target SKU for this question (skus.id)
+    is_available: bool = True  # Round 2 audit C3.5 — False when engine/stub/empty/error
 
 
 @dataclass
@@ -49,6 +54,7 @@ class EngineRunSummary:
     engine: str
     status: str  # 'complete', 'rate_limited', 'engine_down'
     results: List[EngineQuestionResult]
+    engine_available_for_quorum: bool = False  # Round 2 audit C4 — all questions responded usefully
 
 
 def load_golden_queries(db, category: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
@@ -174,6 +180,7 @@ def _load_sku_metadata(db, sku_codes: Sequence[str]) -> Dict[str, Dict[str, Any]
         SELECT id, sku_code, title, ai_answer_block
         FROM skus
         WHERE sku_code IN ({placeholders})
+          AND LOWER(TRIM(tier)) = 'hero'
     """.format(
         placeholders=",".join(["%s"] * len(sku_codes))
     )
@@ -195,18 +202,197 @@ def _load_sku_metadata(db, sku_codes: Sequence[str]) -> Dict[str, Dict[str, Any]
     return meta
 
 
-def query_engine(engine: str, question_text: str, brand_name: str) -> str:
-    """
-    Placeholder query implementation.
+def _query_openai_chat(prompt: str) -> str:
+    api_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    model = (os.environ.get("OPENAI_CHAT_MODEL") or "").strip()
+    if not api_key or not model:
+        return ""
+    timeout = int(BusinessRules.get("audit.engine_timeout_seconds", 30))
+    r = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 400,
+        },
+        timeout=timeout,
+    )
+    r.raise_for_status()
+    data = r.json()
+    choices = data.get("choices") or []
+    if not choices:
+        return ""
+    return (choices[0].get("message") or {}).get("content") or ""
 
-    In production, this should:
-      - Use ChatGPT (OpenAI), Gemini, Perplexity APIs, or a Google SGE scraper.
-      - Return the full text answer from each engine.
 
-    For now, returns a deterministic stub that contains the brand name so the
-    evaluation logic can be exercised without external calls.
+def _query_gemini_generate(prompt: str) -> str:
+    api_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    model = (os.environ.get("GEMINI_MODEL") or "").strip()
+    if not api_key or not model:
+        return ""
+    base = "https://generativelanguage.googleapis.com"
+    model_name = model if model.startswith("models/") else f"models/{model}"
+    url = f"{base}/v1beta/{model_name}:generateContent?key={api_key}"
+    payload = {"contents": [{"role": "user", "parts": [{"text": prompt}]}]}
+    timeout = int(BusinessRules.get("audit.engine_timeout_seconds", 30))
+    r = requests.post(url, json=payload, timeout=timeout)
+    r.raise_for_status()
+    data = r.json()
+    candidates = data.get("candidates") or []
+    if not candidates:
+        return ""
+    parts = (candidates[0].get("content") or {}).get("parts") or []
+    return "".join(str(p.get("text") or "") for p in parts).strip()
+
+
+def _query_perplexity_chat(prompt: str) -> str:
+    api_key = (os.environ.get("PERPLEXITY_API_KEY") or "").strip()
+    model = (os.environ.get("PERPLEXITY_MODEL") or "").strip()
+    if not api_key or not model:
+        return ""
+    timeout = int(BusinessRules.get("audit.engine_timeout_seconds", 30))
+    r = requests.post(
+        "https://api.perplexity.ai/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 400,
+        },
+        timeout=timeout,
+    )
+    r.raise_for_status()
+    data = r.json()
+    choices = data.get("choices") or []
+    if not choices:
+        return ""
+    return (choices[0].get("message") or {}).get("content") or ""
+
+
+def query_engine(engine: str, question_text: str, brand_name: str) -> Dict[str, Any]:
     """
-    return f"{brand_name} answer for '{question_text}'"
+    Live engine dispatch for weekly audit text (citation scoring applied downstream).
+    Round 2 audit C3.5 — returns dict with is_available; stub/empty/error => unavailable (not score=0).
+    """
+    prompt = (
+        f"{question_text}\n\nContext brand: {brand_name}. "
+        "Answer in plain text; be concise."
+    )
+    if engine == "google_sge":
+        return {
+            "engine": "google_sge",
+            "response_text": "",
+            "status": "stub",
+            "is_available": False,
+        }
+
+    try:
+        text = ""
+        if engine == "chatgpt":
+            text = _query_openai_chat(prompt)
+        elif engine == "gemini":
+            text = _query_gemini_generate(prompt)
+        elif engine == "perplexity":
+            text = _query_perplexity_chat(prompt)
+        else:
+            return {
+                "engine": engine,
+                "response_text": "",
+                "status": "unknown_engine",
+                "is_available": False,
+            }
+    except Exception as exc:
+        logger.warning("query_engine %s failed: %s", engine, exc)
+        return {
+            "engine": engine,
+            "response_text": "",
+            "status": "error",
+            "error": str(exc),
+            "is_available": False,
+        }
+
+    text = (text or "").strip()
+    if not text:
+        return {
+            "engine": engine,
+            "response_text": "",
+            "status": "empty",
+            "is_available": False,
+        }
+    return {
+        "engine": engine,
+        "response_text": text,
+        "status": "ok",
+        "is_available": True,
+    }
+
+
+def _log_ai_audit_quorum_event(db, run_id: str, action: str, payload: Dict[str, Any]) -> None:
+    """Round 2 audit C4 — minimal audit_log row for partial/failed/retry."""
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """
+            INSERT INTO audit_log (entity_type, entity_id, action, field_name, new_value, created_at)
+            VALUES (%s, %s, %s, %s, %s, NOW())
+            """,
+            (
+                "ai_audit_run",
+                run_id,
+                action,
+                "engine_quorum",
+                json.dumps(payload),
+            ),
+        )
+        db.commit()
+        cur.close()
+    except Exception as exc:
+        logger.warning("audit_log quorum event insert failed run_id=%s: %s", run_id, exc)
+
+
+def notify_admin_partial_audit(db, run_id: str, category: str, engine_count: int) -> None:
+    _log_ai_audit_quorum_event(
+        db,
+        run_id,
+        "ai_audit_partial",
+        {
+            "category": category,
+            "available_engines": engine_count,
+            "message": f"Only {engine_count}/4 engines responded. Decay timer paused.",
+        },
+    )
+
+
+def notify_admin_failed_audit(db, run_id: str, category: str, engine_count: int) -> None:
+    _log_ai_audit_quorum_event(
+        db,
+        run_id,
+        "ai_audit_failed",
+        {
+            "category": category,
+            "available_engines": engine_count,
+            "message": f"Only {engine_count}/4 engines. No scores recorded. Retry in 24hr.",
+        },
+    )
+
+
+def schedule_audit_retry(db, run_id: str, category: str, retry_delay_hours: int = 24) -> None:
+    _log_ai_audit_quorum_event(
+        db,
+        run_id,
+        "ai_audit_retry_scheduled",
+        {
+            "category": category,
+            "retry_in_hours": retry_delay_hours,
+        },
+    )
 
 
 def evaluate_citation(
@@ -297,10 +483,9 @@ def run_audit_for_engine(
 ) -> EngineRunSummary:
     """
     Run audit for a single engine across all questions.
-    Implements Patch 2 §2.2 per-engine failure handling (in a simplified form).
+    Round 2 audit C3.5 / C4 — query_engine dict + per-row is_available.
     """
     results: List[EngineQuestionResult] = []
-    consecutive_failures = 0
 
     for q in questions:
         qid = q["id"]
@@ -312,51 +497,46 @@ def run_audit_for_engine(
         answer_block = meta.get("answer_block")
         cited_sku_id = meta.get("id")
 
-        try:
-            response = query_engine(engine, text, brand_name)
-            score = evaluate_citation(response, brand_name, product_name, answer_block)
-            snippet = (response or "")[:500]
+        qe = query_engine(engine, text, brand_name)
+        is_avail = bool(qe.get("is_available"))
+        response_text = (qe.get("response_text") or "").strip()
+
+        if not is_avail:
+            err_bit = (qe.get("error") or qe.get("status") or "unavailable")[:500]
             results.append(
                 EngineQuestionResult(
                     question_id=qid,
                     engine=engine,
-                    score=score,
-                    response_hash=snippet,
-                    skip_reason=None,
+                    score=None,
+                    response_hash=err_bit,
+                    skip_reason=str(qe.get("status") or "unavailable"),
                     cited_sku_id=cited_sku_id,
+                    is_available=False,
                 )
             )
-            consecutive_failures = 0
-        except Exception as exc:  # In real code, distinguish RateLimitError, TimeoutError, APIError
-            logger.warning("Engine %s error on question %s: %s", engine, qid, exc)
-            consecutive_failures += 1
-            # Treat repeated failures as engine down; null score with skip_reason
-            if consecutive_failures >= 5:
-                results.append(
-                    EngineQuestionResult(
-                        question_id=qid,
-                        engine=engine,
-                        score=None,
-                        response_hash=str(exc),
-                        skip_reason="engine_down",
-                        cited_sku_id=cited_sku_id,
-                    )
-                )
-                return EngineRunSummary(engine=engine, status="engine_down", results=results)
-            else:
-                results.append(
-                    EngineQuestionResult(
-                        question_id=qid,
-                        engine=engine,
-                        score=None,
-                        response_hash=str(exc),
-                        skip_reason="api_error",
-                        cited_sku_id=cited_sku_id,
-                    )
-                )
-                continue
+            continue
 
-    return EngineRunSummary(engine=engine, status="complete", results=results)
+        score = evaluate_citation(response_text, brand_name, product_name, answer_block)
+        snippet = response_text[:500]
+        results.append(
+            EngineQuestionResult(
+                question_id=qid,
+                engine=engine,
+                score=score,
+                response_hash=snippet,
+                skip_reason=None,
+                cited_sku_id=cited_sku_id,
+                is_available=True,
+            )
+        )
+
+    engine_ok = len(results) == len(questions) and all(r.is_available for r in results)
+    return EngineRunSummary(
+        engine=engine,
+        status="complete",
+        results=results,
+        engine_available_for_quorum=engine_ok,
+    )
 
 
 def compute_aggregate(results: Sequence[EngineRunSummary]) -> Tuple[float, int]:
@@ -369,6 +549,8 @@ def compute_aggregate(results: Sequence[EngineRunSummary]) -> Tuple[float, int]:
     per_engine_scores: Dict[str, Dict[str, int]] = {}
     for summary in results:
         if summary.status not in ("complete", "rate_limited"):
+            continue
+        if not getattr(summary, "engine_available_for_quorum", True):
             continue
         engine_scores: Dict[str, int] = {}
         for r in summary.results:
@@ -457,7 +639,10 @@ def run_weekly_audit(
     """
     today = dt.date.today()
 
-    questions, block_reason = load_golden_queries(db, category)
+    # SOURCE OF TRUTH: versioned JSON golden queries (spec §10.1), with DB fallback for legacy environments.
+    questions, block_reason = load_golden_queries_from_json(category)
+    if block_reason is not None:
+        questions, block_reason = load_golden_queries(db, category)
     if block_reason is not None:
         logger.error(
             "AUDIT BLOCKED: category=%s reason=%s (no ai_audit_runs row created).",
@@ -513,20 +698,24 @@ def run_weekly_audit(
         summary = run_audit_for_engine(engine, questions, sku_meta, brand_name)
         engine_summaries.append(summary)
 
-    # Quorum logic (Patch 2 §2.1)
-    engines_ok = [
-        s for s in engine_summaries if s.status in ("complete", "rate_limited")
+    # Quorum logic (Patch 2 §2.1) — Round 2 audit C4: count engines fully available for quorum
+    engines_available_count = sum(
+        1 for s in engine_summaries if getattr(s, "engine_available_for_quorum", False)
+    )
+    engines_failed = [
+        s.engine for s in engine_summaries if not getattr(s, "engine_available_for_quorum", False)
     ]
-    engines_responded = len(engines_ok)
 
     quorum_advance = int(BusinessRules.get('decay.quorum_minimum'))
     # SOURCE: CLAUDE.md R3; CIE_Master_Developer_Build_Spec.docx §4
     quorum_pause = int(BusinessRules.get('decay.quorum_pause_minimum', 2))
-    if engines_responded >= quorum_advance:
+    should_persist_results = engines_available_count >= quorum_pause
+
+    if engines_available_count >= quorum_advance:
         quorum_status = "COMPLETE"
         decay_action = "advanced"
         quorum_met = True
-    elif engines_responded == quorum_pause:
+    elif engines_available_count == quorum_pause:
         quorum_status = "PARTIAL"
         decay_action = "paused"
         quorum_met = False
@@ -535,20 +724,22 @@ def run_weekly_audit(
         decay_action = "frozen"
         quorum_met = False
 
-    # SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 2 §2.1 — OpenAPI run_status (BusinessRules-sourced thresholds)
-    if engines_responded >= quorum_advance:
+    # SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 2 §2.1 — OpenAPI run_status
+    if engines_available_count >= quorum_advance:
         openapi_run_status = "complete"
-    elif engines_responded == quorum_pause:
+    elif engines_available_count == quorum_pause:
         openapi_run_status = "partial"
     else:
         openapi_run_status = "failed"
 
-    agg_rate, questions_scored = compute_aggregate(engine_summaries)
+    if should_persist_results:
+        agg_rate, questions_scored = compute_aggregate(engine_summaries)
+    else:
+        agg_rate, questions_scored = 0.0, 0
 
     threshold = float(BusinessRules.get('decay.hero_citation_target'))
     pass_fail = "pass" if agg_rate >= threshold else "fail"
 
-    # Persist per-question results
     cur = db.cursor()
     insert_sql = """
         INSERT INTO ai_audit_results
@@ -564,29 +755,45 @@ def run_weekly_audit(
             is_available = VALUES(is_available),
             consecutive_zero_weeks = VALUES(consecutive_zero_weeks)
     """
-    for summary in engine_summaries:
-        for r in summary.results:
-            is_available = r.score is not None and r.skip_reason is None
-            prev_c = _fetch_previous_consecutive_weeks(db, r.cited_sku_id, r.question_id, r.engine)
-            consec = _next_consecutive_zero_weeks(prev_c, is_available, r.score)
-            cur.execute(
-                insert_sql,
-                (
-                    run_id,
-                    r.question_id,
-                    r.engine,
-                    r.score,
-                    r.response_hash,
-                    r.skip_reason,
-                    r.cited_sku_id,
-                    today,
-                    1 if is_available else 0,
-                    consec,
-                ),
-            )
+
+    if not should_persist_results:
+        notify_admin_failed_audit(db, run_id, category, engines_available_count)
+        schedule_audit_retry(db, run_id, category, 24)
+    else:
+        for summary in engine_summaries:
+            for r in summary.results:
+                is_available_row = bool(r.is_available)
+                score_val = r.score if is_available_row and r.score is not None else None
+                prev_c = _fetch_previous_consecutive_weeks(
+                    db, r.cited_sku_id, r.question_id, r.engine
+                )
+                if openapi_run_status == "partial":
+                    consec = prev_c
+                else:
+                    consec = _next_consecutive_zero_weeks(
+                        prev_c, is_available_row, score_val
+                    )
+                cur.execute(
+                    insert_sql,
+                    (
+                        run_id,
+                        r.question_id,
+                        r.engine,
+                        score_val,
+                        r.response_hash,
+                        r.skip_reason,
+                        r.cited_sku_id,
+                        today,
+                        1 if is_available_row else 0,
+                        consec,
+                    ),
+                )
+        if openapi_run_status == "partial":
+            notify_admin_partial_audit(db, run_id, category, engines_available_count)
 
     # Update run row with final status and aggregate stats
-    degraded_mode = 1 if engines_responded < quorum_advance else 0
+    degraded_mode = 1 if engines_available_count < quorum_advance else 0
+    db_run_status = "completed" if should_persist_results else "failed"
     cur.execute(
         """
         UPDATE ai_audit_runs
@@ -594,19 +801,25 @@ def run_weekly_audit(
             aggregate_citation_rate = %s,
             pass_fail = %s,
             engines_available = %s,
+            engines_responded = %s,
+            engines_failed = %s,
             quorum_met = %s,
+            questions_scored = %s,
+            decay_action = %s,
             degraded_mode = %s,
             run_status = %s
         WHERE run_id = %s
         """,
         (
-            # SOURCE: CLAUDE.md §12 — 3 of 4 engines quorum before completion
-            # FIX: W8-04 — align completion threshold to quorum minimum (default 3)
-            "completed" if engines_responded >= quorum_advance else "failed",
+            db_run_status,
             round(agg_rate, 4),
             pass_fail,
-            engines_responded,
+            engines_available_count,
+            engines_available_count,
+            json.dumps(engines_failed),
             quorum_met,
+            questions_scored,
+            decay_action,
             degraded_mode,
             openapi_run_status,
             run_id,
@@ -614,21 +827,6 @@ def run_weekly_audit(
     )
     db.commit()
     cur.close()
-
-    if engines_responded < quorum_advance:
-        try:
-            cur = db.cursor()
-            cur.execute(
-                """
-                INSERT INTO audit_log (entity_type, entity_id, action, field_name, new_value, created_at)
-                VALUES ('ai_audit_run', %s, 'quorum_fail', 'engines_responded', %s, NOW())
-                """,
-                (run_id, json.dumps({"quorum_minimum": quorum_advance, "run_id": run_id, "engines_responded": engines_responded})),
-            )
-            db.commit()
-            cur.close()
-        except Exception as e:
-            logger.warning("audit_log quorum_fail insert failed for run_id=%s: %s", run_id, e)
 
     decay_summary = compare_decay_last_weeks(db, category, today)
 
@@ -639,10 +837,47 @@ def run_weekly_audit(
         "category": category,
         "run_id": run_id,
         "run_date": str(today),
-        "engines_responded": engines_responded,
+        "engines_responded": engines_available_count,
         "aggregate_citation_rate": agg_rate,
         "questions_scored": questions_scored,
         "pass_fail": pass_fail,
         "decay_comparison": decay_summary,
     }
+
+
+def load_golden_queries_from_json(category: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """
+    Load versioned golden queries from JSON file (canonical source).
+    Expected fields: id, text, intent_type, query_family, target_tier, target_skus, success_criteria
+    """
+    root = Path(__file__).resolve().parents[4]
+    path = root / "database" / "seeds" / "golden_queries" / f"{category}_v1.0.json"
+    if not path.exists():
+        return [], f"golden_queries_json_missing:{path}"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return [], "golden_queries_json_invalid"
+    if not isinstance(payload, list):
+        return [], "golden_queries_json_invalid_shape"
+    expected_count = int(BusinessRules.get("decay.audit_question_count", 20))
+    out: List[Dict[str, Any]] = []
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        out.append(
+            {
+                "id": row.get("id"),
+                "text": row.get("text"),
+                "intent_type": row.get("intent_type"),
+                "query_family": row.get("query_family"),
+                "target_tier": row.get("target_tier"),
+                "target_skus": row.get("target_skus") or [],
+                "success_criteria": row.get("success_criteria"),
+            }
+        )
+    out = [q for q in out if q.get("id") and q.get("text")]
+    if len(out) < expected_count:
+        return [], f"insufficient_questions:{len(out)}/{expected_count}"
+    return out[:expected_count], None
 

@@ -15,6 +15,21 @@ class SemrushParserService
     private const ERR_TOO_MANY_ROWS = 'File contains too many rows. Split into smaller exports or contact your dev.';
     private const MAX_ROWS = 100000;
 
+    /** Cache table-column availability once per import to avoid per-row information_schema lookups. */
+    private function resolveSemrushImportColumns(): array
+    {
+        return [
+            'keyword_diff' => Schema::hasColumn('semrush_imports', 'keyword_diff'),
+            'keyword_difficulty' => Schema::hasColumn('semrush_imports', 'keyword_difficulty'),
+            'url' => Schema::hasColumn('semrush_imports', 'url'),
+            'competitor_url' => Schema::hasColumn('semrush_imports', 'competitor_url'),
+            'sku_code' => Schema::hasColumn('semrush_imports', 'sku_code'),
+            'intent' => Schema::hasColumn('semrush_imports', 'intent'),
+            'cluster_id' => Schema::hasColumn('semrush_imports', 'cluster_id'),
+            'competitor_position' => Schema::hasColumn('semrush_imports', 'competitor_position'),
+        ];
+    }
+
     /**
      * SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2 — checks 1–4 in order; additional checks; then duplicate batch (check 5)
      */
@@ -79,15 +94,45 @@ class SemrushParserService
 
         // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.1 — canonical columns only
         $columnMap = [
+            // Core columns (support both "space" and "underscore" naming variants)
             'keyword'              => 'keyword',
             'position'             => 'position',
             'previous position'    => 'prev_position',
+            'previous_position'    => 'prev_position',
+            'prev_position'        => 'prev_position',
             'search volume'        => 'search_volume',
+            'search_volume'        => 'search_volume',
             'keyword difficulty'   => 'keyword_diff',
+            'keyword_difficulty'   => 'keyword_diff',
+            'keyword diff'         => 'keyword_diff',
+            'keyword_diff'         => 'keyword_diff',
             'url'                  => 'url',
             'traffic (%)'          => 'traffic_pct',
+            'traffic_percent'      => 'traffic_pct',
+            'traffic_pct'          => 'traffic_pct',
             'trends'               => 'trend',
+            'trend'                => 'trend',
             'timestamp'            => 'timestamp',
+
+            // Spec columns used downstream by writer suggestion filtering/grouping
+            'sku code'             => 'sku_code',
+            'sku_code'             => 'sku_code',
+            'sku'                  => 'sku_code',
+            'sku id'               => 'sku_code',
+            'sku_id'               => 'sku_code',
+            'product sku'          => 'sku_code',
+            'product_sku'          => 'sku_code',
+            'product id'           => 'sku_code',
+            'product_id'           => 'sku_code',
+            'item sku'             => 'sku_code',
+            'item_sku'             => 'sku_code',
+            'intent'               => 'intent',
+            'cluster id'           => 'cluster_id',
+            'cluster_id'           => 'cluster_id',
+            'competitor url'       => 'competitor_url',
+            'competitor_url'       => 'competitor_url',
+            'competitor position'  => 'competitor_position',
+            'competitor_position'  => 'competitor_position',
         ];
 
         $remappedRows = [];
@@ -134,9 +179,10 @@ class SemrushParserService
         }
 
         $importBatchId = (string) Str::uuid();
+        $columns = $this->resolveSemrushImportColumns();
         $insertData = [];
         foreach ($remappedRows as $row) {
-            $insertData[] = $this->buildSemrushInsertRow($row, $importBatch, $importBatchId, $importedByUsername);
+            $insertData[] = $this->buildSemrushInsertRow($row, $importBatch, $importBatchId, $importedByUsername, $columns);
         }
 
         return new SemrushParseResult(
@@ -153,7 +199,7 @@ class SemrushParserService
     /**
      * SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §3.1 — map logical fields to physical columns (keyword_diff, url; legacy columns supported)
      */
-    private function buildSemrushInsertRow(array $row, string $importBatch, string $importBatchId, string $username): array
+    private function buildSemrushInsertRow(array $row, string $importBatch, string $importBatchId, string $username, array $columns): array
     {
         $base = [
             'import_batch'    => $importBatch,
@@ -169,20 +215,43 @@ class SemrushParserService
             // intentionally omitted from payload so CURRENT_TIMESTAMP default is used.
         ];
 
+        if (!empty($columns['sku_code'])) {
+            $rawSkuCode = isset($row['sku_code']) ? trim((string) $row['sku_code']) : '';
+            // Normalize for reliable joins/lookups across CSV formatting differences.
+            $base['sku_code'] = $rawSkuCode !== '' ? strtoupper($rawSkuCode) : null;
+        }
+        if (!empty($columns['intent'])) {
+            $base['intent'] = isset($row['intent']) && trim((string) $row['intent']) !== ''
+                ? (string) $row['intent']
+                : null;
+        }
+        if (!empty($columns['cluster_id'])) {
+            $base['cluster_id'] = isset($row['cluster_id']) && trim((string) $row['cluster_id']) !== ''
+                ? (string) $row['cluster_id']
+                : null;
+        }
+        if (!empty($columns['competitor_position'])) {
+            $base['competitor_position'] = isset($row['competitor_position']) && $row['competitor_position'] !== ''
+                ? (int) $row['competitor_position']
+                : null;
+        }
+
         $kd = isset($row['keyword_diff']) && $row['keyword_diff'] !== '' ? (int) $row['keyword_diff'] : null;
-        if (Schema::hasColumn('semrush_imports', 'keyword_diff')) {
+        if (!empty($columns['keyword_diff'])) {
             $base['keyword_diff'] = $kd;
         }
-        if (Schema::hasColumn('semrush_imports', 'keyword_difficulty')) {
+        if (!empty($columns['keyword_difficulty'])) {
             $base['keyword_difficulty'] = $kd;
         }
 
         $urlVal = isset($row['url']) && $row['url'] !== '' ? (string) $row['url'] : null;
-        if (Schema::hasColumn('semrush_imports', 'url')) {
+        if (!empty($columns['url'])) {
             $base['url'] = $urlVal;
         }
-        if (Schema::hasColumn('semrush_imports', 'competitor_url')) {
-            $base['competitor_url'] = $urlVal;
+        if (!empty($columns['competitor_url'])) {
+            $base['competitor_url'] = isset($row['competitor_url']) && trim((string) $row['competitor_url']) !== ''
+                ? (string) $row['competitor_url']
+                : $urlVal;
         }
 
         return $base;

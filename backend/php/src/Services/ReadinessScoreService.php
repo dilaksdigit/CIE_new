@@ -63,7 +63,7 @@ class ReadinessScoreService
                 'answer_block_score' => (int) ($componentScores['answer_block'] ?? 0),
                 'faq_coverage_score' => (int) ($componentScores['faq_coverage'] ?? 0),
                 'safety_depth_score' => (int) ($componentScores['safety_depth'] ?? 0),
-                'cross_sku_comparison_score' => (int) ($componentScores['comparison_data'] ?? 0),
+                'cross_sku_comparison_score' => (int) ($componentScores['cross_sku_comparison'] ?? 0),
                 'structured_data_score' => (int) ($componentScores['structured_data'] ?? 0),
                 // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — display scale from BusinessRules
                 'citation_score' => (int) (($componentScores['citation_score'] ?? 0) * (int) BusinessRules::get('readiness.citation_component_scale_multiplier', 10)),

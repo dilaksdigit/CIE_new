@@ -37,6 +37,7 @@ class ChannelGovernorService
      */
     public function assess(Sku $sku): array
     {
+        $this->validateReadinessWeights();
         $tier = $sku->tier instanceof \App\Enums\TierType ? $sku->tier->value : strtolower((string) ($sku->tier ?? ''));
         if ($tier === 'kill') {
             return $this->getKillSkipResponse();
@@ -152,7 +153,7 @@ class ChannelGovernorService
             'answer_block' => $this->scoreAnswerBlock($sku),
             'faq_coverage' => $this->scoreFaqCoverage($sku),
             'safety_depth' => $this->scoreSafetyDepth($sku),
-            'comparison_data' => $this->scoreComparisonData($sku),
+            'cross_sku_comparison' => $this->scoreComparisonData($sku),
             'structured_data' => $this->scoreStructuredData($sku),
             'citation_score' => $this->scoreCitationAudit($sku),
         ];
@@ -164,10 +165,26 @@ class ChannelGovernorService
             'answer_block' => 0,
             'faq_coverage' => 0,
             'safety_depth' => 0,
-            'comparison_data' => 0,
+            'cross_sku_comparison' => 0,
             'structured_data' => 0,
             'citation_score' => 0,
         ];
+    }
+
+    private function validateReadinessWeights(): void
+    {
+        $components = [
+            'answer_block' => (int) BusinessRules::get('readiness.weight_answer_block', 25),
+            'faq_coverage' => (int) BusinessRules::get('readiness.weight_faq_coverage', 20),
+            'safety_depth' => (int) BusinessRules::get('readiness.weight_safety_depth', 15),
+            'cross_sku_comparison' => (int) BusinessRules::get('readiness.weight_cross_sku_comparison', 15),
+            'structured_data' => (int) BusinessRules::get('readiness.weight_structured_data', 15),
+            'citation_score' => (int) BusinessRules::get('readiness.weight_citation_score', 10),
+        ];
+        $total = array_sum($components);
+        if ($total !== 100) {
+            throw new \RuntimeException("Readiness weights sum to {$total}, must be exactly 100");
+        }
     }
 
     private function scoreAnswerBlock(Sku $sku): int

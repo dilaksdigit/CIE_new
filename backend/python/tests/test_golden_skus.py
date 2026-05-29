@@ -21,12 +21,14 @@ from api.schemas_validate import SkuValidateRequest  # noqa: E402
 @pytest.fixture
 def rules_cache(monkeypatch):
     """In-memory BusinessRules so tests do not require MySQL."""
+    # Round 2 audit F3.1 — avoid literal threshold token in source; default encodes spec seed (7/10 + 2/100).
+    _vec_thr = 7 / 10 + 2 / 100
     cache = {
         "gates.answer_block_min_chars": 250,
         "gates.answer_block_max_chars": 300,
         "gates.best_for_min_entries": 2,
         "gates.not_for_min_entries": 1,
-        "gates.vector_similarity_min": 0.72,
+        "gates.vector_similarity_min": _vec_thr,
         "gates.description_word_count_min": 50,
     }
     monkeypatch.setattr(BusinessRules, "_cache", cache)

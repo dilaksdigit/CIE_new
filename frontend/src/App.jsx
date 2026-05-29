@@ -99,6 +99,7 @@ const App = () => {
     <BrowserRouter>
       <AppProvider>
         <Routes>
+          <Route path="/" element={<DefaultRedirect />} />
           <Route path="/login" element={<Login />} />
 
           <Route path="/writer/queue" element={<AuthGuard><AppLayout><WriterQueue /></AppLayout></AuthGuard>} />
@@ -126,6 +127,8 @@ const App = () => {
           <Route path="/admin/semrush-import" element={<AuthGuard><AppLayout><SemrushImport /></AppLayout></AuthGuard>} />
           <Route path="/admin/shopify-pull" element={<AuthGuard><AppLayout><ShopifyPull /></AppLayout></AuthGuard>} />
           <Route path="/admin/erp-sync" element={<AuthGuard><AppLayout><ErpSync /></AppLayout></AuthGuard>} />
+
+          <Route path="*" element={<DefaultRedirect />} />
         </Routes>
       </AppProvider>
     </BrowserRouter>

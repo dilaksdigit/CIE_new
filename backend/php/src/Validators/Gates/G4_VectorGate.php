@@ -12,6 +12,8 @@ use App\Validators\GateResult;
 use App\Validators\GateInterface;
 use App\Models\AuditLog;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class G4_VectorGate implements GateInterface
 {
@@ -217,16 +219,37 @@ class G4_VectorGate implements GateInterface
             );
         } catch (\Exception $e) {
             try {
-                DB::table('vector_retry_queue')->insert([
-                    'sku_id'        => $sku->sku_code ?? (string) $sku->id,
-                    'description'   => $sku->long_description ?? '',
-                    'cluster_id'    => $sku->primary_cluster_id ?? '',
-                    'retry_count'   => 0,
-                    'max_retries'   => 5,
-                    'next_retry_at' => now()->addMinutes(5),
-                    'status'        => 'queued',
-                    'created_at'    => now(),
-                ]);
+                $queueSkuId = $sku->sku_code ?? (string) $sku->id;
+                $queueClusterId = $sku->primary_cluster_id ?? '';
+                $existing = DB::table('vector_retry_queue')
+                    ->where('sku_id', $queueSkuId)
+                    ->where('cluster_id', $queueClusterId)
+                    ->whereIn('status', ['queued', 'processing'])
+                    ->exists();
+
+                if ($existing) {
+                    // Idempotent queueing: refresh payload and schedule, do not add duplicate rows.
+                    DB::table('vector_retry_queue')
+                        ->where('sku_id', $queueSkuId)
+                        ->where('cluster_id', $queueClusterId)
+                        ->whereIn('status', ['queued', 'processing'])
+                        ->update([
+                            'description' => $sku->long_description ?? '',
+                            'next_retry_at' => now()->addMinutes(5),
+                            'error_message' => null,
+                        ]);
+                } else {
+                    DB::table('vector_retry_queue')->insert([
+                        'sku_id'        => $queueSkuId,
+                        'description'   => $sku->long_description ?? '',
+                        'cluster_id'    => $queueClusterId,
+                        'retry_count'   => 0,
+                        'max_retries'   => 5,
+                        'next_retry_at' => now()->addMinutes(5),
+                        'status'        => 'queued',
+                        'created_at'    => now(),
+                    ]);
+                }
             } catch (\Throwable $queueError) {
                 \Illuminate\Support\Facades\Log::warning('vector_retry_queue insert failed', [
                     'error' => $queueError->getMessage(),
@@ -268,15 +291,31 @@ class G4_VectorGate implements GateInterface
     // SOURCE: openapi.yaml POST /api/v1/sku/similarity — request: description, cluster_id; response: status, message
     private function callPythonSimilarity(string $description, string $clusterId): array
     {
-        // Allow moderate upstream latency to reduce false degraded/pending states.
-        $client = new \GuzzleHttp\Client(['timeout' => 12.0]);
-        $response = $client->post($this->pythonSimilarityEndpoint(), [
-            'json' => [
+        $timeout = max(15, (int) config('services.python_worker.vector_similarity_timeout_seconds', 60));
+        $url = $this->pythonSimilarityEndpoint();
+        $headers = ['Accept' => 'application/json'];
+        $svcToken = (string) config('services.python_worker.internal_service_token', '');
+        if ($svcToken !== '') {
+            $headers['x-service-token'] = $svcToken;
+        }
+
+        $response = Http::timeout($timeout)
+            ->connectTimeout(10)
+            ->withHeaders($headers)
+            ->asJson()
+            ->post($url, [
                 'description' => $description,
                 'cluster_id'  => $clusterId,
-            ],
-        ]);
+            ]);
 
-        return json_decode($response->getBody()->getContents(), true) ?? ['status' => 'fail', 'message' => 'Invalid response'];
+        if ($response->failed()) {
+            Log::warning('G4 vector similarity HTTP non-success', [
+                'status' => $response->status(),
+                'url' => $url,
+            ]);
+            $response->throw();
+        }
+
+        return $response->json() ?? ['status' => 'fail', 'message' => 'Invalid response'];
     }
 }

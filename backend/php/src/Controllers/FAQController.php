@@ -22,6 +22,7 @@ class FAQController
     {
         $clusterId = $request->query('cluster_id');
         $intentKey = $request->query('intent_key');
+        $productClass = $request->query('product_class');
         if ($clusterId !== null && $clusterId !== '') {
             $clusterId = (int) $clusterId;
         } else {
@@ -32,7 +33,12 @@ class FAQController
         } else {
             $intentKey = null;
         }
-        $templates = $this->faqService->getTemplates($clusterId, $intentKey);
+        if ($productClass !== null && $productClass !== '') {
+            $productClass = (string) $productClass;
+        } else {
+            $productClass = null;
+        }
+        $templates = $this->faqService->getTemplates($clusterId, $intentKey, $productClass);
         return response()->json($templates);
     }
 

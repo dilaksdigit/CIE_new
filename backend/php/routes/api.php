@@ -63,6 +63,10 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     // FIX: AI-08
     Route::post('/sku/{sku_id}/suggest', [SkuController::class, 'suggest'])
         ->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST');
+    Route::post('/sku/{sku_id}/titles', [SkuController::class, 'generateTitles'])
+        ->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST');
+    Route::get('/sku/{sku_id}/cluster-suggest', [SkuController::class, 'clusterSuggest'])
+        ->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST');
     Route::get('/sku/{sku_id}/faq-suggestions', [SkuController::class, 'faqSuggestions']);
     Route::get('/faq/templates', [FAQController::class, 'getTemplates']);
     Route::post('/sku/{id}/faq', [FAQController::class, 'saveResponses']);
@@ -78,7 +82,8 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     Route::post('/ga4/baseline/{sku_id}', [BaselineController::class, 'captureGa4']);
 
     // Queue + dashboard — SOURCE: openapi.yaml
-    Route::get('/queue/today', [SkuController::class, 'queueToday']);
+    Route::get('/queue/today', [SkuController::class, 'queueToday'])
+        ->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST');
     Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     Route::get('/dashboard/decay-alerts', [DashboardController::class, 'decayAlerts']);
     Route::get('/dashboard/channel-stats', [DashboardController::class, 'channelStats']);
@@ -96,11 +101,16 @@ Route::prefix('v1')->middleware('auth')->group(function () {
 
     // Audit (category-level)
     Route::post('/audit/run', [AuditController::class, 'runByCategory'])->middleware('rbac:AI_OPS,ADMIN');
-    Route::get('/audit/results/{category}', [AuditController::class, 'resultsByCategory']);
+    Route::get('/audit/results/{category}', [AuditController::class, 'resultsByCategory'])
+        ->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CONTENT_LEAD,SEO_GOVERNOR');
 
     // Briefs — SOURCE: openapi.yaml
-    Route::get('/briefs', [BriefController::class, 'index']);
-    Route::post('/brief/generate', [BriefController::class, 'generate']);
+    Route::get('/briefs', [BriefController::class, 'index'])
+        ->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST');
+    Route::post('/brief/generate', [BriefController::class, 'generate'])
+        ->middleware('rbac:AI_OPS,ADMIN');
+    Route::post('/briefs/{brief_id}/suggest-revision', [SkuController::class, 'suggestRevision'])
+        ->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST');
 
     Route::post('/tiers/recalculate', [TierController::class, 'recalculate'])->middleware('rbac:FINANCE,ADMIN');
 
@@ -140,5 +150,6 @@ Route::prefix('v1')->middleware('auth')->group(function () {
 
     // SOURCE: openapi.yaml — suggestion status + AI-14 ai_agent_logs update
     Route::post('/sku/{sku_id}/suggestions/{suggestion_id}/status', [SkuController::class, 'suggestionStatus'])
+        ->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST')
         ->name('sku.suggestions.status');
 });

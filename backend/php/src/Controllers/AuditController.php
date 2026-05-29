@@ -90,6 +90,11 @@ class AuditController {
         $latestRunId = null;
         $quorum = null;
         $runStatus = null;
+        $enginesResponded = null;
+        $enginesFailed = [];
+        $quorumMet = null;
+        $questionsScored = null;
+        $decayAction = null;
 
         try {
             // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 2 §2.1 — canonical row in ai_audit_runs (Python weekly_service)
@@ -110,6 +115,25 @@ class AuditController {
                         $citationRate = round((float) $metaRun->aggregate_citation_rate, 4);
                     }
                     $quorum = isset($metaRun->engines_available) ? (int) $metaRun->engines_available : null;
+                    if (isset($metaRun->engines_responded)) {
+                        $enginesResponded = (int) $metaRun->engines_responded;
+                        $quorum = $enginesResponded;
+                    }
+                    if (isset($metaRun->engines_failed)) {
+                        $decoded = json_decode((string) $metaRun->engines_failed, true);
+                        if (is_array($decoded)) {
+                            $enginesFailed = $decoded;
+                        }
+                    }
+                    if (isset($metaRun->quorum_met)) {
+                        $quorumMet = (bool) $metaRun->quorum_met;
+                    }
+                    if (isset($metaRun->questions_scored)) {
+                        $questionsScored = (int) $metaRun->questions_scored;
+                    }
+                    if (isset($metaRun->decay_action)) {
+                        $decayAction = (string) $metaRun->decay_action;
+                    }
                     if (Schema::hasColumn('ai_audit_runs', 'run_status')) {
                         $runStatus = $metaRun->run_status !== null && $metaRun->run_status !== ''
                             ? (string) $metaRun->run_status
@@ -205,6 +229,11 @@ class AuditController {
                 'results'                 => $results,
                 'decay_alerts'            => $decayAlerts,
                 'quorum'                  => $quorum,
+                'engines_responded'       => $enginesResponded ?? $quorum,
+                'engines_failed'          => $enginesFailed,
+                'quorum_met'              => $quorumMet,
+                'questions_scored'        => $questionsScored,
+                'decay_action'            => $decayAction,
                 'run_status'              => $runStatus,
             ],
         ]);

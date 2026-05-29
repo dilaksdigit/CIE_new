@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 /**
  * CIE v2.3.2 — Dashboard data for S4 Maturity, Decay Monitor, Effort Allocation, Staff KPIs.
@@ -96,6 +97,14 @@ class DashboardController
                 $publishedThisWeek = 0;
             }
         }
+        $revenueAtRiskCount = 0;
+        if (Schema::hasColumn('skus', 'revenue_at_risk')) {
+            try {
+                $revenueAtRiskCount = (int) Sku::query()->where('revenue_at_risk', true)->count();
+            } catch (\Throwable $e) {
+                $revenueAtRiskCount = 0;
+            }
+        }
 
         $effort = $this->safeBuild('buildEffortAllocation', ['hero_pct' => 0]);
         $heroTimePct = isset($effort['hero_pct']) ? round((float) $effort['hero_pct'], 1) : 0.0;
@@ -122,6 +131,51 @@ class DashboardController
             }
         }
 
+        // Round 2 audit B5.3 — embedding / vector retry degradation signal for dashboard
+        $pendingVectorCount = 0;
+        $embeddingDegraded = false;
+        $embeddingMessage = null;
+        $oldestQueuedAt = null;
+        $pendingVectorItems = [];
+        if (Schema::hasTable('vector_retry_queue')) {
+            try {
+                $pendingVectorCount = (int) DB::table('vector_retry_queue')
+                    ->where('status', 'queued')
+                    ->count();
+                $oldestPending = DB::table('vector_retry_queue')
+                    ->where('status', 'queued')
+                    ->min('created_at');
+                if ($oldestPending) {
+                    $oldestQueuedAt = (string) $oldestPending;
+                    $oldest = \Carbon\Carbon::parse((string) $oldestPending);
+                    if (now()->diffInMinutes($oldest) > 60) {
+                        $embeddingDegraded = true;
+                        $embeddingMessage = 'Embedding Service Degraded';
+                    }
+                }
+                $rows = DB::table('vector_retry_queue')
+                    ->where('status', 'queued')
+                    ->orderBy('created_at')
+                    ->limit(25)
+                    ->get(['id', 'sku_id', 'cluster_id', 'created_at', 'next_retry_at', 'retry_count', 'error_message']);
+                foreach ($rows as $row) {
+                    $pendingVectorItems[] = [
+                        'id' => (string) ($row->id ?? ''),
+                        'sku_id' => (string) ($row->sku_id ?? ''),
+                        'cluster_id' => (string) ($row->cluster_id ?? ''),
+                        'created_at' => $row->created_at ? (string) $row->created_at : null,
+                        'next_retry_at' => isset($row->next_retry_at) && $row->next_retry_at ? (string) $row->next_retry_at : null,
+                        'retry_count' => (int) ($row->retry_count ?? 0),
+                        'error_message' => ! empty($row->error_message)
+                            ? Str::limit((string) $row->error_message, 200)
+                            : null,
+                    ];
+                }
+            } catch (\Throwable $e) {
+                Log::warning('embedding_service dashboard slice failed: '.$e->getMessage());
+            }
+        }
+
         return [
             'hero_skus_at_risk' => $heroSkusAtRisk,
             'avg_readiness_hero' => $avgReadinessHero,
@@ -129,9 +183,18 @@ class DashboardController
             'hero_time_pct' => $heroTimePct,
             'open_briefs_count' => $openBriefs,
             'skus_published_this_week' => $publishedThisWeek,
+            'revenue_at_risk_count' => $revenueAtRiskCount,
             'ga4_delayed' => $ga4Delayed,
             'ga4_delayed_message' => $ga4DelayedMessage,
             'ga4_badge' => $ga4Badge,
+            'embedding_service' => [
+                'status' => $embeddingDegraded ? 'degraded' : 'healthy',
+                'pending_retries' => $pendingVectorCount,
+                'message' => $embeddingMessage,
+                'oldest_queued_at' => $oldestQueuedAt,
+                'pending_items' => $pendingVectorItems,
+                'processor_note' => 'Rows are picked up when status=queued and next_retry_at <= now (Python: backend/python/run_vector_retry_queue.py). Schedule: php artisan cie:vector-retry-process every 5 minutes.',
+            ],
             'products_completed_this_week' => $this->computeProductsCompletedThisWeek(),
             'first_submit_pass_rate' => $this->computeFirstSubmitPassRateThisWeek(),
             'avg_time_per_sku' => $this->computeAvgTimePerSkuMinutesThisWeek(),

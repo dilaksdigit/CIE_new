@@ -11,6 +11,8 @@ use App\Services\ShopifyRateLimiter;
 use App\Exceptions\ShopifyRateLimitException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Deploys SKU content to channels via N8N webhooks.
@@ -337,6 +339,26 @@ class ChannelDeployService
             $faq = json_decode($faq, true);
         }
         $faq = is_array($faq) ? $faq : [];
+        if ($faq === [] && Schema::hasTable('sku_faq_responses') && Schema::hasTable('faq_templates')) {
+            try {
+                $rows = DB::table('sku_faq_responses as sfr')
+                    ->leftJoin('faq_templates as ft', 'ft.id', '=', 'sfr.template_id')
+                    ->where('sfr.sku_id', (string) $sku->id)
+                    ->whereNotNull('sfr.answer')
+                    ->where('sfr.answer', '<>', '')
+                    ->get(['ft.question', 'sfr.answer']);
+                foreach ($rows as $r) {
+                    $faq[] = [
+                        'question' => (string) ($r->question ?? ''),
+                        'answer' => (string) ($r->answer ?? ''),
+                    ];
+                }
+            } catch (\Throwable $e) {
+                Log::warning('ChannelDeploy FAQ hydrate failed: '.$e->getMessage(), ['sku_id' => (string) $sku->id]);
+            }
+        }
+        // Hero FAQPage JSON-LD is rendered from FAQ array when present.
+        $sku->faqs = $faq;
 
         $jsonLd = '';
         if (class_exists(\App\Utils\JsonLdRenderer::class)) {

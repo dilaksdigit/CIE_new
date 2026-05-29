@@ -37,6 +37,15 @@ const formatCategory = (cat) => {
     return cat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 };
 
+const escapeCsvCell = (val) => {
+    const s = val == null ? '' : String(val);
+    if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+};
+
+/** API returns mixed-case ValidationStatus (e.g. pending, VALID, INVALID). Normalize for stat filters. */
+const validationStatusUpper = (sku) => String(sku?.validation_status ?? '').trim().toUpperCase();
+
 const Dashboard = () => {
     const [skus, setSkus] = React.useState([]);
     const [summary, setSummary] = React.useState(null);
@@ -103,6 +112,43 @@ const Dashboard = () => {
         };
     }, [searchTerm, tierFilter, categoryFilter, fetchSummary]);
 
+    const handleExportBenefitsCsv = React.useCallback(() => {
+        const header = 'sku_code,product_name,tier,category,gates,readiness_pct,citation_pct,decay,last_audit';
+        const lines = [header];
+        for (const sku of skus) {
+            if (!sku || typeof sku !== 'object') continue;
+            const tierKey = sku.tier != null && sku.tier !== '' ? String(sku.tier) : '';
+            const gateParts = getGatesForTier(tierKey).map((g) => `${g.id}:${sku.gates?.[g.id]?.passed ? 'pass' : 'fail'}`);
+            const lastAudit = sku.last_validated_at
+                ? new Date(sku.last_validated_at).toLocaleDateString()
+                : (sku.updated_at ? new Date(sku.updated_at).toLocaleDateString() : '');
+            const cols = [
+                sku.sku_code,
+                sku.title,
+                sku.tier ?? '',
+                formatCategory(sku.primaryCluster?.category),
+                gateParts.join(';'),
+                sku.readiness_score ?? '',
+                sku.ai_citation_rate ?? '',
+                (sku.decay_status && sku.decay_status !== 'none') ? sku.decay_status : '',
+                lastAudit,
+            ].map(escapeCsvCell);
+            lines.push(cols.join(','));
+        }
+        const csv = lines.join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'benefits.csv';
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.setTimeout(() => URL.revokeObjectURL(url), 2500);
+    }, [skus]);
+
     if (loading && skus.length === 0 && !summary) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-dim)', height: '100%' }}>Loading portfolio health...</div>;
     if (error) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--red)', height: '100%' }}>{error}</div>;
 
@@ -119,12 +165,67 @@ const Dashboard = () => {
     const effortAllocation = summary?.effort_allocation ?? { by_tier: [], hero_pct: 0, hero_alert: false };
     const rollbackCandidates = summary?.rollback_candidates ?? { sku_ids: [], count: 0 };
 
+    const embeddingSvc = summary?.embedding_service;
+
     return (
         <div>
             <div className="mb-20">
                 <h1 className="page-title">Portfolio Overview</h1>
                 <div className="page-subtitle">Real-time portfolio health across all categories</div>
             </div>
+
+            {(embeddingSvc?.status === 'degraded' || (embeddingSvc?.pending_retries ?? 0) > 0) && (
+                <div
+                    className="admin-alert admin-alert-warning"
+                    style={{
+                        background: '#FEF3CD',
+                        border: '1px solid #FFEAA7',
+                        padding: '12px 16px',
+                        marginBottom: '16px',
+                        borderRadius: '4px',
+                        color: 'var(--text)',
+                    }}
+                >
+                    <div style={{ fontWeight: 600, marginBottom: 8 }}>
+                        {embeddingSvc?.status === 'degraded' ? 'Warning: Embedding Service Degraded' : 'Vector retry queue'} —{' '}
+                        {embeddingSvc?.pending_retries ?? 0} pending (oldest queued:{' '}
+                        {embeddingSvc?.oldest_queued_at || '—'})
+                    </div>
+                    {embeddingSvc?.processor_note && (
+                        <div style={{ fontSize: '0.75rem', marginBottom: 10, fontFamily: 'var(--mono)', color: 'var(--text-muted)' }}>
+                            {embeddingSvc.processor_note}
+                        </div>
+                    )}
+                    {Array.isArray(embeddingSvc?.pending_items) && embeddingSvc.pending_items.length > 0 && (
+                        <div style={{ overflowX: 'auto', marginTop: 8 }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.7rem', fontFamily: 'var(--mono)' }}>
+                                <thead>
+                                    <tr style={{ background: '#1F2D54', color: '#fff' }}>
+                                        <th style={{ textAlign: 'left', padding: 6 }}>sku_id</th>
+                                        <th style={{ textAlign: 'left', padding: 6 }}>cluster</th>
+                                        <th style={{ textAlign: 'left', padding: 6 }}>created</th>
+                                        <th style={{ textAlign: 'left', padding: 6 }}>next_retry</th>
+                                        <th style={{ textAlign: 'left', padding: 6 }}>retries</th>
+                                        <th style={{ textAlign: 'left', padding: 6 }}>error</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {embeddingSvc.pending_items.map((row) => (
+                                        <tr key={row.id} style={{ borderBottom: '1px solid #E5E5E5' }}>
+                                            <td style={{ padding: 6 }}>{row.sku_id}</td>
+                                            <td style={{ padding: 6 }}>{row.cluster_id}</td>
+                                            <td style={{ padding: 6 }}>{row.created_at || '—'}</td>
+                                            <td style={{ padding: 6 }}>{row.next_retry_at || '—'}</td>
+                                            <td style={{ padding: 6 }}>{row.retry_count}</td>
+                                            <td style={{ padding: 6, maxWidth: 280 }}>{row.error_message || '—'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
 
             <div className="flex gap-12 mb-20 flex-wrap">
                 <StatCard label="Total SKUs" value={skus.length.toString()} sub="Connected to API" />
@@ -134,7 +235,7 @@ const Dashboard = () => {
                     value={`${Math.round(skus.length > 0 ? skus.reduce((a, s) => a + (s.ai_citation_rate || 0), 0) / skus.length : 0)}%`}
                     color="var(--accent)" 
                 />
-                <StatCard label="Pending Validation" value={`${skus.filter(s => s.validation_status === 'PENDING').length}`} sub={`${skus.filter(s => s.validation_status === 'FAILED').length} failed`} color="var(--orange)" />
+                <StatCard label="Pending Validation" value={`${skus.filter(s => validationStatusUpper(s) === 'PENDING').length}`} sub={`${skus.filter(s => validationStatusUpper(s) === 'INVALID').length} invalid`} color="var(--orange)" />
                 {rollbackCandidates.count > 0 && (
                     <StatCard label="Rollback candidates" value={String(rollbackCandidates.count)} sub="D+30 position worse than baseline" color="var(--amber)" />
                 )}
@@ -307,7 +408,7 @@ const Dashboard = () => {
                                 <option key={cat} value={cat}>{formatCategory(cat)}</option>
                             ))}
                         </select>
-                        <button className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.7rem' }}>Export benefits.csv</button>
+                        <button type="button" className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.7rem' }} onClick={handleExportBenefitsCsv}>Export benefits.csv</button>
                     </div>
                 </div>
                 <div style={{ overflowX: 'auto' }}>

@@ -19,7 +19,7 @@ class TitleEngineService
         
         $shopifyTitle = "{$baseTitle} - {$intentPrefix} | {$fitting}";
         
-        $maxLen = 70; // §5.3: content.shopify_title_max_len not in 52 rules; hard-coded
+        $maxLen = (int) BusinessRules::get('title.max_length', 70);
         if (strlen($shopifyTitle) > $maxLen) {
             $shopifyTitle = substr($shopifyTitle, 0, $maxLen - 3) . '...';
         }

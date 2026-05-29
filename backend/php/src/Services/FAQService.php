@@ -13,7 +13,7 @@ class FAQService
      * Returns faq_templates rows filtered by cluster_id and intent_key (each optional).
      * ORDER BY display_order ASC.
      */
-    public function getTemplates(?int $clusterId, ?string $intentKey): array
+    public function getTemplates(?int $clusterId, ?string $intentKey, ?string $productClass = null): array
     {
         $query = DB::table('faq_templates')
             ->orderBy('display_order', 'asc');
@@ -23,6 +23,9 @@ class FAQService
         }
         if ($intentKey !== null) {
             $query->where('intent_key', $intentKey);
+        }
+        if ($productClass !== null && \Illuminate\Support\Facades\Schema::hasColumn('faq_templates', 'product_class')) {
+            $query->where('product_class', $productClass);
         }
 
         $rows = $query->get();

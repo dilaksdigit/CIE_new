@@ -1,0 +1,57 @@
+{
+  "name": "W3 — Semantic Embed & Cluster Match",
+  "id": "W3_semantic_embed_cluster",
+  "nodes": [
+    {
+      "id": "W3_Trigger",
+      "name": "Trigger: Identity Fields Saved",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "parameters": {
+        "path": "w3-semantic-embed",
+        "httpMethod": "POST"
+      }
+    },
+    {
+      "id": "W3_Python_Embed",
+      "name": "Call Python /nlp/embed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [500, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.PYTHON_BASE_URL}}/api/v1/nlp/embed",
+        "responseFormat": "json",
+        "options": { "timeout": 30000 },
+        "jsonParameters": true,
+        "bodyParametersJson": "={{ {\"sku_id\": $json.sku_id, \"text\": $json.identity_text } }}"
+      }
+    },
+    {
+      "id": "W3_PHP_Cluster",
+      "name": "Cluster Match via PHP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [750, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.PHP_BASE_URL}}/api/v1/sku/{{$json.sku_id}}/cluster-match",
+        "responseFormat": "json",
+        "options": { "timeout": 30000 },
+        "jsonParameters": true
+      }
+    }
+  ],
+  "connections": {
+    "Trigger: Identity Fields Saved": {
+      "main": [[{ "node": "Call Python /nlp/embed", "type": "main", "index": 0 }]]
+    },
+    "Call Python /nlp/embed": {
+      "main": [[{ "node": "Cluster Match via PHP", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "w3-semantic-stub-v1"
+}

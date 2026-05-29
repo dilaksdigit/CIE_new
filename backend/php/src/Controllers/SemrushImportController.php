@@ -14,6 +14,8 @@ class SemrushImportController
 {
     /** @var int SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §4.2 — max upload 10MB */
     private const MAX_IMPORT_BYTES = 10485760;
+    /** Chunk inserts to reduce large single-query latency/timeouts on big CSV batches. */
+    private const INSERT_CHUNK_SIZE = 1000;
 
     /**
      * POST /api/admin/semrush-import
@@ -77,7 +79,9 @@ class SemrushImportController
         try {
             DB::transaction(function () use ($insertData, $importBatch, $user) {
                 if ($insertData !== []) {
-                    DB::table('semrush_imports')->insert($insertData);
+                    foreach (array_chunk($insertData, self::INSERT_CHUNK_SIZE) as $chunk) {
+                        DB::table('semrush_imports')->insert($chunk);
+                    }
                 }
                 AuditLog::create([
                     'entity_type' => 'semrush_import',

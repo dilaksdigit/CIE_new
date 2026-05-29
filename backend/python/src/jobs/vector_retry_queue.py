@@ -6,7 +6,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from api.gates_validate import BusinessRules
-from utils.mysql_connect import pymysql_connect_dict_cursor
+from src.utils.mysql_connect import pymysql_connect_dict_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -18,17 +18,19 @@ def _get_db():
 
 
 def _get_embedding(text: str):
-    """Call OpenAI text-embedding-3-small. Raises on failure."""
-    from openai import OpenAI
-    client = OpenAI(
-        api_key=os.environ.get("OPENAI_API_KEY"),
-        timeout=10.0,
-    )
-    response = client.embeddings.create(
-        input=[text.replace("\n", " ")],
-        model="text-embedding-3-small",
-    )
-    return response.data[0].embedding
+    """
+    Embeddings for retry processing — same behaviour as API path (embedding.py).
+    Supports LOCAL_LLM_MODE + LOCAL_LLM_BASE_URL (Ollama / LM Studio); otherwise OpenAI cloud.
+    """
+    from src.vector.embedding import get_embedding
+
+    vec = get_embedding(text)
+    if vec is None:
+        raise RuntimeError(
+            "Embedding failed: set OPENAI_API_KEY and OPENAI_EMBEDDING_MODEL, "
+            "or LOCAL_LLM_MODE=true with LOCAL_LLM_BASE_URL and model env vars."
+        )
+    return vec
 
 
 def _cosine_similarity(v1, v2):
@@ -39,14 +41,21 @@ def _cosine_similarity(v1, v2):
 def _get_cluster_vector(cursor, cluster_id: str):
     """Fetch the cluster centroid vector from the DB."""
     import json
-    cursor.execute(
-        "SELECT centroid_vector FROM cluster_master WHERE cluster_id = %s",
-        (cluster_id,),
-    )
-    row = cursor.fetchone()
-    if row and row.get("centroid_vector"):
-        vec = row["centroid_vector"]
-        return json.loads(vec) if isinstance(vec, str) else vec
+    # Schema variance: canonical table uses intent_vector; some environments may have centroid_vector.
+    # Try both columns and use whichever exists.
+    queries = [
+        "SELECT intent_vector AS vector_payload FROM cluster_master WHERE cluster_id = %s",
+        "SELECT centroid_vector AS vector_payload FROM cluster_master WHERE cluster_id = %s",
+    ]
+    for sql in queries:
+        try:
+            cursor.execute(sql, (cluster_id,))
+            row = cursor.fetchone()
+            if row and row.get("vector_payload"):
+                vec = row["vector_payload"]
+                return json.loads(vec) if isinstance(vec, str) else vec
+        except Exception:
+            continue
     return None
 
 
@@ -195,7 +204,7 @@ def process_vector_retry_queue():
                         conn.commit()
                         alert_admin(sku_id, new_count)
                     else:
-                        backoff_minutes = min(5 * (2 ** new_count), 20)  # Cap at 20 min — KPI #5 (Hardening Addendum §1.3): >95% pending resolved ≤30 min
+                        backoff_minutes = min(5 * (2 ** new_count), 60)  # Cap at 60 min (Hardening Addendum Patch 1 §1.3)
                         next_retry = datetime.utcnow() + timedelta(minutes=backoff_minutes)
                         cursor.execute(
                             "UPDATE vector_retry_queue "

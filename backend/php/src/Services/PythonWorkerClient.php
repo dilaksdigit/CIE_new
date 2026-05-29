@@ -29,7 +29,13 @@ class PythonWorkerClient
     public function validateVector(string $description, string $clusterId, ?string $skuId = null): array
     {
         try {
+            $headers = [];
+            $svcToken = (string) config('services.python_worker.internal_service_token', '');
+            if ($svcToken !== '') {
+                $headers['x-service-token'] = $svcToken;
+            }
             $response = $this->client->post('/api/v1/sku/similarity', [
+                'headers' => $headers,
                 'json' => [
                     'description' => $description,
                     'cluster_id'  => $clusterId,

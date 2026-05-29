@@ -3,9 +3,11 @@ namespace App\Controllers;
 
 use App\Models\ContentBrief;
 use App\Models\Sku;
+use App\Models\AuditLog;
 use App\Services\BriefGenerationService;
 use App\Utils\ResponseFormatter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class BriefController {
 
@@ -19,7 +21,9 @@ class BriefController {
             $query->where('status', strtoupper($request->query('status')));
         }
 
-        return ResponseFormatter::format($query->get());
+        $rows = $query->get();
+        $this->auditBriefLifecycle($rows);
+        return ResponseFormatter::format($rows);
     }
 
     /**
@@ -44,6 +48,66 @@ class BriefController {
         );
 
         $brief->load('sku');
+        try {
+            AuditLog::create([
+                'entity_type' => 'brief',
+                'entity_id' => (string) ($brief->id ?? ''),
+                'action' => 'brief_created',
+                'field_name' => 'status',
+                'old_value' => null,
+                'new_value' => (string) ($brief->status ?? 'open'),
+                'actor_id' => auth()->check() ? (string) auth()->id() : 'SYSTEM',
+                'actor_role' => auth()->check() ? (string) (optional(auth()->user()->role)->name ?? 'system') : 'system',
+                'timestamp' => now(),
+            ]);
+        } catch (\Throwable) {
+        }
         return ResponseFormatter::format($brief, 'Created', 201);
+    }
+
+    private function auditBriefLifecycle($briefs): void
+    {
+        if (!Schema::hasTable('audit_log')) {
+            return;
+        }
+        foreach ($briefs as $brief) {
+            $briefId = (string) ($brief->id ?? '');
+            if ($briefId === '') {
+                continue;
+            }
+            $status = strtolower((string) ($brief->status ?? ''));
+            $deadline = isset($brief->deadline) ? (string) $brief->deadline : null;
+            if ($status === 'completed') {
+                $this->writeLifecycleAuditOnce($briefId, 'brief_completed', $status);
+            } elseif ($deadline && $status !== 'completed' && $status !== 'cancelled' && $status !== 'closed' && now()->gt(\Carbon\Carbon::parse($deadline))) {
+                $this->writeLifecycleAuditOnce($briefId, 'brief_overdue', $status);
+            }
+        }
+    }
+
+    private function writeLifecycleAuditOnce(string $briefId, string $action, string $status): void
+    {
+        $exists = AuditLog::query()
+            ->where('entity_type', 'brief')
+            ->where('entity_id', $briefId)
+            ->where('action', $action)
+            ->exists();
+        if ($exists) {
+            return;
+        }
+        try {
+            AuditLog::create([
+                'entity_type' => 'brief',
+                'entity_id' => $briefId,
+                'action' => $action,
+                'field_name' => 'status',
+                'old_value' => null,
+                'new_value' => $status,
+                'actor_id' => 'SYSTEM',
+                'actor_role' => 'system',
+                'timestamp' => now(),
+            ]);
+        } catch (\Throwable) {
+        }
     }
 }

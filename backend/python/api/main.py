@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Add parent to path for src imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError as PydanticValidationError
@@ -54,6 +54,34 @@ class AuditRunRequest(BaseModel):
 class BaselineUrlRequest(BaseModel):
     """Request body for baseline GSC/GA4 metrics — single URL (landing page)."""
     url: str = ""
+
+
+REQUIRED_SUGGEST_FIELDS = {
+    "shopify_title": str,
+    "meta_title": str,
+    "meta_description": str,
+    "answer_block": str,
+    "best_for": list,
+    "not_for": list,
+    "expert_authority": str,
+    "faq": list,
+    "alt_text": str,
+    "confidence_score": float,
+    "suggestion_notes": str,
+}
+
+
+def validate_suggest_response(response: Dict[str, Any]) -> Dict[str, Any]:
+    validated: Dict[str, Any] = {}
+    for field, expected_type in REQUIRED_SUGGEST_FIELDS.items():
+        value = response.get(field)
+        if value is None:
+            validated[field] = [] if expected_type is list else (0.0 if expected_type is float else "")
+        else:
+            validated[field] = value
+    if "fields_editable" in response:
+        validated["fields_editable"] = bool(response.get("fields_editable"))
+    return validated
 
 
 # -------- App and in-memory queues (unchanged behavior) --------
@@ -125,9 +153,9 @@ def health_check():
     }
 
 
-# Gemini text-embedding-004 typical dimension
-EMBED_DIMENSIONS = 768
-EMBED_MODEL = os.environ.get("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+# OpenAI embedding dimensions (optional override via env for non-default models)
+EMBED_DIMENSIONS = int((os.environ.get("OPENAI_EMBEDDING_DIMENSIONS") or "1536").strip() or "1536")
+EMBED_MODEL = (os.environ.get("OPENAI_EMBEDDING_MODEL") or "").strip() or "unset"
 PENDING_MESSAGE = (
     "Description validation temporarily unavailable. Your changes are saved "
     "but publishing is paused until validation completes (typically within 30 minutes)."
@@ -159,9 +187,18 @@ def _weekly_audit_background(category: str, run_id: str) -> None:
         )
 
 
+def verify_service_token(x_service_token: Optional[str] = None) -> None:
+    """When INTERNAL_SERVICE_TOKEN is unset, skip verification (local/dev). When set, header must match."""
+    expected = (os.environ.get("INTERNAL_SERVICE_TOKEN") or "").strip()
+    if not expected:
+        return
+    if (x_service_token or "").strip() != expected:
+        raise HTTPException(status_code=403, detail="Invalid service token")
+
+
 # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — POST /api/v1/sku/embed
 @app.post("/api/v1/sku/embed")
-def sku_embed(body: EmbedRequest):
+def sku_embed(body: EmbedRequest, _auth: Optional[str] = Header(default=None, alias="x-service-token")):
     """
     POST /api/v1/sku/embed — generate embedding (Gemini embedding model).
     Fail-soft (v2.3.2): on API failure, log and return degraded response; do not hard-block saves.
@@ -169,6 +206,7 @@ def sku_embed(body: EmbedRequest):
     text = (body.text or "").strip()
     if not text:
         return JSONResponse(status_code=400, content={"error": "text required"})
+    verify_service_token(_auth)
     try:
         vector = get_embedding(text)
         dims = len(vector) if isinstance(vector, (list, tuple)) else EMBED_DIMENSIONS
@@ -183,14 +221,12 @@ def sku_embed(body: EmbedRequest):
             "vector": None,
             "model": EMBED_MODEL,
             "dimensions": EMBED_DIMENSIONS,
-            "degraded": True,
-            "error_message": str(e),
         }
 
 
 # SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.1 — POST /api/v1/sku/similarity
 @app.post("/api/v1/sku/similarity")
-def sku_similarity(body: SimilarityRequest):
+def sku_similarity(body: SimilarityRequest, _auth: Optional[str] = Header(default=None, alias="x-service-token")):
     """
     POST /api/v1/sku/similarity — cosine similarity vs cluster centroid (cached in Redis).
     Fail-soft (v2.3.2): on embedding API or cluster cache failure, return status 'pending' so save is allowed; do not 500.
@@ -201,6 +237,7 @@ def sku_similarity(body: SimilarityRequest):
     cluster_id = (body.cluster_id or "").strip()
     if not description or not cluster_id:
         return JSONResponse(status_code=400, content={"error": "description and cluster_id required"})
+    verify_service_token(_auth)
     try:
         threshold = float(BusinessRules.get('gates.vector_similarity_min'))
         sku_vector = get_embedding(description)
@@ -213,6 +250,8 @@ def sku_similarity(body: SimilarityRequest):
                 "embedding_unavailable",
             )
             return {
+                "cosine_similarity": None,
+                "threshold": float(threshold),
                 "status": "pending",
                 "message": PENDING_MESSAGE,
             }
@@ -227,6 +266,8 @@ def sku_similarity(body: SimilarityRequest):
                 "cluster_not_initialized",
             )
             return {
+                "cosine_similarity": None,
+                "threshold": float(threshold),
                 "status": "pending",
                 "message": PENDING_MESSAGE,
             }
@@ -237,13 +278,21 @@ def sku_similarity(body: SimilarityRequest):
             cluster_id,
             status,
         )
-        # SOURCE: CLAUDE.md §11, openapi.yaml SimilarityResponse — no numeric score in response
-        return {
-            "status": status,
-            "message": (
-                "Your content may not align with the intent. Consider revising."
-            ) if status == "fail" else None,
-        }
+        # SOURCE: openapi.yaml SimilarityResponse — Round 2 audit B2.2 (full schema on pass/fail)
+        threshold_val = float(threshold)
+        similarity_val = round(float(sim), 4)
+        status_str = "pass" if similarity_val >= threshold_val else "fail"
+        message_str = None if status_str == "pass" else (
+            "Your content may not align with the intent. Consider revising."
+        )
+        return JSONResponse(
+            content={
+                "cosine_similarity": similarity_val,
+                "threshold": threshold_val,
+                "status": status_str,
+                "message": message_str,
+            }
+        )
     except Exception as e:
         logger.warning(
             "Similarity validation unavailable (fail-soft): cluster_id=%s error=%s",
@@ -255,6 +304,8 @@ def sku_similarity(body: SimilarityRequest):
             "engine_unavailable",
         )
         return {
+            "cosine_similarity": None,
+            "threshold": float(BusinessRules.get('gates.vector_similarity_min')),
             "status": "pending",
             "message": PENDING_MESSAGE,
         }
@@ -354,6 +405,10 @@ def _build_audit_results_envelope(category: str, run_id: Optional[str] = None) -
     latest_run_id: Optional[str] = None
     quorum: Optional[int] = None
     run_status: Optional[str] = None
+    engines_failed: List[Any] = []
+    quorum_met: Optional[bool] = None
+    questions_scored: Optional[int] = None
+    decay_action: Optional[str] = None
     decay_alerts: List[Dict[str, Any]] = []
 
     conn = _db_connect()
@@ -365,7 +420,8 @@ def _build_audit_results_envelope(category: str, run_id: Optional[str] = None) -
                 try:
                     cur.execute(
                         """
-                        SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, run_status, status
+                        SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, run_status, status,
+                               engines_responded, engines_failed, quorum_met, questions_scored, decay_action
                         FROM ai_audit_runs
                         WHERE run_id = %s AND category = %s
                         """,
@@ -376,7 +432,8 @@ def _build_audit_results_envelope(category: str, run_id: Optional[str] = None) -
                         raise
                     cur.execute(
                         """
-                        SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, status
+                        SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, status,
+                               engines_responded, engines_failed, quorum_met, questions_scored, decay_action
                         FROM ai_audit_runs
                         WHERE run_id = %s AND category = %s
                         """,
@@ -387,7 +444,8 @@ def _build_audit_results_envelope(category: str, run_id: Optional[str] = None) -
                 try:
                     cur.execute(
                         """
-                        SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, run_status, status
+                        SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, run_status, status,
+                               engines_responded, engines_failed, quorum_met, questions_scored, decay_action
                         FROM ai_audit_runs
                         WHERE category = %s AND status = 'completed'
                         ORDER BY run_date DESC, created_at DESC
@@ -400,7 +458,8 @@ def _build_audit_results_envelope(category: str, run_id: Optional[str] = None) -
                         raise
                     cur.execute(
                         """
-                        SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, status
+                        SELECT run_id, run_date, aggregate_citation_rate, pass_fail, engines_available, status,
+                               engines_responded, engines_failed, quorum_met, questions_scored, decay_action
                         FROM ai_audit_runs
                         WHERE category = %s AND status = 'completed'
                         ORDER BY run_date DESC, created_at DESC
@@ -418,6 +477,23 @@ def _build_audit_results_envelope(category: str, run_id: Optional[str] = None) -
                     citation_rate = round(float(meta["aggregate_citation_rate"]), 4)
                 if meta.get("engines_available") is not None:
                     quorum = int(meta["engines_available"])
+                if meta.get("engines_responded") is not None:
+                    quorum = int(meta["engines_responded"])
+                if meta.get("engines_failed") is not None:
+                    ef = meta.get("engines_failed")
+                    if isinstance(ef, str):
+                        try:
+                            engines_failed = json.loads(ef)
+                        except Exception:
+                            engines_failed = []
+                    elif isinstance(ef, list):
+                        engines_failed = ef
+                if meta.get("quorum_met") is not None:
+                    quorum_met = bool(meta.get("quorum_met"))
+                if meta.get("questions_scored") is not None:
+                    questions_scored = int(meta.get("questions_scored"))
+                if meta.get("decay_action") is not None:
+                    decay_action = str(meta.get("decay_action"))
                 rs = meta.get("run_status")
                 if rs:
                     run_status = str(rs)
@@ -496,6 +572,11 @@ def _build_audit_results_envelope(category: str, run_id: Optional[str] = None) -
         "results": results,
         "decay_alerts": decay_alerts,
         "quorum": quorum,
+        "engines_responded": quorum,
+        "engines_failed": engines_failed,
+        "quorum_met": quorum_met,
+        "questions_scored": questions_scored,
+        "decay_action": decay_action,
         "run_status": run_status,
     }
 
@@ -1143,6 +1224,268 @@ def gsc_verify():
         )
 
 
+@app.post("/api/v1/ai-agent/titles")
+async def ai_agent_titles(request: Request):
+    data = await request.json()
+    if not isinstance(data, dict):
+        data = {}
+    from src.utils.prompts import build_standard_system_prompt, build_titles_user_prompt
+    from src.utils.ai_agent import ai_agent_call
+
+    system_prompt = build_standard_system_prompt()
+    user_prompt = build_titles_user_prompt(data)
+    sid = data.get("sku_id")
+    try:
+        raw = await asyncio.to_thread(
+            lambda: ai_agent_call(
+                system_prompt,
+                user_prompt,
+                1000,
+                str(sid) if sid else None,
+                "title_generation",
+            )
+        )
+        titles = json.loads(raw)
+        # Round 2 audit A4.2 — always return exactly 3 title objects
+        if isinstance(titles, dict) and "titles" in titles:
+            title_list = titles["titles"]
+            if not isinstance(title_list, list):
+                title_list = []
+            if len(title_list) > 3:
+                title_list = title_list[:3]
+            while len(title_list) < 3:
+                title_list.append(
+                    {
+                        "title": "[Title generation incomplete - option %d]"
+                        % (len(title_list) + 1),
+                        "rationale": "AI did not generate enough options. Please write manually.",
+                    }
+                )
+            titles["titles"] = title_list
+        else:
+            titles = {
+                "titles": [
+                    {
+                        "title": "[Title generation failed]",
+                        "rationale": "AI response could not be parsed.",
+                    }
+                    for _ in range(3)
+                ],
+                "parse_error": True,
+            }
+        return JSONResponse(content=titles)
+    except json.JSONDecodeError:
+        return JSONResponse(
+            content={
+                "titles": [
+                    {
+                        "title": "[Title generation failed]",
+                        "rationale": "AI response could not be parsed.",
+                    }
+                    for _ in range(3)
+                ],
+                "error": "Failed to parse AI response",
+                "parse_error": True,
+            },
+            status_code=200,
+        )
+    except Exception:
+        return JSONResponse(
+            content={
+                "titles": [
+                    {
+                        "title": "[Title generation failed]",
+                        "rationale": "AI service unavailable.",
+                    }
+                    for _ in range(3)
+                ],
+                "error": "AI service unavailable",
+                "fallback": True,
+            },
+            status_code=200,
+        )
+
+
+@app.post("/api/v1/ai-agent/cluster-suggest")
+async def ai_agent_cluster_suggest(request: Request):
+    from src.vector.cluster_cache import get_all_cluster_vectors
+    from src.vector.embedding import get_embedding, cosine_similarity
+
+    data = await request.json()
+    if not isinstance(data, dict):
+        data = {}
+    description = (data.get("description") or "").strip()
+    if not description:
+        return JSONResponse(content={"error": "Description required"}, status_code=400)
+
+    vec = await asyncio.to_thread(lambda: get_embedding(description))
+    if vec is None:
+        return JSONResponse(
+            content={
+                "clusters": [],
+                "error": "Embedding service unavailable",
+                "fallback": True,
+            }
+        )
+
+    cluster_vectors = await asyncio.to_thread(get_all_cluster_vectors)
+    if not cluster_vectors:
+        return JSONResponse(
+            content={
+                "clusters": [],
+                "error": "No cluster centroids available",
+                "fallback": True,
+            }
+        )
+
+    similarities = []
+    for cluster_id, centroid in cluster_vectors.items():
+        try:
+            if not isinstance(centroid, list) or len(centroid) != len(vec):
+                continue
+            sim = cosine_similarity(vec, centroid)
+            similarities.append(
+                {"cluster_id": cluster_id, "confidence": round(float(sim), 4)}
+            )
+        except Exception:
+            continue
+
+    similarities.sort(key=lambda x: x["confidence"], reverse=True)
+
+    # Round 2 audit A5.2 — reasoning + cluster label from DB
+    cluster_details: dict = {}
+    try:
+        from src.utils.mysql_connect import pymysql_connect_dict_cursor
+
+        conn = pymysql_connect_dict_cursor()
+        try:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(
+                        "SELECT cluster_id, category, intent_statement FROM cluster_master WHERE is_active = 1"
+                    )
+                except Exception:
+                    cur.execute(
+                        "SELECT cluster_id, category, intent_statement FROM cluster_master"
+                    )
+                for row in cur.fetchall() or []:
+                    cid = row.get("cluster_id")
+                    if cid:
+                        cluster_details[str(cid)] = row
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+    top_3 = []
+    for item in similarities[:3]:
+        cid = item["cluster_id"]
+        detail = cluster_details.get(str(cid), {})
+        intent_snippet = (detail.get("intent_statement") or "")[:200]
+        conf = float(item["confidence"])
+        top_3.append(
+            {
+                "cluster_id": cid,
+                "confidence": item["confidence"],
+                "cluster_name": (detail.get("category") or detail.get("cluster_id") or ""),
+                "reasoning": (
+                    f"Cosine similarity {conf:.4f} with intent: {intent_snippet or 'N/A'}"
+                ),
+            }
+        )
+
+    return JSONResponse(content={"clusters": top_3})
+
+
+@app.post("/api/v1/ai-agent/suggest-revision")
+async def ai_agent_suggest_revision(request: Request):
+    data = await request.json()
+    if not isinstance(data, dict):
+        data = {}
+    from src.utils.prompts import build_standard_system_prompt, build_revision_user_prompt
+    from src.utils.ai_agent import ai_agent_call
+
+    system_prompt = build_standard_system_prompt()
+    user_prompt = build_revision_user_prompt(data)
+    sid = data.get("sku_id")
+    try:
+        raw = await asyncio.to_thread(
+            lambda: ai_agent_call(
+                system_prompt,
+                user_prompt,
+                2000,
+                str(sid) if sid else None,
+                "brief_revision",
+            )
+        )
+    except Exception:
+        return JSONResponse(
+            content={
+                "error": "AI service unavailable",
+                "revision": None,
+                "fallback": True,
+            },
+            status_code=200,
+        )
+    try:
+        revision = json.loads(raw)
+        return JSONResponse(content=revision)
+    except json.JSONDecodeError:
+        return JSONResponse(
+            content={
+                "revised_answer_block": raw if isinstance(raw, str) else "",
+                "parse_error": True,
+            },
+            status_code=200,
+        )
+
+
+@app.post("/api/v1/sku/{sku_id}/suggestions/{suggestion_id}/status")
+async def update_suggestion_status(sku_id: str, suggestion_id: str, request: Request):
+    data = await request.json()
+    if not isinstance(data, dict):
+        return JSONResponse(content={"error": "Invalid JSON"}, status_code=400)
+    status = data.get("status")
+    if status not in ("seen", "dismissed"):
+        return JSONResponse(
+            content={"error": "Invalid status. Must be 'seen' or 'dismissed'."},
+            status_code=400,
+        )
+    try:
+        log_id = int(str(suggestion_id).strip(), 10)
+    except ValueError:
+        return JSONResponse(content={"error": "Suggestion not found"}, status_code=404)
+
+    new_status = "rejected" if status == "dismissed" else "pending"
+    from src.utils.mysql_connect import pymysql_connect_dict_cursor
+
+    conn = pymysql_connect_dict_cursor()
+    affected = 0
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE ai_agent_logs SET status = %s WHERE id = %s AND sku_id = %s",
+                (new_status, log_id, sku_id),
+            )
+            affected = cur.rowcount
+        conn.commit()
+    except Exception as exc:
+        logger.warning("suggestion status DB update failed: %s", exc)
+        return JSONResponse(
+            content={"error": "Suggestion update failed"},
+            status_code=500,
+        )
+    finally:
+        conn.close()
+
+    if affected == 0:
+        return JSONResponse(content={"error": "Suggestion not found"}, status_code=404)
+
+    return JSONResponse(
+        content={"status": "updated", "suggestion_id": suggestion_id}
+    )
+
+
 # SOURCE: CIE_Master_Developer_Build_Spec.docx §4.4
 # FIX: AI-08 — Python handler for content pre-fill (called by PHP POST /api/v1/sku/{sku_id}/suggest)
 @app.post("/api/v1/sku/suggest")
@@ -1166,7 +1509,9 @@ async def suggest_content(request: Request):
             )
         )
         suggestion = json.loads(raw)
-        return JSONResponse(content=suggestion)
+        if not isinstance(suggestion, dict):
+            suggestion = {}
+        return JSONResponse(content=validate_suggest_response(suggestion))
     except json.JSONDecodeError:
         return JSONResponse(
             content={
@@ -1178,7 +1523,7 @@ async def suggest_content(request: Request):
     except Exception:
         return JSONResponse(
             content={
-                "error": "AI suggestions unavailable — enter manually.",
+                "error": "AI suggestions unavailable — enter manually",
                 "fields_editable": True,
             },
             status_code=200,

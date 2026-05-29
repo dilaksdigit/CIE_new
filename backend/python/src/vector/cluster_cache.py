@@ -106,3 +106,50 @@ def cache_cluster_vector(cluster_id, vector):
             continue
     if not cached:
         logger.warning("Unable to cache cluster vector in Redis for cluster_id=%s", cluster_id)
+
+
+def get_all_cluster_vectors():
+    """
+    Return dict of cluster_id -> centroid vector list from cluster_master.
+    Prefers active clusters when is_active column exists.
+    """
+    host = os.getenv("DB_HOST", "127.0.0.1")
+    port = int(os.getenv("DB_PORT", "3306"))
+    user = os.getenv("DB_USERNAME") or os.getenv("DB_USER")
+    password = os.getenv("DB_PASSWORD")
+    database = os.getenv("DB_DATABASE")
+    if not (user and database):
+        return {}
+
+    conn = pymysql.connect(
+        host=host,
+        port=port,
+        user=user,
+        password=password,
+        database=database,
+        cursorclass=pymysql.cursors.DictCursor,
+    )
+    vecs = {}
+    try:
+        with conn.cursor() as cursor:
+            for sql in (
+                "SELECT cluster_id, centroid_vector FROM cluster_master WHERE is_active = 1 AND centroid_vector IS NOT NULL",
+                "SELECT cluster_id, centroid_vector FROM cluster_master WHERE centroid_vector IS NOT NULL",
+            ):
+                try:
+                    cursor.execute(sql)
+                    for row in cursor.fetchall():
+                        cid = row.get("cluster_id")
+                        raw = row.get("centroid_vector")
+                        if not cid or raw is None:
+                            continue
+                        vec = json.loads(raw) if isinstance(raw, str) else raw
+                        if isinstance(vec, list) and vec:
+                            vecs[str(cid)] = vec
+                    if vecs:
+                        return vecs
+                except Exception:
+                    continue
+    finally:
+        conn.close()
+    return vecs

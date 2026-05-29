@@ -302,6 +302,9 @@ const normalizeSuggestions = (raw) => {
 
 // SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf §4.4 — default when vector/pending has no user_message
 const PENDING_GATE_HINT = 'Validation pending. Content saved but awaiting AI review.';
+const MARKETING_TERMS = /\b(premium|best|amazing|incredible|stunning|unbeatable|world-class|cutting-edge|revolutionary|game-changing)\b/i;
+
+const checkMarketingLanguage = (text) => MARKETING_TERMS.test(String(text || ''));
 
 /** abMin/abMax = gates.answer_block_min_chars / gates.answer_block_max_chars (§5.3); required for g4 fallback when API omits min/max */
 const gateHintText = (gateKey, gate, values, abMin, abMax) => {
@@ -350,6 +353,12 @@ const gateHintText = (gateKey, gate, values, abMin, abMax) => {
 };
 
 const fieldStateAndHint = (field, gates, values, abMin, abMax) => {
+    if (field === 'answer_block' && checkMarketingLanguage(values?.answer_block || '')) {
+        return {
+            state: 'warning',
+            hint: 'Avoid marketing superlatives in the Answer Block. Keep it factual and intent-focused.',
+        };
+    }
     const keys = gateKeysForField(field);
     const related = keys.map((k) => ({ key: k, gate: gates[k] })).filter((x) => x.gate);
     if (related.length === 0) return { state: 'neutral', hint: '' };
