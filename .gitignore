@@ -13,3 +13,6 @@ __pycache__
 .DS_Store
 /backend/python/secrets/
 /backend/.env
+.cursor/
+_tmp_mcp_mysql/
+*.tgz
