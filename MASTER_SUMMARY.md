@@ -209,8 +209,8 @@ Status: ✅ FULLY WIRED
 ├─────────────────────┼──────────────────────┼────────┤
 │ Frontend → PHP      │ HTTP (axios)         │ ✅     │
 │ PHP → Python        │ HTTP (Guzzle)        │ ✅     │
-│ PHP → MySQL         │ TCP (PDO)            │ ✅     │
-│ Python → MySQL      │ TCP (configured)     │ ✅     │
+│ PHP → PostgreSQL    │ TCP (PDO pgsql)      │ ✅     │
+│ Python → PostgreSQL │ TCP (psycopg2)       │ ✅     │
 │ Both → Redis        │ TCP (service)        │ ✅     │
 │ Python → OpenAI     │ HTTPS (API)          │ ✅     │
 │ Python → Anthropic  │ HTTPS (API)          │ ✅     │
@@ -316,8 +316,8 @@ docker-compose.yml
   └─ DB_HOST=db, PYTHON_API_URL=...
 ├─ python-worker (port 5000)
   └─ DB_HOST=db, all credentials
-├─ mysql (port 3306)
-  └─ 13 migrations + seeds
+├─ db (PostgreSQL 16, port 5432)
+  └─ init: database/postgres/init/ (migrations + spec indexes)
 └─ redis (port 6379)
   └─ Cache + queue storage
 ```
@@ -369,7 +369,7 @@ All items above are ✅ **fully explained and implemented**.
 
 **Frontend API Endpoint**: `http://localhost:9000/api`  
 **Python Worker Endpoint**: `http://localhost:5000`  
-**Database**: `db:3306` (Docker) / `localhost:3306` (Host)  
+**Database**: `db:5432` (Docker) / `localhost:5432` (Host) — `DB_CONNECTION=pgsql`  
 **Cache**: `redis:6379` (Docker) / `localhost:6379` (Host)  
 
 **Main Services**:

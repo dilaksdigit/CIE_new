@@ -80,6 +80,19 @@ class AuthController {
         ], 200);
     }
 
+    /**
+     * SOURCE: DECISION-003 — self-registration disabled; use POST /api/admin/users (admin only).
+     */
+    public function registerDisabled(Request $request)
+    {
+        return ResponseFormatter::standardError(
+            403,
+            'REGISTRATION_DISABLED',
+            'Account creation is managed by an administrator. Contact your CIE admin.'
+        );
+    }
+
+    /** @deprecated Admin-only user creation via UserController::store */
     public function register(Request $request) {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',

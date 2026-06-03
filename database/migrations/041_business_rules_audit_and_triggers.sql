@@ -41,6 +41,6 @@ AFTER UPDATE ON business_rules
 FOR EACH ROW
 BEGIN
     INSERT INTO business_rules_audit (id, rule_key, old_value, new_value, changed_at, changed_by)
-    VALUES (UUID(), OLD.rule_key, OLD.value, NEW.value, NOW(), NULL);
+    VALUES (UUID(), OLD.rule_key, OLD.rule_value, NEW.rule_value, NOW(), NULL);
 END//
 DELIMITER ;

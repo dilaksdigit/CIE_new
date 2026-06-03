@@ -1,10 +1,12 @@
 <?php
+// SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf Section 7.2
 namespace App\Controllers;
 
 use App\Services\ValidationService;
 use Illuminate\Http\Request;
 use App\Models\AuditLog;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\Log;
 
 class ValidationController {
     protected $service;
@@ -33,6 +35,10 @@ class ValidationController {
 
     // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.2, openapi.yaml SkuValidateRequest — merge JSON body over persisted SKU for live draft validation
     public function validate(Request $request, string $sku_id) {
+        $httpTimeout = max(60, (int) config('services.python_worker.validate_timeout_seconds', 120));
+        if (function_exists('set_time_limit')) {
+            @set_time_limit($httpTimeout + 30);
+        }
         try {
             $payload = $request->validate([
                 'cluster_id' => 'sometimes|nullable|string',
@@ -51,27 +57,37 @@ class ValidationController {
                 'action' => 'sometimes|nullable|string|in:save,publish',
             ]);
             $result = $this->service->validateSku($sku_id, $payload);
+            if (!empty($result['kill_blocked'])) {
+                return response()->json([
+                    'error' => 'Kill-tier SKU — content editing is blocked.',
+                    'code' => 'KILL_TIER_BLOCKED',
+                ], 403);
+            }
         } catch (ModelNotFoundException $e) {
             return response()->json(['error' => 'SKU not found', 'sku_id' => $sku_id], 404);
         }
 
-        // Log validation action
-        AuditLog::create([
-            'entity_type' => 'sku',
-            'entity_id'   => $sku_id,
-            'action'      => 'validate',
-            'field_name'  => null,
-            'old_value'   => null,
-            'new_value'   => json_encode([
-                'status'   => $result['status'] ?? null,
-                'valid'    => $result['valid'] ?? null,
-            ]),
-            'actor_id'    => auth()->id() ?? 'SYSTEM',
-            'actor_role'  => auth()->user()->role->name ?? 'system',
-            'ip_address'  => request()->ip(),
-            'user_agent'  => request()->userAgent(),
-            'timestamp'   => now(),
-        ]);
+        // Log validation action (non-blocking — validation result must still return)
+        try {
+            AuditLog::create([
+                'entity_type' => 'sku',
+                'entity_id'   => $sku_id,
+                'action'      => 'validate',
+                'field_name'  => null,
+                'old_value'   => null,
+                'new_value'   => json_encode([
+                    'status'   => $result['status'] ?? null,
+                    'valid'    => $result['valid'] ?? null,
+                ]),
+                'actor_id'    => auth()->id() ?? 'SYSTEM',
+                'actor_role'  => auth()->user()->role->name ?? 'system',
+                'ip_address'  => request()->ip(),
+                'user_agent'  => request()->userAgent(),
+                'timestamp'   => now(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('ValidationController audit_log: ' . $e->getMessage());
+        }
 
         $httpStatus = $result['http_status'] ?? 200;
         unset($result['http_status']);

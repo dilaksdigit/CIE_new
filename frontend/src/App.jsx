@@ -23,6 +23,8 @@ import StaffKpis from './pages/StaffKpis';
 import SemrushImport from './pages/SemrushImport';
 import ShopifyPull from './pages/ShopifyPull';
 import ErpSync from './pages/ErpSync';
+import AdminUsers from './pages/AdminUsers';
+import BusinessRules from './pages/BusinessRules';
 import ReviewSemrush from './pages/review/ReviewSemrush';
 
 export const AppContext = createContext(null);
@@ -121,12 +123,14 @@ const App = () => {
 
           <Route path="/admin/clusters" element={<AuthGuard><AppLayout><Clusters /></AppLayout></AuthGuard>} />
           <Route path="/admin/config" element={<AuthGuard><AppLayout><Config /></AppLayout></AuthGuard>} />
+          <Route path="/admin/business-rules" element={<AuthGuard><AppLayout><BusinessRules /></AppLayout></AuthGuard>} />
           <Route path="/admin/tiers" element={<AuthGuard><AppLayout><TierMgmt /></AppLayout></AuthGuard>} />
           <Route path="/admin/audit-trail" element={<AuthGuard><AppLayout><AuditTrail /></AppLayout></AuthGuard>} />
           <Route path="/admin/bulk-ops" element={<AuthGuard><AppLayout><BulkOps /></AppLayout></AuthGuard>} />
           <Route path="/admin/semrush-import" element={<AuthGuard><AppLayout><SemrushImport /></AppLayout></AuthGuard>} />
           <Route path="/admin/shopify-pull" element={<AuthGuard><AppLayout><ShopifyPull /></AppLayout></AuthGuard>} />
           <Route path="/admin/erp-sync" element={<AuthGuard><AppLayout><ErpSync /></AppLayout></AuthGuard>} />
+          <Route path="/admin/users" element={<AuthGuard><AppLayout><AdminUsers /></AppLayout></AuthGuard>} />
 
           <Route path="*" element={<DefaultRedirect />} />
         </Routes>

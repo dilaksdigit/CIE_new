@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from html import unescape
 from urllib.parse import urlparse
 
-from utils.mysql_connect import pymysql_connect_dict_cursor
+from utils.db_connect import connect_dict_cursor
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -54,14 +54,14 @@ def _strip_html_to_text(body_html: str) -> str:
 
 
 def _insert_audit_log(summary_json: str) -> None:
-    db = pymysql_connect_dict_cursor()
+    db = connect_dict_cursor()
     try:
         cur = db.cursor()
         try:
             cur.execute(
                 """
                 INSERT INTO audit_log (entity_type, entity_id, action, actor_role, detail)
-                VALUES ('system', UUID(), 'skus_to_sku_master_bridge', 'system', %s)
+                VALUES ('system', gen_random_uuid()::text, 'skus_to_sku_master_bridge', 'system', %s)
                 """,
                 (summary_json,),
             )
@@ -71,11 +71,11 @@ def _insert_audit_log(summary_json: str) -> None:
                 """
                 INSERT INTO audit_log (
                     entity_type, entity_id, action, field_name, old_value, new_value,
-                    actor_id, actor_role, `timestamp`, user_id
+                    actor_id, actor_role, timestamp, user_id
                 )
                 VALUES (
-                    'system', UUID(), 'skus_to_sku_master_bridge', NULL, NULL, %s,
-                    NULL, 'system', UTC_TIMESTAMP(), NULL
+                    'system', gen_random_uuid()::text, 'skus_to_sku_master_bridge', NULL, NULL, %s,
+                    NULL, 'system', NOW(), NULL
                 )
                 """,
                 (summary_json,),
@@ -101,7 +101,7 @@ def run_skus_to_sku_master_bridge() -> None:
     desc_count = 0
     prodesc_count = 0
 
-    db = pymysql_connect_dict_cursor()
+    db = connect_dict_cursor()
     try:
         cur = db.cursor()
 

@@ -60,7 +60,14 @@ class BusinessRulesService
         $rows = DB::table('business_rules')->get();
         $out = [];
         foreach ($rows as $row) {
-            $out[$row->rule_key] = $this->cast($row->value, $row->value_type ?? 'string');
+            $key = $this->pickProperty($row, ['rule_key', 'key', 'name']);
+            if ($key === null || trim((string) $key) === '') {
+                continue;
+            }
+
+            $rawValue = $this->pickProperty($row, ['rule_value', 'value', 'rule_val']);
+            $dataType = $this->pickProperty($row, ['data_type', 'type', 'value_type']) ?? 'string';
+            $out[(string) $key] = $this->cast((string) ($rawValue ?? ''), (string) $dataType);
         }
         return $out;
     }
@@ -73,16 +80,32 @@ class BusinessRulesService
             );
         }
         $row = DB::table('business_rules')->where('rule_key', $key)->first();
-        return $row ? $this->cast($row->value, $row->value_type ?? 'string') : $default;
+        if (!$row) {
+            return $default;
+        }
+
+        $rawValue = $this->pickProperty($row, ['rule_value', 'value', 'rule_val']);
+        $dataType = $this->pickProperty($row, ['data_type', 'type', 'value_type']) ?? 'string';
+        return $this->cast((string) ($rawValue ?? ''), (string) $dataType);
+    }
+
+    private function pickProperty(object $row, array $candidates): mixed
+    {
+        foreach ($candidates as $field) {
+            if (property_exists($row, $field)) {
+                return $row->{$field};
+            }
+        }
+
+        return null;
     }
 
     private function cast(string $value, string $type): mixed
     {
         return match ($type) {
             'integer' => (int) $value,
-            'float' => (float) $value,
+            'decimal' => (float) $value,
             'boolean' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
-            'json' => json_decode($value, true),
             default => $value,
         };
     }

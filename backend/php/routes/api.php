@@ -1,4 +1,5 @@
 <?php
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 3.2 — RBAC permission matrix
 use App\Controllers\AuthController;
 use App\Controllers\SkuController;
 use App\Controllers\ValidationController;
@@ -19,6 +20,8 @@ use App\Controllers\FAQController;
 use App\Controllers\GscController;
 use App\Controllers\Ga4Controller;
 use App\Controllers\BulkOpsController;
+use App\Controllers\UserController;
+use App\Http\Middleware\ValidateSlaMiddleware;
 use Illuminate\Support\Facades\Route;
 
 // Semrush import — spec path POST /api/admin/semrush-import (no /v1/); CLAUDE.md §3 Rule R1
@@ -26,6 +29,13 @@ Route::post('admin/semrush-import', [SemrushImportController::class, 'import'])-
 
 // ERP sync — spec alias at POST /api/admin/erp-sync (openapi.yaml ERP Integration tag)
 Route::post('admin/erp-sync', [TierController::class, 'erpSync'])->middleware(['auth', 'rbac:ADMIN']);
+
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2.4 — admin user management (RBAC Phase 0.4)
+Route::middleware(['auth', 'rbac:ADMIN'])->prefix('admin')->group(function () {
+    Route::get('users', [UserController::class, 'index']);
+    Route::post('users', [UserController::class, 'store']);
+    Route::put('users/{id}', [UserController::class, 'update']);
+});
 
 // SOURCE: Phase 7 fix request — external ERP failure callback route.
 // FIX: P7-ROUTES-01
@@ -41,19 +51,22 @@ Route::post('skus/{skuCode}/channel-failed', [SkuController::class, 'channelFail
 Route::prefix('v1')->middleware('auth')->group(function () {
     // Auth — open endpoints (no auth middleware)
     Route::post('/auth/login', [AuthController::class, 'login'])->withoutMiddleware('auth');
-    Route::post('/auth/register', [AuthController::class, 'register'])->withoutMiddleware('auth');
+    // SOURCE: DECISION-003 — public self-registration disabled; admin creates users via /api/admin/users
+    Route::post('/auth/register', [AuthController::class, 'registerDisabled'])->withoutMiddleware('auth');
 
     // SKU endpoints — SOURCE: openapi.yaml paths
-    Route::get('/sku', [SkuController::class, 'index']);
-    Route::post('/sku', [SkuController::class, 'store']);
-    Route::get('/sku/stats', [SkuController::class, 'stats']);
-    Route::get('/sku/{sku_id}', [SkuController::class, 'show']);
+    Route::get('/sku', [SkuController::class, 'index'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
+    Route::post('/sku', [SkuController::class, 'store'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,ADMIN');
+    Route::get('/sku/stats', [SkuController::class, 'stats'])->middleware('rbac:CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
+    Route::get('/sku/{sku_id}', [SkuController::class, 'show'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
     // SOURCE: CLAUDE.md §3 R1 — validate only at openapi path POST /sku/{sku_id}/validate (docs/api/openapi.yaml)
-    Route::post('/sku/{sku_id}/validate', [ValidationController::class, 'validate'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,ADMIN');
+    // SOURCE: openapi.yaml — path: /sku/{sku_id}/validate — resolved with /api/v1 prefix = correct
+    Route::post('/sku/{sku_id}/validate', [ValidationController::class, 'validate'])->middleware(['rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST', ValidateSlaMiddleware::class]);
     // SOURCE: CIE_Master_Developer_Build_Spec.docx §3.2 — content editing restricted to writer roles.
     Route::put('/sku/{sku_id}/content', [SkuController::class, 'updateContent'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST');
-    Route::post('/sku/{sku_id}/publish', [SkuController::class, 'publish']);
-    Route::get('/sku/{sku_id}/readiness', [SkuController::class, 'readiness']);
+    // SOURCE: DECISION-002/010 — writers publish when gates pass; PermissionService::canPublishSku enforces tier/role matrix
+    Route::post('/sku/{sku_id}/publish', [SkuController::class, 'publish'])->middleware('rbac:CONTENT_EDITOR,SEO_GOVERNOR,CHANNEL_MANAGER,CONTENT_LEAD,ADMIN');
+    Route::get('/sku/{sku_id}/readiness', [SkuController::class, 'readiness'])->middleware('rbac:CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
     // Tier change requests — RBAC-05 (CLAUDE.md Section 7 + Hardening Addendum); SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx
     Route::post('/sku/{sku_id}/tier-change-request', [TierChangeController::class, 'createRequest'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,ADMIN');
     Route::post('/sku/{sku_id}/tier-change-approve', [TierChangeController::class, 'approveForSku'])->middleware('rbac:FINANCE,ADMIN');
@@ -67,37 +80,37 @@ Route::prefix('v1')->middleware('auth')->group(function () {
         ->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST');
     Route::get('/sku/{sku_id}/cluster-suggest', [SkuController::class, 'clusterSuggest'])
         ->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST');
-    Route::get('/sku/{sku_id}/faq-suggestions', [SkuController::class, 'faqSuggestions']);
-    Route::get('/faq/templates', [FAQController::class, 'getTemplates']);
-    Route::post('/sku/{id}/faq', [FAQController::class, 'saveResponses']);
-    Route::get('/sku/{sku_id}/audit-results', [SkuController::class, 'auditResults']);
-    Route::get('/sku/{sku_id}/rollback-content', [SkuController::class, 'rollbackContent']);
+    Route::get('/sku/{sku_id}/faq-suggestions', [SkuController::class, 'faqSuggestions'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,ADMIN');
+    Route::get('/faq/templates', [FAQController::class, 'getTemplates'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,ADMIN');
+    Route::post('/sku/{id}/faq', [FAQController::class, 'saveResponses'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,ADMIN');
+    Route::get('/sku/{sku_id}/audit-results', [SkuController::class, 'auditResults'])->middleware('rbac:CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
+    Route::get('/sku/{sku_id}/rollback-content', [SkuController::class, 'rollbackContent'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CONTENT_LEAD,ADMIN');
 
     // Baseline capture — SOURCE: openapi.yaml
     // SOURCE: CIE_Master_Developer_Build_Spec.docx §17 Phase 2.1 + route table §2029
     Route::get('/gsc/status', [GscController::class, 'status'])->middleware('rbac:ADMIN');
     // SOURCE: CIE_Master_Developer_Build_Spec.docx §15
     Route::get('/ga4/status', [Ga4Controller::class, 'status'])->middleware('rbac:ADMIN');
-    Route::post('/gsc/baseline/{sku_id}', [BaselineController::class, 'captureGsc']);
-    Route::post('/ga4/baseline/{sku_id}', [BaselineController::class, 'captureGa4']);
+    Route::post('/gsc/baseline/{sku_id}', [BaselineController::class, 'captureGsc'])->middleware('rbac:ADMIN');
+    Route::post('/ga4/baseline/{sku_id}', [BaselineController::class, 'captureGa4'])->middleware('rbac:ADMIN');
 
     // Queue + dashboard — SOURCE: openapi.yaml
     Route::get('/queue/today', [SkuController::class, 'queueToday'])
         ->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST');
-    Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
-    Route::get('/dashboard/decay-alerts', [DashboardController::class, 'decayAlerts']);
-    Route::get('/dashboard/channel-stats', [DashboardController::class, 'channelStats']);
-    Route::get('/audit-results/weekly-scores', [DashboardController::class, 'getAuditWeeklyScores']);
-    Route::get('/review/weekly-scores', [DashboardController::class, 'weeklyKpiScores']);
+    Route::get('/dashboard/summary', [DashboardController::class, 'summary'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
+    Route::get('/dashboard/decay-alerts', [DashboardController::class, 'decayAlerts'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
+    Route::get('/dashboard/channel-stats', [DashboardController::class, 'channelStats'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
+    Route::get('/audit-results/weekly-scores', [DashboardController::class, 'getAuditWeeklyScores'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
+    Route::get('/review/weekly-scores', [DashboardController::class, 'weeklyKpiScores'])->middleware('rbac:KPI_REVIEWER,ADMIN');
     // SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §3.1 — manual weekly score write: reviewer roles only
     Route::post('/audit-results/weekly-scores', [DashboardController::class, 'storeWeeklyScore'])
-        ->middleware('rbac:CONTENT_LEAD,SEO_GOVERNOR');
+        ->middleware('rbac:KPI_REVIEWER,ADMIN');
 
     // Taxonomy & clusters
-    Route::get('/clusters', [ClusterController::class, 'index']);
-    Route::post('/clusters', [ClusterController::class, 'store']);
-    Route::put('/clusters/{id}', [ClusterController::class, 'update']);
-    Route::get('/taxonomy/intents', [IntentsController::class, 'index']);
+    Route::get('/clusters', [ClusterController::class, 'index'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
+    Route::post('/clusters', [ClusterController::class, 'store'])->middleware('rbac:CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
+    Route::put('/clusters/{id}', [ClusterController::class, 'update'])->middleware('rbac:CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
+    Route::get('/taxonomy/intents', [IntentsController::class, 'index'])->middleware('rbac:CONTENT_EDITOR,PRODUCT_SPECIALIST,CONTENT_LEAD,SEO_GOVERNOR,ADMIN');
 
     // Audit (category-level)
     Route::post('/audit/run', [AuditController::class, 'runByCategory'])->middleware('rbac:AI_OPS,ADMIN');
@@ -120,7 +133,7 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 1.4
     Route::post('/erp/sync', [TierController::class, 'erpSync'])->middleware('rbac:ADMIN,FINANCE');
 
-    Route::get('/config', [ConfigController::class, 'index']);
+    Route::get('/config', [ConfigController::class, 'index'])->middleware('rbac:ADMIN');
     Route::put('/config', [ConfigController::class, 'update'])->middleware('rbac:ADMIN');
 
     Route::get('/admin/business-rules', [AdminBusinessRulesController::class, 'index'])->middleware('rbac:ADMIN');
@@ -133,7 +146,7 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     Route::delete('/admin/semrush-import/{batch_date}', [SemrushImportController::class, 'delete'])->middleware('rbac:ADMIN');
 
     // Shopify product pull — admin only; does not affect deploy/publish
-    Route::get('/shopify/status', [ShopifyProductPullController::class, 'status']);
+    Route::get('/shopify/status', [ShopifyProductPullController::class, 'status'])->middleware('rbac:ADMIN');
     Route::get('/shopify/products', [ShopifyProductPullController::class, 'index'])->middleware('rbac:ADMIN');
     Route::post('/shopify/sync', [ShopifyProductPullController::class, 'sync'])->middleware('rbac:ADMIN');
 
@@ -145,8 +158,8 @@ Route::prefix('v1')->middleware('auth')->group(function () {
     Route::post('/admin/bulk-ops/faq-apply', [BulkOpsController::class, 'faqApply'])->middleware('rbac:ADMIN');
     Route::get('/admin/bulk-ops/export', [BulkOpsController::class, 'export'])->middleware('rbac:ADMIN');
 
-    Route::get('/audit-logs', [AuditLogController::class, 'index']);
-    Route::get('/audit-logs/filters', [AuditLogController::class, 'filters']);
+    Route::get('/audit-logs', [AuditLogController::class, 'index'])->middleware('rbac:ADMIN');
+    Route::get('/audit-logs/filters', [AuditLogController::class, 'filters'])->middleware('rbac:ADMIN');
 
     // SOURCE: openapi.yaml — suggestion status + AI-14 ai_agent_logs update
     Route::post('/sku/{sku_id}/suggestions/{suggestion_id}/status', [SkuController::class, 'suggestionStatus'])

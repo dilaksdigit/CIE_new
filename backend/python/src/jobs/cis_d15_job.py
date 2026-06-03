@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 
 from api.gates_validate import BusinessRules
 from utils.business_rules import get_business_rule
-from utils.mysql_connect import pymysql_connect_dict_cursor
+from utils.db_connect import connect_dict_cursor
 from utils.url_utils import normalise_url
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ class Ga4Snapshot:
 
 def _get_db():
     """PEP-249 connection — same pattern as api.gates_validate."""
-    return pymysql_connect_dict_cursor()
+    return connect_dict_cursor()
 
 
 def get_due_baselines(target_date: datetime) -> List[BaselineRow]:

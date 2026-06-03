@@ -23,10 +23,10 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
-import pymysql
 import requests
 
-from utils.mysql_connect import pymysql_connect_dict_cursor
+from utils.db_connect import connect_dict_cursor
+from utils.sql_postgres import SQL_INSERT_AUDIT_LOG_SYSTEM, SQL_UPSERT_SYNC_STATUS_OK
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -168,35 +168,28 @@ def _first_image_alt(product: Dict[str, Any]) -> str:
 
 
 def _table_columns(table: str) -> Set[str]:
-    db = pymysql_connect_dict_cursor()
+    db = connect_dict_cursor()
     try:
         cur = db.cursor()
         cur.execute(
             """
-            SELECT COLUMN_NAME FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = %s
             """,
             (table,),
         )
         rows = cur.fetchall()
         cur.close()
-        return {r["COLUMN_NAME"] for r in rows}
+        return {r["column_name"] for r in rows}
     finally:
         db.close()
 
 
 def _upsert_sync_timestamp(service: str = "shopify_product_pull") -> None:
-    db = pymysql_connect_dict_cursor()
+    db = connect_dict_cursor()
     try:
         cur = db.cursor()
-        cur.execute(
-            """
-            INSERT INTO sync_status (service, status, last_success_at, last_error, last_error_at)
-            VALUES (%s, 'ok', NOW(), NULL, NULL)
-            ON DUPLICATE KEY UPDATE status='ok', last_success_at=NOW(), last_error=NULL, last_error_at=NULL
-            """,
-            (service,),
-        )
+        cur.execute(SQL_UPSERT_SYNC_STATUS_OK, (service,))
         db.commit()
         cur.close()
     except Exception as exc:
@@ -219,17 +212,8 @@ def _upsert_sync_timestamp(service: str = "shopify_product_pull") -> None:
             )
             cur_fb = db.cursor()
             cur_fb.execute(
-                """
-                INSERT INTO audit_log (
-                    entity_type, entity_id, action, field_name, old_value, new_value,
-                    actor_id, actor_role, `timestamp`, user_id
-                )
-                VALUES (
-                    'system', UUID(), 'shopify_product_sync_completed', NULL, NULL, %s,
-                    NULL, 'system', UTC_TIMESTAMP(), NULL
-                )
-                """,
-                (detail,),
+                SQL_INSERT_AUDIT_LOG_SYSTEM,
+                ("shopify_product_sync_completed", detail),
             )
             db.commit()
             cur_fb.close()
@@ -285,7 +269,7 @@ def run_shopify_product_sync() -> None:
     pages = 0
     last_headers: Dict[str, str] = {}
 
-    db = pymysql_connect_dict_cursor()
+    db = connect_dict_cursor()
     try:
         while pages < MAX_PAGES:
             _respect_shopify_rate_limit(last_headers)

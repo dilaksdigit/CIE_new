@@ -406,8 +406,8 @@ Retry scheduled for later
 |-----------|----------|----------|--------|
 | Frontend → PHP | HTTP | localhost:9000/api/* | ✅ Wired |
 | PHP → Python | HTTP | python-worker:5000/* | ✅ Wired |
-| PHP → MySQL | TCP | db:3306 | ✅ Wired |
-| Python → MySQL | TCP | db:3306 | ✅ Wired |
+| PHP → PostgreSQL | TCP | db:5432 | ✅ Wired |
+| Python → PostgreSQL | TCP | db:5432 | ✅ Wired |
 | Both → Redis | TCP | redis:6379 | ✅ Wired |
 | Python → OpenAI | HTTPS | api.openai.com | ✅ Configured |
 | Python → Anthropic | HTTPS | api.anthropic.com | ✅ Configured |
@@ -469,7 +469,8 @@ VITE_PYTHON_API_URL=http://localhost:5000
 php-api:
   environment:
     - DB_HOST=db
-+   - DB_PORT=3306
++   - DB_PORT=5432
++   - DB_CONNECTION=pgsql
 +   - DB_DATABASE=cie_v232
 +   - DB_USERNAME=cie_user
 +   - DB_PASSWORD=cie_password

@@ -1,0 +1,83 @@
+{
+  "name": "GMC Deploy (Task A2)",
+  "nodes": [
+    {
+      "id": "webhook_gmc_deploy",
+      "name": "Webhook gmc-deploy",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gmc-deploy",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "gmc-deploy"
+    },
+    {
+      "id": "gmc_feed_push",
+      "name": "GMC feed push",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.GMC_API_URL }}/feed",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "respond_deployed",
+      "name": "Respond deployed",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'deployed', deployed_at: new Date().toISOString() } }}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook gmc-deploy": {
+      "main": [
+        [
+          {
+            "node": "GMC feed push",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GMC feed push": {
+      "main": [
+        [
+          {
+            "node": "Respond deployed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "source": "CIE_Master_Developer_Build_Spec.docx Section 11; CLAUDE.md Section 10 (GMC 50 req/min enforced in PHP)"
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-06-02T00:00:00.000Z",
+  "versionId": "gmc-deploy-v1"
+}

@@ -1,15 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
 import {
     TierBadge,
     ReadinessBar,
     SectionTitle
 } from '../components/common/UIComponents';
 import { dashboardApi, configApi } from '../services/api';
+import { AppContext } from '../App';
+import { canModifyConfig } from '../lib/rbac';
 
 // SOURCE: CLAUDE.md Section 4 — DECISION-001
 const HEATMAP_CHANNELS = ['shopify', 'gmc'];
 
 const Maturity = () => {
+    const { user } = useContext(AppContext);
+    const canReadConfig = canModifyConfig(user);
     const [summary, setSummary] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -35,6 +39,11 @@ const Maturity = () => {
 
     useEffect(() => {
         let cancelled = false;
+        if (!canReadConfig) {
+            return () => {
+                cancelled = true;
+            };
+        }
         configApi
             .get()
             .then((res) => {
@@ -56,7 +65,7 @@ const Maturity = () => {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [canReadConfig]);
 
     const tierSummary = summary?.tier_summary ?? [];
     const categoryHeatmap = summary?.category_heatmap ?? [];

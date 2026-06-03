@@ -18,7 +18,7 @@ class GscController
     {
         $freshnessDays = (int) BusinessRules::get('sync.gsc_freshness_days', 8);
 
-        $baseUrl = rtrim(env('CIE_ENGINE_BASE_URL', 'http://localhost:8000/api/v1'), '/');
+        $baseUrl = rtrim((string) config('services.python_worker.api_v1_base'), '/');
         $endpoint = $baseUrl . '/gsc/verify';
 
         try {

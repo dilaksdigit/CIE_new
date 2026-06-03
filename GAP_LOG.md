@@ -3,6 +3,21 @@
 
 ---
 
+## Resolved (Production Roadmap)
+
+| ID | Date | Resolution |
+|----|------|------------|
+| GAP-P0-MIG-01 | 2026-06-01 | Duplicate migration prefixes renumbered to 145–154 (DECISION-012). |
+| GAP-P2-REGISTER | 2026-06-01 | Public self-registration disabled; admin user management at `/admin/users`. |
+| GAP-P2-W5 | 2026-06-01 | `n8n/workflows/W5_gate_validation.json` added. |
+| GAP-P4-GOLDEN-G4 | 2026-06-02 | Golden pack prose aligned with G4 char limits: ALL_PASS SKUs extended to 250–300 chars; SHD-GLS-CNE-20 shortened to 217 (intentional G4 FAIL). `test_golden_all_pass_publish_allowed` added. |
+| GAP-W1-N8N-PATH | 2026-06-02 | PHP `ChannelDeployService` webhook paths aligned with `n8n/workflows/shopify_deploy.json` + `gmc_deploy.json` via env defaults; import script includes both. W6 orchestration path remains optional. |
+| GAP-ROUTES-01 | 2026-06-03 | All `backend/php/routes/api.php` routes documented in `cie_v231_openapi.yaml` (addendum + `/api` server for callbacks). Parity guard: `scripts/verify_openapi_route_parity.py` + `tests/php/Feature/OpenApiRouteParityTest.php`. Integrators use root spec; `docs/api/openapi.yaml` points to canonical file. |
+| GAP-P3-N8N-E2E | 2026-06-03 | Static + mocked-wire E2E: `scripts/e2e_n8n_shopify_deploy_static.py`, `ChannelDeployE2eTest` (HMAC → shopify-deploy webhook). Live Shopify/N8N: `e2e_publish_flow_check.py` + STAGING sign-off §6. |
+| GAP-P0-SECURITY | 2026-06-03 | P0 code complete: `APP_DEBUG` forced off in production (`config/app.php`, `Handler.php`), safe docker defaults, `scan_tracked_secrets.py`, enhanced `pre_deploy_check.sh`/`.ps1`, FastAPI docs disabled in prod. Manual: rotate Shopify token, set prod `.env` secrets on server. |
+
+---
+
 ## GAP-ERP-ROUTE-01 | 2026-03-26 | Extra ERP Alias Route | POST /api/admin/erp-sync exists at backend/php/routes/api.php:27-28 but is not in the OpenAPI contract. Violates CLAUDE.md R1. The spec-mandated route is POST /api/v1/erp/sync at backend/php/routes/api.php:107-111. Cannot remove safely without confirming no integration depends on it. Architect must confirm: (a) remove alias route, or (b) add to OpenAPI as approved exception. | Blocking: NO
 
 ---
@@ -15,7 +30,9 @@
 
 ---
 
-## GAP-ROUTES-01 | 2026-03-25 | Undocumented API Routes | Routes exist in `backend/php/routes/api.php` without OpenAPI contract entries and no explicit authority. Architect decision required per CLAUDE.md R1: add to OpenAPI or retire. Candidate routes: `GET /admin/semrush-import/latest`, `DELETE /admin/semrush-import/{batch}`, `POST /sku/{id}/suggest`, `GET /gsc/verify`, `GET /ga4/health`, `POST /admin/sync-failed`, `POST /admin/sync-complete` (if present in active runtime path). Current route scan confirms `/admin/sync-failed` exists and `/admin/sync-complete` is not currently defined. Note: Integration Spec §2.2 callback references still require architect reconciliation with OpenAPI. | Blocking: YES for contract consumers
+## ~~GAP-ROUTES-01~~ RESOLVED 2026-06-03
+
+Moved to **Resolved** table. Canonical contract: `cie_v231_openapi.yaml`. Formal architect sign-off checklist remains in `docs/ARCHITECT_REVIEW_GAP_ROUTES_API.md` for governance closure.
 
 ---
 
@@ -48,6 +65,8 @@
 **Description:** Canonical spec schema defines `sku_master` + `sku_commercial` tables, but PHP implementation uses legacy `skus` table with ERP fields inlined. Current fixes follow the existing PHP pattern (add to `skus`) to avoid breaking changes.
 
 **Action:** Architect: confirm authoritative production schema and consolidation plan (dual-table vs single-table). No migrations should retarget FKs or rename tables without formal approval.
+
+**Deploy interim (2026-06-03):** Enforce `python -m src.jobs.skus_to_sku_master_bridge` per `DEPLOYMENT_RUNBOOK.md` §6 until consolidation approved. No schema or tier logic changes.
 
 ---
 
@@ -177,6 +196,8 @@
 
 **Action:** Architect must confirm canonical channel enum for the locked API contract, then align all layers (OpenAPI, service outputs, tests) via formal change protocol.
 
+**Architect review (2026-06-03):** Keep OpenAPI `shopify`/`gmc` for deploy readiness (DECISION-001). Four-channel IDs are measurement/dashboard-only unless spec amended. See `docs/ARCHITECT_REVIEW_GAP_ROUTES_API.md`.
+
 ---
 
 ## GAP-API-13 | N8N Callback Endpoint Contract | 2026-03-20
@@ -184,6 +205,8 @@
 **Description:** Integration materials reference inbound N8N callback posts for channel deploy success/failure, but no corresponding callback paths are present in the locked OpenAPI contract and no PHP route is currently defined for them.
 
 **Action:** Architect must confirm whether callbacks are in-scope under existing locked endpoints or require formal OpenAPI contract update before implementation.
+
+**Architect review (2026-06-03):** Runtime routes exist: `POST /api/skus/{skuCode}/channel-deployed` and `channel-failed` (see `api.php`). Present in `docs/cie_v231_openapi.yaml`; sync into `docs/api/openapi.yaml` via Change Protocol. Close after N8N W6 wired to `/api/skus/...`. See `docs/ARCHITECT_REVIEW_GAP_ROUTES_API.md`.
 
 ---
 
@@ -636,5 +659,23 @@ Three seed users (admin + writer + reviewer): Amendment Pack v2 §3 — two *bus
 **Decision needed:** Confirm this mapping as official terminology and document it in spec/implementation notes.
 
 **Constraint:** RBAC hierarchy is frozen; no role model change proposed here.
+
+---
+
+<!-- SOURCE: CIE_v232_FINAL_Developer_Instruction.docx — GAP_LOG pattern -->
+
+## DECISION-001 — Amazon SP-API Integration in W6 Channel Deploy
+
+| Field | Value |
+|---|---|
+| **Status** | DEFERRED — not implemented |
+| **Component** | N8N Workflow W6 — `n8n/workflows/W6_channel_deploy.json` lines 102–109 |
+| **Spec Reference** | CIE_Integration_Specification.pdf Section 2.1 (W6: Channel Deploy, Step 6: Amazon Feed) |
+| **Current State** | Amazon deploy path is stubbed/disabled in W6. Shopify and Google MC deploy are active. Amazon SP-API credentials, feed format, and error handling are not implemented. |
+| **Reason for Deferral** | Amazon SP-API integration requires separate credentials setup, feed format definition, and SP-API seller account configuration that was not in scope for the initial build phase. |
+| **Impact** | SKUs with `channel_decisions.amazon = 'COMPETE'` will not be deployed to Amazon. Channel readiness score for Amazon channel will not reflect live status. N8N-03 audit check cannot reach DONE status until this is implemented. |
+| **Required Before Closing** | (1) Amazon SP-API seller credentials added to N8N credentials store. (2) Amazon feed format defined per CIE_Integration_Specification.pdf Section 5. (3) W6 workflow Amazon branch enabled and tested end-to-end. (4) Project owner sign-off on Amazon product listing format. |
+| **Logged By** | Automated fix prompt — Round 2 |
+| **Date Logged** | 2026-06-02 |
 
 ---

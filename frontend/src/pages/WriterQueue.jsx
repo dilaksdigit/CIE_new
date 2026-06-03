@@ -5,9 +5,11 @@
 // SOURCE: CIE_v232_Writer_View.jsx — QueueScreen component (canonical visual reference)
 // SOURCE: CIE_v232_Developer_README.docx Phase 3 — Writer Queue Screen build spec
 
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api, { extractApiArray } from '../services/api';
+import { AppContext } from '../App';
+import { canModifyConfig } from '../lib/rbac';
 import THEME from '../theme';
 
 const C = THEME;
@@ -66,6 +68,10 @@ const normalizeQueueItem = (item) => {
         // FIX: UI-14 — show informational queue badges from Semrush-derived flags.
         hasQuickWin: Boolean(item?.has_quick_win ?? item?.quick_win ?? false),
         hasCompetitorGap: Boolean(item?.has_competitor_gap ?? item?.competitor_gap ?? false),
+        decayStatus: String(item?.decay_status || 'none').toLowerCase(),
+        hasDecayBrief: ['auto_brief', 'escalated', 'alert'].includes(
+            String(item?.decay_status || 'none').toLowerCase()
+        ),
         urgency: String(item?.urgency || item?.priority || '').toLowerCase(),
         reason: String(item?.reason || item?.why || item?.context || 'Prioritized by AI queue engine'),
     };
@@ -100,11 +106,10 @@ const TierTag = ({ tier }) => {
     );
 };
 
-const FieldProgress = ({ done, total }) => {
+const FieldProgress = ({ done, total, amberPct }) => {
     if (total === 0) return <span style={{ fontSize: '0.7rem', color: THEME.textMid }}>—</span>;
     const pct = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
-    // F6 STOP: gates.completion_amber_pct not in §5.3 — architect must add before de-hardcoding (value 50)
-    const color = pct === 100 ? THEME.green : pct >= 50 ? THEME.amber : THEME.red;
+    const color = pct === 100 ? THEME.green : pct >= Number(amberPct) ? THEME.amber : THEME.red;
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{ width: 50, height: 5, background: THEME.border, borderRadius: 999, overflow: 'hidden' }}>
@@ -144,6 +149,8 @@ const emptyMessageForTab = (tab) => {
 const WriterQueue = () => {
     const navigate = useNavigate();
     const location = useLocation();
+    const { user } = useContext(AppContext);
+    const canReadConfig = canModifyConfig(user);
     const [queueItems, setQueueItems] = useState([]);
     const [activeTab, setActiveTab] = useState('all');
     const [query, setQuery] = useState('');
@@ -153,6 +160,7 @@ const WriterQueue = () => {
     const [successMessage, setSuccessMessage] = useState('');
     const [hoveredItemId, setHoveredItemId] = useState(null);
     const [hoveredTabKey, setHoveredTabKey] = useState(null);
+    const [completionAmberPct, setCompletionAmberPct] = useState(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -184,6 +192,19 @@ const WriterQueue = () => {
                     return;
                 }
                 if (cancelled) return;
+                if (canReadConfig) {
+                    try {
+                        const configRes = await api.get('/v1/config');
+                        const cfg = configRes?.data?.data ?? configRes?.data ?? {};
+                        const threshold =
+                            cfg?.gates?.completion_amber_pct ??
+                            cfg?.gate_thresholds?.completion_amber_pct ??
+                            cfg?.thresholds?.completion_amber_pct;
+                        if (threshold !== undefined && threshold !== null && !Number.isNaN(Number(threshold))) {
+                            setCompletionAmberPct(Number(threshold));
+                        }
+                    } catch {}
+                }
                 const rawList = extractApiArray(queueRes);
                 const normalized = rawList
                     .map(normalizeQueueItem)
@@ -210,7 +231,7 @@ const WriterQueue = () => {
             cancelled = true;
             clearInterval(interval);
         };
-    }, []);
+    }, [canReadConfig]);
 
     const counts = {
         todo: queueItems.filter((i) => !i.done && i.tier !== 'kill').length,
@@ -463,6 +484,21 @@ const WriterQueue = () => {
                                                     Competitor Gap
                                                 </span>
                                             )}
+                                            {item.hasDecayBrief && (
+                                                <span
+                                                    style={{
+                                                        backgroundColor: C.redBg,
+                                                        color: C.red,
+                                                        border: `1px solid ${C.redBorder}`,
+                                                        padding: '2px 8px',
+                                                        borderRadius: 4,
+                                                        fontSize: '0.62rem',
+                                                        fontWeight: 700,
+                                                    }}
+                                                >
+                                                    Decay Brief
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
 
@@ -473,7 +509,9 @@ const WriterQueue = () => {
                                             <StatusPill label="DONE" tone="done" />
                                         ) : (
                                             <>
-                                                <FieldProgress done={item.doneFields} total={item.totalFields} />
+                                                {completionAmberPct !== null ? (
+                                                    <FieldProgress done={item.doneFields} total={item.totalFields} amberPct={completionAmberPct} />
+                                                ) : null}
                                                 {item.totalFields > 0 && (
                                                     <span
                                                         style={{

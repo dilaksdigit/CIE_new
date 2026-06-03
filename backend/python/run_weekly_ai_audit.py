@@ -19,9 +19,9 @@ CATEGORIES = ("cables", "lampshades", "bulbs", "pendants")
 
 def get_db():
     try:
-        from src.utils.mysql_connect import pymysql_connect_dict_cursor
+        from src.utils.db_connect import connect_dict_cursor
 
-        return pymysql_connect_dict_cursor()
+        return connect_dict_cursor()
     except Exception as e:
         logger.error("DB connection failed: %s", e)
         raise

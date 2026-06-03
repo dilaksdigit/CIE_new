@@ -741,20 +741,9 @@ def run_weekly_audit(
     pass_fail = "pass" if agg_rate >= threshold else "fail"
 
     cur = db.cursor()
-    insert_sql = """
-        INSERT INTO ai_audit_results
-            (run_id, question_id, engine, score, response_hash, skip_reason,
-             cited_sku_id, week_ending, is_available, consecutive_zero_weeks)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON DUPLICATE KEY UPDATE
-            score = VALUES(score),
-            response_hash = VALUES(response_hash),
-            skip_reason = VALUES(skip_reason),
-            cited_sku_id = VALUES(cited_sku_id),
-            week_ending = VALUES(week_ending),
-            is_available = VALUES(is_available),
-            consecutive_zero_weeks = VALUES(consecutive_zero_weeks)
-    """
+    from src.utils.sql_postgres import SQL_UPSERT_AI_AUDIT_RESULT
+
+    insert_sql = SQL_UPSERT_AI_AUDIT_RESULT
 
     if not should_persist_results:
         notify_admin_failed_audit(db, run_id, category, engines_available_count)

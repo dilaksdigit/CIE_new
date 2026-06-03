@@ -1,0 +1,109 @@
+# SOURCE: Production Roadmap Week 2 — pytest + PHPUnit + frontend build on every PR
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+
+jobs:
+  python-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Python deps
+        run: pip install -r backend/python/requirements.txt pytest
+      - name: OpenAPI route parity (GAP-ROUTES-01)
+        run: python scripts/verify_openapi_route_parity.py
+      - name: Operator docs PostgreSQL alignment (DECISION-015)
+        run: python scripts/verify_docs_postgres_alignment.py
+      - name: Tracked secret scan (P0)
+        run: python scripts/scan_tracked_secrets.py
+      - name: N8N/Shopify static E2E (P3)
+        run: python scripts/e2e_n8n_shopify_deploy_static.py
+      - name: Pytest (gates + golden)
+        run: python -m pytest backend/python/tests/ -q
+
+  php-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: curl
+      - name: Composer install
+        working-directory: backend/php
+        run: composer install --no-interaction --prefer-dist
+      - name: PHPUnit (Phase1 + batch-fix Feature tests)
+        env:
+          APP_KEY: base64:dGVzdGtleXRlc3RrZXl0ZXN0a2V5dGVzdGtlc3Q=
+        working-directory: backend/php
+        run: |
+          vendor/bin/phpunit --bootstrap ../../tests/php/bootstrap-app.php \
+            ../../tests/php/Phase1/ChannelGovernorTest.php \
+            ../../tests/php/Feature/RbacEndpointMatrixTest.php \
+            ../../tests/php/Feature/AdminUsersEndpointTest.php \
+            ../../tests/php/Feature/PublishAuthorizationTest.php \
+            ../../tests/php/Feature/DemoTokenGateTest.php \
+            ../../tests/php/Feature/SemrushMigrationTest.php \
+            ../../tests/php/Feature/PythonWorkerConfigTest.php \
+            ../../tests/php/Feature/BusinessRulesRouteTest.php \
+            ../../tests/php/Feature/ChannelGovernorGmcThresholdTest.php \
+            ../../tests/php/Feature/PermissionServiceMultiRoleTest.php \
+            ../../tests/php/Feature/IntentsControllerTierRulesTest.php \
+            ../../tests/php/Feature/OpenApiRouteParityTest.php \
+            ../../tests/php/Feature/ProductionSecurityTest.php \
+            ../../tests/php/Feature/ChannelDeployE2eTest.php \
+            ../../tests/php/Feature/PostgresDocumentationAlignmentTest.php \
+            ../../tests/php/Feature/PostgresSpecIndexesTest.php
+
+  db-migration-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cie_user
+          POSTGRES_PASSWORD: cie_password
+          POSTGRES_DB: cie_v232
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cie_user -d cie_v232"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migration 166 (semrush_imports)
+        env:
+          PGPASSWORD: cie_password
+        run: |
+          psql -h localhost -U cie_user -d cie_v232 \
+            -f database/postgres/migrations/166_ensure_semrush_imports_table.sql
+      - name: Verify semrush_imports exists
+        env:
+          PGPASSWORD: cie_password
+        run: |
+          result=$(psql -h localhost -U cie_user -d cie_v232 -tAc \
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'semrush_imports'")
+          test "$result" = "1"
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install and build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build

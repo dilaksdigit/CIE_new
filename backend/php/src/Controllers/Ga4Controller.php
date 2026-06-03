@@ -14,7 +14,7 @@ class Ga4Controller
      */
     public function status(): \Illuminate\Http\JsonResponse
     {
-        $baseUrl = rtrim(env('CIE_ENGINE_BASE_URL', 'http://localhost:8000/api/v1'), '/');
+        $baseUrl = rtrim((string) config('services.python_worker.api_v1_base'), '/');
         $endpoint = $baseUrl . '/ga4/health';
         $payload = [
             'connected' => false,

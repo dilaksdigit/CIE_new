@@ -1,0 +1,10 @@
+CREATE TABLE users (
+ id CHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+ email VARCHAR(255) NOT NULL UNIQUE,
+ password_hash VARCHAR(255) NOT NULL,
+ first_name VARCHAR(100),
+ last_name VARCHAR(100),
+ is_active BOOLEAN DEFAULT true,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

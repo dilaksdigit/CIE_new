@@ -20,10 +20,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional
 
-import pymysql
-
 from utils.config import Config
-from utils.mysql_connect import pymysql_connect_dict_cursor
+from utils.db_errors import is_unknown_column
+from utils.db_connect import connect_dict_cursor
 from utils.sku_master_url_lookup import load_sku_url_lookup, log_sku_master_url_diagnostics, match_url
 from utils.url_utils import normalise_url
 
@@ -41,7 +40,7 @@ class GscRow:
 
 
 def _get_db():
-    return pymysql_connect_dict_cursor()
+    return connect_dict_cursor()
 
 
 def pull_weekly_gsc(start_date: datetime, end_date: datetime) -> List[GscRow]:
@@ -140,8 +139,8 @@ def save_unmatched_urls(urls: Iterable[str], window_end: datetime) -> None:
                         """,
                         (raw_url[:1000], "gsc", window_date),
                     )
-                except pymysql.err.OperationalError as exc:
-                    if exc.args and exc.args[0] != 1054:
+                except Exception as exc:
+                    if not is_unknown_column(exc):
                         raise
                     cur.execute(
                         """

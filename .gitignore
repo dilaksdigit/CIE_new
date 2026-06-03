@@ -1,17 +1,48 @@
 /vendor
 /node_modules
+
+# Secrets — never commit
+_env
 .env
+.env.*
+!.env.example
+service_account.json
+secrets/
+backend/python/secrets/
+backend/php/.env
+
+# Docker local overrides (may enable APP_DEBUG=true)
+docker-compose.override.yml
+
+# Debug and runtime logs
+*.log
+debug-*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+/backend/python/venv
+
 /storage/app/public/*
 /storage/logs/*
 /storage/framework/cache/*
 /storage/framework/sessions/*
 /storage/framework/views/*
-/backend/python/venv
-*.pyc
-__pycache__
 /frontend/dist
-.DS_Store
-/backend/python/secrets/
 /backend/.env
 .cursor/
 _tmp_mcp_mysql/

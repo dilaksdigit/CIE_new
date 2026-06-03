@@ -30,7 +30,8 @@ class CieVectorRetryProcessCommand extends Command
         // Python job reads DB_* / OPENAI_* from the process environment only. Plain exec() does not
         // load backend/php/.env for the child, so PyMySQL often defaulted to localhost:3306 / wrong DB
         // and never cleared queued rows (dashboard stayed "Embedding Service Degraded").
-        $mysql = config('database.connections.mysql', []);
+        $default = config('database.default', 'pgsql');
+        $mysql = config('database.connections.' . $default, []);
         $localMode = config('services.local_llm.mode', '');
         $localModeEnv = is_bool($localMode)
             ? ($localMode ? 'true' : 'false')
@@ -39,7 +40,7 @@ class CieVectorRetryProcessCommand extends Command
         // Use config(), not env(), so OPENAI_* / LOCAL_LLM_* resolve when php artisan config:cache is used.
         $envOverrides = [
             'DB_HOST' => (string) ($mysql['host'] ?? env('DB_HOST', '127.0.0.1')),
-            'DB_PORT' => (string) ($mysql['port'] ?? env('DB_PORT', '3306')),
+            'DB_PORT' => (string) ($mysql['port'] ?? env('DB_PORT', '5432')),
             'DB_DATABASE' => (string) ($mysql['database'] ?? env('DB_DATABASE', 'cie_v232')),
             'DB_USERNAME' => (string) ($mysql['username'] ?? env('DB_USERNAME', 'root')),
             'DB_USER' => (string) ($mysql['username'] ?? env('DB_USERNAME', 'root')),

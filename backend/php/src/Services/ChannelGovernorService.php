@@ -1,4 +1,6 @@
 <?php
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 5 — zero hard-coded thresholds
+// SOURCE: CIE_v2_3_Enforcement_Edition.pdf Section 7.1 — channel readiness scoring
 namespace App\Services;
 
 use App\Models\Sku;
@@ -11,7 +13,7 @@ class ChannelGovernorService
     private const CHANNELS = ['shopify', 'gmc'];
 
     /**
-     * GMC feed inclusion (CHAN-02): Kill/Harvest excluded; Hero ≥85, Support ≥70.
+     * GMC feed inclusion (CHAN-02): Kill/Harvest excluded; Hero ≥ primary min; Support ≥ support primary min.
      */
     public static function isEligibleForGMC(Sku $sku): bool
     {
@@ -22,7 +24,7 @@ class ChannelGovernorService
         $score = (int) ($sku->readiness_score ?? 0);
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §5.3 — readiness thresholds via BusinessRules.
         $heroMin = (int) BusinessRules::get('readiness.hero_primary_channel_min');
-        $supportMin = (int) BusinessRules::get('readiness.hero_all_channels_min');
+        $supportMin = (int) BusinessRules::get('readiness.support_primary_channel_min');
         if ($tier === 'hero') {
             return $score >= $heroMin;
         }
@@ -87,10 +89,10 @@ class ChannelGovernorService
     private function computeChannelScore(int $baseScore, string $channel): int
     {
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — zero hard-coded business numbers
-        $deltaShopify = (int) BusinessRules::get('channels.delta_shopify', 10);
-        $deltaGmc = (int) BusinessRules::get('channels.delta_gmc', 7);
+        $deltaShopify = (int) BusinessRules::get('channels.delta_shopify');
+        $deltaGmc = (int) BusinessRules::get('channels.delta_gmc');
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — unknown channel delta from BusinessRules
-        $deltaOther = (int) BusinessRules::get('channels.delta_other', 0);
+        $deltaOther = (int) BusinessRules::get('channels.delta_other');
         $delta = match ($channel) {
             'shopify' => $deltaShopify,
             'gmc' => $deltaGmc,
@@ -174,12 +176,12 @@ class ChannelGovernorService
     private function validateReadinessWeights(): void
     {
         $components = [
-            'answer_block' => (int) BusinessRules::get('readiness.weight_answer_block', 25),
-            'faq_coverage' => (int) BusinessRules::get('readiness.weight_faq_coverage', 20),
-            'safety_depth' => (int) BusinessRules::get('readiness.weight_safety_depth', 15),
-            'cross_sku_comparison' => (int) BusinessRules::get('readiness.weight_cross_sku_comparison', 15),
-            'structured_data' => (int) BusinessRules::get('readiness.weight_structured_data', 15),
-            'citation_score' => (int) BusinessRules::get('readiness.weight_citation_score', 10),
+            'answer_block' => (int) BusinessRules::get('readiness.weight_answer_block'),
+            'faq_coverage' => (int) BusinessRules::get('readiness.weight_faq_coverage'),
+            'safety_depth' => (int) BusinessRules::get('readiness.weight_safety_depth'),
+            'cross_sku_comparison' => (int) BusinessRules::get('readiness.weight_cross_sku_comparison'),
+            'structured_data' => (int) BusinessRules::get('readiness.weight_structured_data'),
+            'citation_score' => (int) BusinessRules::get('readiness.weight_citation_score'),
         ];
         $total = array_sum($components);
         if ($total !== 100) {
@@ -196,8 +198,8 @@ class ChannelGovernorService
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 — component points from BusinessRules
         $answerBlockMin = (int) BusinessRules::get('gates.answer_block_min_chars');
         $len = strlen($answer);
-        $high = (int) BusinessRules::get('channels.ai_readiness_answer_block_high_pts', 25);
-        $low = (int) BusinessRules::get('channels.ai_readiness_answer_block_low_pts', 15);
+        $high = (int) BusinessRules::get('channels.ai_readiness_answer_block_high_pts');
+        $low = (int) BusinessRules::get('channels.ai_readiness_answer_block_low_pts');
         return $len >= $answerBlockMin ? $high : $low;
     }
 
@@ -207,8 +209,8 @@ class ChannelGovernorService
         $faqArr = is_string($faqRaw) ? json_decode($faqRaw, true) : (is_array($faqRaw) ? $faqRaw : []);
         $count = is_array($faqArr) ? count($faqArr) : 0;
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §5
-        $full = (int) BusinessRules::get('channels.ai_readiness_faq_full_pts', 20);
-        $partial = (int) BusinessRules::get('channels.ai_readiness_faq_partial_pts', 10);
+        $full = (int) BusinessRules::get('channels.ai_readiness_faq_full_pts');
+        $partial = (int) BusinessRules::get('channels.ai_readiness_faq_partial_pts');
         if ($count >= 3) {
             return $full;
         }
@@ -223,8 +225,8 @@ class ChannelGovernorService
         $text = strtolower((string) ($sku->expert_authority ?? ''));
         $signals = ['bs ', 'en ', 'iso', 'iec', 'ce', 'ukca', 'rohs'];
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §5
-        $hitPts = (int) BusinessRules::get('channels.ai_readiness_safety_signal_pts', 15);
-        $weakPts = (int) BusinessRules::get('channels.ai_readiness_safety_weak_pts', 8);
+        $hitPts = (int) BusinessRules::get('channels.ai_readiness_safety_signal_pts');
+        $weakPts = (int) BusinessRules::get('channels.ai_readiness_safety_weak_pts');
         foreach ($signals as $signal) {
             if (str_contains($text, $signal)) {
                 return $hitPts;
@@ -238,8 +240,8 @@ class ChannelGovernorService
         $bestFor = trim((string) ($sku->best_for ?? ''));
         $notFor = trim((string) ($sku->not_for ?? ''));
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §5
-        $full = (int) BusinessRules::get('channels.ai_readiness_comparison_full_pts', 15);
-        $partial = (int) BusinessRules::get('channels.ai_readiness_comparison_partial_pts', 8);
+        $full = (int) BusinessRules::get('channels.ai_readiness_comparison_full_pts');
+        $partial = (int) BusinessRules::get('channels.ai_readiness_comparison_partial_pts');
         if ($bestFor !== '' && $notFor !== '') {
             return $full;
         }
@@ -250,8 +252,8 @@ class ChannelGovernorService
     {
         $hasWikidata = !empty($sku->wikidata_uri) || !empty($sku->wikidata_entities);
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §5
-        $full = (int) BusinessRules::get('channels.ai_readiness_structured_full_pts', 15);
-        $partial = (int) BusinessRules::get('channels.ai_readiness_structured_partial_pts', 8);
+        $full = (int) BusinessRules::get('channels.ai_readiness_structured_full_pts');
+        $partial = (int) BusinessRules::get('channels.ai_readiness_structured_partial_pts');
         return $hasWikidata ? $full : $partial;
     }
 
@@ -259,8 +261,8 @@ class ChannelGovernorService
     {
         $citationRate = (float) ($sku->score_citation ?? $sku->ai_citation_rate ?? 0);
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §5
-        $factor = (float) BusinessRules::get('channels.ai_readiness_citation_rate_factor', 0.10);
-        $cap = (int) BusinessRules::get('channels.ai_readiness_citation_max_pts', 10);
+        $factor = (float) BusinessRules::get('channels.ai_readiness_citation_rate_factor');
+        $cap = (int) BusinessRules::get('channels.ai_readiness_citation_max_pts');
         $score = (int) round(max(0, min(100, $citationRate)) * $factor);
         return max(0, min($cap, $score));
     }

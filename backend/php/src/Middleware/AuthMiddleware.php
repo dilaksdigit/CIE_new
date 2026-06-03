@@ -14,8 +14,13 @@ class AuthMiddleware {
             return response()->json(['error' => 'Unauthenticated'], 401);
         }
 
-        // Legacy: demo-token logs in first user (for backward compatibility)
+        // Legacy: demo-token logs in first user — local/dev only (P0 security; never in production)
         if ($token === 'demo-token') {
+            $allowDemo = filter_var(env('ALLOW_DEMO_TOKEN', false), FILTER_VALIDATE_BOOLEAN)
+                || in_array((string) env('APP_ENV', 'production'), ['local', 'development', 'testing'], true);
+            if (!$allowDemo) {
+                return response()->json(['error' => 'Unauthenticated'], 401);
+            }
             $user = User::first();
             if ($user) {
                 auth()->login($user);

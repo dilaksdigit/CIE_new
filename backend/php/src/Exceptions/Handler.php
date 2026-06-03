@@ -45,4 +45,25 @@ class Handler extends ExceptionHandler
             //
         });
     }
+
+    /**
+     * SOURCE: P0 — production must not expose stack traces or env values to API clients.
+     */
+    public function render($request, Throwable $e)
+    {
+        if (app()->environment(['production', 'staging'])) {
+            $status = method_exists($e, 'getStatusCode') ? $e->getStatusCode() : 500;
+            if ($status < 400 || $status > 599) {
+                $status = 500;
+            }
+            return response()->json([
+                'error' => $status >= 500 ? 'Server error' : 'Request failed',
+                'message' => $status >= 500
+                    ? 'An unexpected error occurred. Contact the system administrator.'
+                    : ($e->getMessage() ?: 'Request could not be completed.'),
+            ], $status);
+        }
+
+        return parent::render($request, $e);
+    }
 }

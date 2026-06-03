@@ -1,0 +1,7 @@
+# Local development overrides — copy to docker-compose.override.yml (gitignored).
+# SOURCE: P0 security — never deploy this file to production.
+services:
+  php-api:
+    environment:
+      - APP_DEBUG=true
+      - ALLOW_DEMO_TOKEN=true

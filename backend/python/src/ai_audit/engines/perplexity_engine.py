@@ -1,53 +1,22 @@
 import os
 import re
-from typing import Optional
+import logging
 
 import httpx
-from openai import AsyncOpenAI
 
 # SOURCE: CIE_Master_Developer_Build_Spec.docx Section 12.1
 
 
 class PerplexityEngine:
     def __init__(self):
-        self.local_mode = (
-            os.environ.get("LOCAL_LLM_MODE", "").strip().lower() == "true"
-        )
-        self._local_client: Optional[AsyncOpenAI] = None
-        self._local_model_name: Optional[str] = None
-        if self.local_mode:
-            base_url = os.environ.get("LOCAL_LLM_BASE_URL", "http://localhost:1234/v1")
-            api_key = (os.environ.get("PERPLEXITY_API_KEY") or "local-dummy-key").strip()
-            self._local_model_name = (os.environ.get("PERPLEXITY_MODEL") or "").strip() or (
-                "Qwen3-Next-dummy-Instruct-dummy"
+        local_llm_mode = os.getenv("LOCAL_LLM_MODE", "false").strip().lower() == "true"
+        if local_llm_mode:
+            logging.getLogger(__name__).warning(
+                "LOCAL_LLM_MODE=true detected but AI audit Perplexity engine is NOT rerouted "
+                "to localhost. Citation audit always uses real external APIs. SOURCE: CLAUDE.md"
             )
-            self._local_client = AsyncOpenAI(base_url=base_url, api_key=api_key)
 
     async def query(self, prompt: str) -> dict:
-        if self.local_mode:
-            if not self._local_client:
-                return {
-                    "score": None,
-                    "status": "engine_down",
-                    "skip_reason": "engine_down",
-                }
-            try:
-                response = await self._local_client.chat.completions.create(
-                    model=self._local_model_name or "Qwen3-Next-dummy-Instruct-dummy",
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=1000,
-                )
-                text = (response.choices[0].message.content or "")[:2000]
-                match = re.search(r"\d+", text or "")
-                score = int(match.group()) if match else 0
-                return {"score": score, "status": "SUCCESS"}
-            except Exception:
-                return {
-                    "score": None,
-                    "status": "engine_down",
-                    "skip_reason": "engine_down",
-                }
-
         api_key = (os.environ.get("PERPLEXITY_API_KEY") or "").strip()
         model = (os.environ.get("PERPLEXITY_MODEL") or "").strip()
         if not api_key or not model:

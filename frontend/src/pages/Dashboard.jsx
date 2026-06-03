@@ -3,7 +3,7 @@
 // SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §4.1 — Route Map /review/dashboard
 // SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §4.2 — Screen Map, REVIEWER view
 
-import React from 'react';
+import React, { useContext } from 'react';
 import {
     StatCard,
     SectionTitle,
@@ -15,6 +15,8 @@ import {
     getGatesForTier
 } from '../components/common/UIComponents';
 import { skuApi, dashboardApi, configApi, extractApiArray } from '../services/api';
+import { AppContext } from '../App';
+import { canModifyConfig } from '../lib/rbac';
 import THEME from '../theme';
 
 // SOURCE: CLAUDE.md Section 4 — DECISION-001 (channels: shopify + gmc only)
@@ -47,6 +49,8 @@ const escapeCsvCell = (val) => {
 const validationStatusUpper = (sku) => String(sku?.validation_status ?? '').trim().toUpperCase();
 
 const Dashboard = () => {
+    const { user } = useContext(AppContext);
+    const canReadConfig = canModifyConfig(user);
     const [skus, setSkus] = React.useState([]);
     const [summary, setSummary] = React.useState(null);
     const [loading, setLoading] = React.useState(true);
@@ -59,13 +63,14 @@ const Dashboard = () => {
     const [categoryFilter, setCategoryFilter] = React.useState('All Categories');
 
     React.useEffect(() => {
+        if (!canReadConfig) return;
         configApi.get().then(res => {
             const raw = res.data?.data ?? res.data ?? {};
             setThresholds(raw);
         }).catch(e => {
             console.error('Failed to load business rules for dashboard:', e);
         });
-    }, []);
+    }, [canReadConfig]);
 
     const fetchSummary = React.useCallback(async () => {
         try {

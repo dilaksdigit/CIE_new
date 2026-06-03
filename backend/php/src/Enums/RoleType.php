@@ -14,6 +14,7 @@ enum RoleType: string
     case CHANNEL_MANAGER   = 'channel_manager';
     case AI_OPS            = 'ai_ops';
     case CONTENT_LEAD      = 'content_lead';
+    case KPI_REVIEWER      = 'kpi_reviewer';
     case FINANCE           = 'finance';
     case ADMIN             = 'admin';
 
@@ -28,6 +29,7 @@ enum RoleType: string
             self::CHANNEL_MANAGER => 'Edit content; manage channel mappings.',
             self::AI_OPS => 'Run AI audits; manage golden queries.',
             self::CONTENT_LEAD => 'Portfolio Holder: publish, assign briefs, effort reports.',
+            self::KPI_REVIEWER => 'Review KPI performance and submit weekly scores.',
             self::FINANCE => 'Trigger tier recalculation; ERP sync; golden queries.',
         };
     }
@@ -41,6 +43,7 @@ enum RoleType: string
             'CHANNEL_MANAGER'   => self::CHANNEL_MANAGER,
             'AI_OPS'            => self::AI_OPS,
             'CONTENT_LEAD'      => self::CONTENT_LEAD,
+            'KPI_REVIEWER'      => self::KPI_REVIEWER,
             'PORTFOLIO_HOLDER'  => self::CONTENT_LEAD,
             'FINANCE'           => self::FINANCE,
             'ADMIN'             => self::ADMIN,

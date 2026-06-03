@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 def _get_db():
-    from utils.mysql_connect import pymysql_connect_dict_cursor
+    from utils.db_connect import connect_dict_cursor
 
-    return pymysql_connect_dict_cursor()
+    return connect_dict_cursor()
 
 
 def _get_business_rule(cursor, key: str, default=None):

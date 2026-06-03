@@ -2,8 +2,7 @@
 use Illuminate\Database\Capsule\Manager as Capsule;
 use App\Models\Sku;
 use App\Services\ValidationService;
-use App\Validators\GateValidator;
-use App\Services\PythonWorkerClient; // Mock this if needed
+use App\Services\PythonWorkerClient;
 
 require __DIR__ . '/backend/php/vendor/autoload.php';
 
@@ -31,12 +30,24 @@ class MockLog {
 class_alias('MockLog', 'Illuminate\Support\Facades\Log');
 
 // Mock dependencies
-$pythonClient = new class extends PythonWorkerClient { 
-    public function __construct() {} // Override to avoid Guzzle init
-    public function validateVector($d, $c, $s = null): array { return ['similarity' => 0.9]; } 
+$pythonClient = new class extends PythonWorkerClient {
+    public function __construct() {}
+    public function validateSkuGates(array $payload): array
+    {
+        return [
+            'http_status' => 200,
+            'body' => [
+                'status' => 'pass',
+                'gates' => [],
+                'vector_check' => ['status' => 'pass', 'user_message' => null],
+                'degraded_mode' => false,
+                'save_allowed' => true,
+                'publish_allowed' => true,
+            ],
+        ];
+    }
 };
-$validator = new GateValidator();
-$service = new ValidationService($validator, $pythonClient);
+$service = new ValidationService($pythonClient);
 
 try {
     // Find a SKU

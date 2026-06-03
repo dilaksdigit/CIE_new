@@ -21,6 +21,7 @@ class AuditLogController
 
         $orderColumn = Schema::hasColumn('audit_log', 'timestamp') ? 'timestamp' : 'created_at';
         $query = AuditLog::orderByDesc($orderColumn);
+        $query = $this->applyAuditScope($request, $query);
 
         if ($request->has('entity_type')) {
             $query->where('entity_type', $request->query('entity_type'));
@@ -52,6 +53,31 @@ class AuditLogController
         $enriched = $this->enrichLogsWithLabels($logs);
 
         return ResponseFormatter::format($enriched);
+    }
+
+    /**
+     * SOURCE: RBAC_REFERENCE.md — audit log scope: editors see own; admin/governor/ai_ops see all.
+     * DECISION-003: single-operator build still enforces scope in code for future scale-up.
+     */
+    private function applyAuditScope(Request $request, $query)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return $query;
+        }
+        $user->loadMissing('roles');
+        $roleNames = $user->roles->pluck('name')->map(fn ($n) => strtoupper((string) $n))->all();
+        $seeAll = !empty(array_intersect($roleNames, ['ADMIN', 'SEO_GOVERNOR', 'AI_OPS', 'FINANCE', 'CONTENT_LEAD']));
+        if ($seeAll) {
+            return $query;
+        }
+        $uid = (string) $user->id;
+        return $query->where(function ($q) use ($uid) {
+            $q->where('user_id', $uid);
+            if (Schema::hasColumn('audit_log', 'actor_id')) {
+                $q->orWhere('actor_id', $uid);
+            }
+        });
     }
 
     /**

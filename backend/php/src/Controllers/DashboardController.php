@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Enums\TierType;
 use App\Models\Sku;
 use App\Models\Cluster;
 use App\Models\ValidationLog;
@@ -380,6 +381,7 @@ class DashboardController
         if (!Schema::hasTable('ai_audit_results') || !Schema::hasTable('ai_audit_runs')) {
             return response()->json(['scores' => []], 200);
         }
+        $weekDateExpr = $this->auditWeekDateExpr();
 
         $weeks = (int) $request->query('weeks', 12);
         $weeks = max(1, min(52, $weeks));
@@ -398,7 +400,7 @@ class DashboardController
 
         $weekBuckets = DB::select(
             'SELECT week_start_date FROM (
-                SELECT DISTINCT DATE(COALESCE(air.week_ending, r.run_date)) AS week_start_date
+                SELECT DISTINCT DATE(' . $weekDateExpr . ') AS week_start_date
                 FROM ai_audit_results AS air
                 INNER JOIN ai_audit_runs AS r ON r.run_id = air.run_id
                 WHERE r.status = \'completed\' ' . $catSql . '
@@ -418,7 +420,7 @@ class DashboardController
         foreach ($weekDates as $weekStartDate) {
             $cats = $categoryFilter ? [$categoryFilter] : $allowedCategories;
             foreach ($cats as $cat) {
-                $row = $this->buildWeeklyScoreEntryForWeekCategory($weekStartDate, $cat);
+                $row = $this->buildWeeklyScoreEntryForWeekCategory($weekStartDate, $cat, $weekDateExpr);
                 if ($row !== null) {
                     $scoresOut[] = $row;
                 }
@@ -438,7 +440,7 @@ class DashboardController
      *
      * @return array<string, mixed>|null
      */
-    private function buildWeeklyScoreEntryForWeekCategory(string $weekStartDate, string $category): ?array
+    private function buildWeeklyScoreEntryForWeekCategory(string $weekStartDate, string $category, string $weekDateExpr): ?array
     {
         $engines = ['chatgpt', 'gemini', 'perplexity', 'google_sge'];
 
@@ -446,7 +448,7 @@ class DashboardController
             ->join('ai_audit_runs as r', 'r.run_id', '=', 'air.run_id')
             ->where('r.status', 'completed')
             ->where('r.category', $category)
-            ->whereRaw('DATE(COALESCE(air.week_ending, r.run_date)) = ?', [$weekStartDate]);
+            ->whereRaw('DATE(' . $weekDateExpr . ') = ?', [$weekStartDate]);
 
         $count = (clone $base)->count();
         if ($count === 0) {
@@ -494,6 +496,16 @@ class DashboardController
     }
 
     /**
+     * Use week_ending when present; fallback to run_date for pre-DB-15 schemas.
+     */
+    private function auditWeekDateExpr(): string
+    {
+        return Schema::hasColumn('ai_audit_results', 'week_ending')
+            ? 'COALESCE(air.week_ending, r.run_date)'
+            : 'r.run_date';
+    }
+
+    /**
      * GET /api/v1/review/weekly-scores
      * SOURCE: CIE_v232_UI_Restructure_Instructions.docx §5 Step 5 — manual KPI weekly scores (Concept A).
      */
@@ -510,21 +522,30 @@ class DashboardController
             $hasNotes = false;
         }
 
+        $weekColumn = 'week_start';
+        try {
+            if (Schema::hasColumn('weekly_scores', 'week_start_date')) {
+                $weekColumn = 'week_start_date';
+            }
+        } catch (\Throwable $e) {
+            $weekColumn = 'week_start';
+        }
+
         $query = DB::table('weekly_scores')
-            ->orderBy('week_start', 'desc')
+            ->orderBy($weekColumn, 'desc')
             ->limit(12);
 
-        $columns = ['id', 'week_start', 'score', 'created_at'];
+        $columns = ['id', $weekColumn, 'score', 'created_at'];
         if ($hasNotes) {
             $columns[] = 'notes';
         }
 
         $rows = $query
             ->get($columns)
-            ->map(function ($row) use ($hasNotes) {
+            ->map(function ($row) use ($hasNotes, $weekColumn) {
                 return [
                     'id' => (int) $row->id,
-                    'week_start' => (string) $row->week_start,
+                    'week_start' => (string) ($row->{$weekColumn} ?? ''),
                     'score' => (int) $row->score,
                     'notes' => $hasNotes ? (string) ($row->notes ?? '') : '',
                     'created_at' => (string) $row->created_at,
@@ -594,8 +615,17 @@ class DashboardController
             $hasUserId = false;
         }
 
+        $weekColumn = 'week_start';
+        try {
+            if (Schema::hasColumn('weekly_scores', 'week_start_date')) {
+                $weekColumn = 'week_start_date';
+            }
+        } catch (\Throwable $e) {
+            $weekColumn = 'week_start';
+        }
+
         $row = [
-            'week_start' => $request->input('week_start'),
+            $weekColumn => $request->input('week_start'),
             'score' => $request->input('score'),
             'created_at' => now(),
         ];
@@ -610,6 +640,22 @@ class DashboardController
             $row['user_id'] = $uid;
         }
 
+        try {
+            if (Schema::hasColumn('weekly_scores', 'writer_user_id') && $request->filled('writer_user_id')) {
+                $row['writer_user_id'] = (string) $request->input('writer_user_id');
+            }
+        } catch (\Throwable $e) {
+            // no-op
+        }
+
+        try {
+            if (Schema::hasColumn('weekly_scores', 'created_by') && auth()->id() !== null) {
+                $row['created_by'] = (string) auth()->id();
+            }
+        } catch (\Throwable $e) {
+            // no-op
+        }
+
         $id = DB::table('weekly_scores')->insertGetId($row);
 
         return ResponseFormatter::format([
@@ -621,20 +667,22 @@ class DashboardController
 
     private function buildTierSummary(): array
     {
-        $tiers = ['HERO', 'SUPPORT', 'HARVEST', 'KILL'];
+        // SOURCE: CLAUDE.md §9 — tier stored lowercase in DB; API labels stay uppercase for UI badges
         $out = [];
-        foreach ($tiers as $tier) {
-            $q = Sku::where('tier', $tier);
+        foreach (TierType::cases() as $tierType) {
+            $dbTier = $tierType->value;
+            $q = Sku::where('tier', $dbTier);
             $count = $q->count();
-            $avgReadiness = (float) $q->avg('readiness_score');
-            $avgMargin = (float) Sku::where('tier', $tier)->avg('margin_percent');
+            $avgReadiness = $count > 0 ? (float) $q->avg('readiness_score') : 0.0;
+            $avgMargin = $count > 0 ? Sku::where('tier', $dbTier)->avg('margin_percent') : null;
             $out[] = [
-                'tier' => $tier,
+                'tier' => strtoupper($dbTier),
                 'count' => $count,
                 'avg_readiness' => round($avgReadiness, 1),
-                'avg_margin' => $avgMargin !== null ? round($avgMargin, 1) : null,
+                'avg_margin' => $avgMargin !== null ? round((float) $avgMargin, 1) : null,
             ];
         }
+
         return $out;
     }
 
@@ -699,7 +747,7 @@ class DashboardController
         }
         $hasBriefs = Schema::hasTable('content_briefs');
 
-        return Sku::where('tier', 'HERO')
+        return Sku::where('tier', TierType::HERO->value)
             ->whereNotNull('decay_status')
             ->where('decay_status', '!=', 'none')
             ->get(['id', 'sku_code', 'title', 'decay_status', 'decay_consecutive_zeros'])
@@ -839,10 +887,42 @@ class DashboardController
             return $this->defaultChannelStats();
         }
 
-        $rows = DB::table('channel_readiness')->get(['channel', 'score', 'component_scores']);
+        // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 3 — six AI readiness components in component_scores JSON
+        $componentKeys = [
+            'answer_block',
+            'faq_coverage',
+            'safety_depth',
+            'cross_sku_comparison',
+            'structured_data',
+            'citation_score',
+        ];
+
+        $query = DB::table('channel_readiness as cr');
+        $hasSkuMaster = Schema::hasTable('sku_master');
+        if ($hasSkuMaster) {
+            $query->leftJoin('sku_master as s', 'cr.sku_id', '=', 's.sku_id');
+        }
+        $select = ['cr.channel', 'cr.score', 'cr.component_scores'];
+        if ($hasSkuMaster) {
+            $select[] = 's.tier';
+        }
+        $rows = $query->get($select);
+
         $byChannel = [
-            'shopify' => ['scores' => [], 'compete' => 0, 'skip' => 0],
-            'gmc'     => ['scores' => [], 'compete' => 0, 'skip' => 0],
+            'shopify' => [
+                'scores' => [],
+                'compete' => 0,
+                'skip' => 0,
+                'comp_sums' => array_fill_keys($componentKeys, 0),
+                'comp_count' => 0,
+            ],
+            'gmc' => [
+                'scores' => [],
+                'compete' => 0,
+                'skip' => 0,
+                'comp_sums' => array_fill_keys($componentKeys, 0),
+                'comp_count' => 0,
+            ],
         ];
 
         foreach ($rows as $row) {
@@ -850,15 +930,35 @@ class DashboardController
             if (!isset($byChannel[$ch])) {
                 continue;
             }
-            $byChannel[$ch]['scores'][] = (int) $row->score;
-            $decoded = is_string($row->component_scores)
-                ? json_decode($row->component_scores, true)
-                : $row->component_scores;
-            $status = isset($decoded['status']) ? strtoupper((string) $decoded['status']) : '';
-            if ($status === 'COMPETE') {
+            $score = (int) $row->score;
+            $byChannel[$ch]['scores'][] = $score;
+
+            $tier = 'support';
+            if ($hasSkuMaster && isset($row->tier)) {
+                $tier = strtolower(trim((string) $row->tier));
+            }
+            $decision = $this->channelCompeteDecision($tier, $score, (string) $ch);
+            if ($decision === 'COMPETE') {
                 $byChannel[$ch]['compete']++;
             } else {
                 $byChannel[$ch]['skip']++;
+            }
+
+            $decoded = is_string($row->component_scores)
+                ? json_decode($row->component_scores, true)
+                : $row->component_scores;
+            if (!is_array($decoded)) {
+                continue;
+            }
+            $hasComponent = false;
+            foreach ($componentKeys as $key) {
+                if (array_key_exists($key, $decoded)) {
+                    $byChannel[$ch]['comp_sums'][$key] += (int) $decoded[$key];
+                    $hasComponent = true;
+                }
+            }
+            if ($hasComponent) {
+                $byChannel[$ch]['comp_count']++;
             }
         }
 
@@ -869,16 +969,64 @@ class DashboardController
         $order = ['shopify', 'gmc'];
         $out = [];
         foreach ($order as $key) {
-            $scores = $byChannel[$key]['scores'];
+            $bucket = $byChannel[$key];
+            $scores = $bucket['scores'];
             $avg = empty($scores) ? 0 : (int) round(array_sum($scores) / count($scores));
+            $compCount = (int) $bucket['comp_count'];
+            $aiReadiness = [];
+            foreach ($componentKeys as $compKey) {
+                $aiReadiness[$compKey] = $compCount > 0
+                    ? (int) round($bucket['comp_sums'][$compKey] / $compCount)
+                    : 0;
+            }
             $out[] = [
-                'ch'      => $labels[$key],
-                'score'   => $avg,
-                'compete' => $byChannel[$key]['compete'],
-                'skip'    => $byChannel[$key]['skip'],
+                'ch'            => $labels[$key],
+                'score'         => $avg,
+                'compete'       => $bucket['compete'],
+                'skip'          => $bucket['skip'],
+                'ai_readiness'  => $aiReadiness,
             ];
         }
+
         return $out;
+    }
+
+    /**
+     * COMPETE/SKIP from score + tier — mirrors ChannelGovernorService (DECISION-001: shopify + gmc only).
+     */
+    private function channelCompeteDecision(string $tier, int $score, string $channel): string
+    {
+        if ($tier === 'kill') {
+            return 'SKIP';
+        }
+
+        $primaryChannel = 'shopify';
+        $heroPrimaryMin = (int) BusinessRules::get('readiness.hero_primary_channel_min');
+        $heroAllMin = (int) BusinessRules::get('readiness.hero_all_channels_min');
+        $supportPrimaryMin = (int) BusinessRules::get('readiness.support_primary_channel_min');
+        $supportAllMin = (int) BusinessRules::get(
+            'readiness.support_all_channels_min',
+            BusinessRules::get('readiness.support_primary_channel_min')
+        );
+
+        if ($tier === 'hero') {
+            if ($channel === $primaryChannel) {
+                return $score >= $heroPrimaryMin ? 'COMPETE' : 'SKIP';
+            }
+
+            return $score >= $heroAllMin ? 'COMPETE' : 'SKIP';
+        }
+        if ($tier === 'support') {
+            if ($channel === $primaryChannel) {
+                return $score >= $supportPrimaryMin ? 'COMPETE' : 'SKIP';
+            }
+
+            return $score >= $supportAllMin ? 'COMPETE' : 'SKIP';
+        }
+
+        $harvestThreshold = (int) BusinessRules::get('channel.harvest_threshold');
+
+        return $score >= $harvestThreshold ? 'COMPETE' : 'SKIP';
     }
 
     private function defaultChannelStats(): array

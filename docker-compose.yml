@@ -1,24 +1,30 @@
 services:
  db:
-  image: mysql:8.0
+  image: postgres:16-alpine
   environment:
-   MYSQL_ROOT_PASSWORD: root_password
-   MYSQL_DATABASE: cie_v232
-   MYSQL_USER: cie_user
-   MYSQL_PASSWORD: cie_password
+   POSTGRES_DB: cie_v232
+   POSTGRES_USER: cie_user
+   POSTGRES_PASSWORD: cie_password
   volumes:
-   - db_data:/var/lib/mysql
-   - ./database/migrations:/docker-entrypoint-initdb.d
+   - db_data:/var/lib/postgresql/data
+   - ./database/postgres/init:/docker-entrypoint-initdb.d:ro
+   - ./database/postgres/migrations:/docker-entrypoint-migrations:ro
+   - ./database/postgres/canonical:/docker-entrypoint-canonical:ro
   ports:
-   - "3307:3306"
- 
+   - "5432:5432"
+  healthcheck:
+   test: ["CMD-SHELL", "pg_isready -U cie_user -d cie_v232"]
+   interval: 5s
+   timeout: 5s
+   retries: 10
+
  redis:
   image: redis:7-alpine
   ports:
    - "6379:6379"
   volumes:
    - redis_data:/data
- 
+
  php-api:
   build:
    context: ./backend/php
@@ -27,19 +33,26 @@ services:
    - ./backend/php:/app
    - ./storage:/app/storage
   environment:
+   - DB_CONNECTION=pgsql
    - DB_HOST=db
-   - DB_PORT=3306
+   - DB_PORT=5432
    - DB_DATABASE=cie_v232
    - DB_USERNAME=cie_user
    - DB_PASSWORD=cie_password
+   - DATABASE_URL=postgresql://cie_user:cie_password@db:5432/cie_v232
    - REDIS_URL=redis://redis:6379/0
    - PYTHON_API_URL=http://python-worker:8000
    - APP_NAME=CIE
+   # Local stack defaults — safe for docker only. Production uses real .env (APP_ENV=production, APP_DEBUG=false).
+   # For verbose local debugging: copy docker-compose.override.example.yml → docker-compose.override.yml
    - APP_ENV=local
-   - APP_DEBUG=true
+   - APP_DEBUG=false
+   - ALLOW_DEMO_TOKEN=false
   depends_on:
-   - db
-   - redis
+   db:
+    condition: service_healthy
+   redis:
+    condition: service_started
   ports:
    - "8080:8000"
 
@@ -51,20 +64,23 @@ services:
    - ./backend/python:/app
   environment:
    - DB_HOST=db
-   - DB_PORT=3306
+   - DB_PORT=5432
    - DB_DATABASE=cie_v232
    - DB_USERNAME=cie_user
    - DB_PASSWORD=cie_password
+   - DATABASE_URL=postgresql://cie_user:cie_password@db:5432/cie_v232
    - REDIS_URL=redis://redis:6379/0
    - OPENAI_API_KEY=${OPENAI_API_KEY}
    - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
    - PORT=8000
   depends_on:
-   - db
-   - redis
+   db:
+    condition: service_healthy
+   redis:
+    condition: service_started
   ports:
    - "8000:8000"
- 
+
  nginx:
   image: nginx:alpine
   volumes:

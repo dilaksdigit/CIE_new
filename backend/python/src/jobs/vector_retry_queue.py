@@ -6,7 +6,8 @@ import logging
 import os
 from datetime import datetime, timedelta
 from api.gates_validate import BusinessRules
-from src.utils.mysql_connect import pymysql_connect_dict_cursor
+from src.utils.db_connect import connect_dict_cursor
+from src.utils.sql_postgres import SQL_UPSERT_SKU_GATE_STATUS_G4_VECTOR
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,7 @@ BATCH_LIMIT = 50
 
 
 def _get_db():
-    return pymysql_connect_dict_cursor()
+    return connect_dict_cursor()
 
 
 def _get_embedding(text: str):
@@ -39,24 +40,10 @@ def _cosine_similarity(v1, v2):
 
 
 def _get_cluster_vector(cursor, cluster_id: str):
-    """Fetch the cluster centroid vector from the DB."""
-    import json
-    # Schema variance: canonical table uses intent_vector; some environments may have centroid_vector.
-    # Try both columns and use whichever exists.
-    queries = [
-        "SELECT intent_vector AS vector_payload FROM cluster_master WHERE cluster_id = %s",
-        "SELECT centroid_vector AS vector_payload FROM cluster_master WHERE cluster_id = %s",
-    ]
-    for sql in queries:
-        try:
-            cursor.execute(sql, (cluster_id,))
-            row = cursor.fetchone()
-            if row and row.get("vector_payload"):
-                vec = row["vector_payload"]
-                return json.loads(vec) if isinstance(vec, str) else vec
-        except Exception:
-            continue
-    return None
+    """Fetch cluster centroid (shared cache + auto-init path)."""
+    from src.vector.cluster_cache import get_cluster_vector
+
+    return get_cluster_vector(cluster_id)
 
 
 def notify_content_owner(sku_id: str, similarity: float):
@@ -142,10 +129,7 @@ def process_vector_retry_queue():
 
                 with conn.cursor() as cursor:
                     cursor.execute(
-                        "INSERT INTO sku_gate_status (sku_id, gate_code, status, error_code, checked_at) "
-                        "VALUES (%s, 'G4_VECTOR', %s, %s, NOW()) "
-                        "ON DUPLICATE KEY UPDATE status = VALUES(status), "
-                        "error_code = VALUES(error_code), checked_at = NOW()",
+                        SQL_UPSERT_SKU_GATE_STATUS_G4_VECTOR,
                         (sku_id, gate_status, error_code),
                     )
 
@@ -169,6 +153,16 @@ def process_vector_retry_queue():
                         "'SYSTEM', 'system', NOW())",
                         (sku_id, gate_status),
                     )
+                    if gate_status == "pass":
+                        cursor.execute(
+                            """
+                            UPDATE skus
+                            SET ai_validation_pending = FALSE,
+                                updated_at = NOW()
+                            WHERE sku_code = %s OR id::text = %s
+                            """,
+                            (sku_id, sku_id),
+                        )
                     conn.commit()
 
                 # SOURCE: CLAUDE.md §11 — numeric similarity is server-side only; avoid INFO exposure paths.

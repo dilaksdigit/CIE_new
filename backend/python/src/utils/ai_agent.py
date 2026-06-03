@@ -24,9 +24,9 @@ def sanitize_pii(text: str) -> str:
 
 def _insert_audit_log(sku_id: Optional[str], function_name: Optional[str], err: Exception, timeout_value: int) -> None:
     try:
-        from src.utils.mysql_connect import pymysql_connect_dict_cursor
+        from src.utils.db_connect import connect_dict_cursor
 
-        conn = pymysql_connect_dict_cursor()
+        conn = connect_dict_cursor()
         try:
             with conn.cursor() as cur:
                 cur.execute(

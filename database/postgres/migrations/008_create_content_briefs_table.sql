@@ -1,0 +1,20 @@
+CREATE TABLE content_briefs (
+ id CHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+ sku_id CHAR(36) NOT NULL,
+ brief_type TEXT DEFAULT 'MANUAL',
+ priority TEXT DEFAULT 'MEDIUM',
+ title VARCHAR(255) NOT NULL,
+ description TEXT,
+ current_content TEXT,
+ suggested_actions JSON,
+ status TEXT DEFAULT 'OPEN',
+ assigned_to CHAR(36),
+ deadline DATE,
+ effort_estimate_hours DECIMAL(5, 2),
+ actual_hours DECIMAL(5, 2),
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ completed_at TIMESTAMP NULL,
+ FOREIGN KEY (sku_id) REFERENCES skus(id) ON DELETE CASCADE,
+ FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL
+);

@@ -17,11 +17,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, List
 
-import pymysql
-
 from utils.config import Config
 from utils.business_rules import get_business_rule
-from utils.mysql_connect import pymysql_connect_dict_cursor
+from utils.db_errors import is_missing_table, is_unknown_column
+from utils.db_connect import connect_dict_cursor
+from utils.sql_postgres import SQL_UPSERT_SYNC_STATUS_ERROR, SQL_UPSERT_SYNC_STATUS_OK_NAMED
 from utils.sku_master_url_lookup import load_sku_url_lookup, log_sku_master_url_diagnostics, match_url
 from utils.url_utils import normalise_url
 
@@ -35,7 +35,7 @@ class Ga4DbRow:
 
     sku_id: str | None
     landing_page: str
-    sessions: int
+    organic_sessions: int
     organic_conversions: float
     conversion_rate: float | None
     revenue: float
@@ -43,7 +43,7 @@ class Ga4DbRow:
 
 
 def _get_db():
-    return pymysql_connect_dict_cursor()
+    return connect_dict_cursor()
 
 
 def pull_weekly_ga4(start_date: datetime, end_date: datetime):
@@ -68,28 +68,16 @@ def _upsert_sync_status(service: str, status: str, last_error: str | None = None
     try:
         cur = db.cursor()
         if success:
-            cur.execute(
-                """
-                INSERT INTO sync_status (service, status, last_success_at, last_error, last_error_at)
-                VALUES (%s, %s, NOW(), NULL, NULL)
-                ON DUPLICATE KEY UPDATE status=VALUES(status), last_success_at=VALUES(last_success_at), last_error=NULL, last_error_at=NULL
-                """,
-                (service, status),
-            )
+            cur.execute(SQL_UPSERT_SYNC_STATUS_OK_NAMED, (service, status))
         else:
             cur.execute(
-                """
-                INSERT INTO sync_status (service, status, last_error, last_error_at)
-                VALUES (%s, %s, %s, NOW())
-                ON DUPLICATE KEY UPDATE status=VALUES(status), last_error=VALUES(last_error), last_error_at=VALUES(last_error_at)
-                """,
+                SQL_UPSERT_SYNC_STATUS_ERROR,
                 (service, status, (last_error or "")[:1000]),
             )
         db.commit()
         cur.close()
     except Exception as exc:
-        err_no = getattr(exc, "args", [None])[0]
-        if err_no == 1146:
+        if is_missing_table(exc):
             logger.debug("sync_status table not present — skipping operational status row: %s", exc)
         else:
             logger.warning("sync_status update failed (service=%s): %s", service, exc)
@@ -123,8 +111,8 @@ def _save_unmatched_urls(urls: Iterable[str], week_ending: datetime) -> None:
                     """,
                     (url[:1000], "ga4", window_date),
                 )
-            except pymysql.err.OperationalError as exc:
-                if exc.args and exc.args[0] != 1054:
+            except Exception as exc:
+                if not is_unknown_column(exc):
                     raise
                 cur.execute(
                     """
@@ -162,21 +150,16 @@ def save_ga4_landing_performance(rows: Iterable[Ga4DbRow], window_end: datetime)
                 """
                 INSERT INTO ga4_landing_performance (
                     sku_id, landing_page, window_end, week_ending,
-                    sessions, conversion_rate, revenue, bounce_rate,
                     organic_sessions, organic_conversions, organic_conversion_rate, revenue_organic
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     row.sku_id,
                     row.landing_page,
                     window_date,
                     window_date,
-                    row.sessions,
-                    row.conversion_rate,
-                    row.revenue,
-                    row.bounce_rate,
-                    row.sessions,
+                    row.organic_sessions,
                     row.organic_conversions,
                     row.conversion_rate,
                     row.revenue,
@@ -280,7 +263,7 @@ def run() -> None:
             Ga4DbRow(
                 sku_id=internal_id,
                 landing_page=normalised,
-                sessions=sessions,
+                organic_sessions=sessions,
                 organic_conversions=conversions,
                 conversion_rate=conv_rate,
                 revenue=revenue,

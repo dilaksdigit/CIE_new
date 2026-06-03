@@ -48,6 +48,29 @@ def validate_cluster_match(request_vector, cluster_id, threshold=None):
             "reason": f"Cluster {cluster_id} vectors not initialized. Run cluster embedding initialization first.",
         }
 
+    if request_vector is not None and len(request_vector) != len(cluster_vec):
+        logger.warning(
+            "Cluster %s vector dimension mismatch (%s vs %s); re-embedding intent",
+            cluster_id,
+            len(request_vector),
+            len(cluster_vec),
+        )
+        try:
+            from src.vector.cluster_init import ensure_cluster_vector
+
+            cluster_vec = ensure_cluster_vector(cluster_id, force=True) or cluster_vec
+        except Exception as exc:
+            logger.warning("Cluster re-embed failed for %s: %s", cluster_id, exc)
+        if request_vector is not None and cluster_vec and len(request_vector) != len(cluster_vec):
+            return {
+                "valid": False,
+                "status": "pending",
+                "similarity": None,
+                "threshold": threshold,
+                "reason": "Cluster vector dimension mismatch with current embedding model.",
+                "degraded": True,
+            }
+
     # SOURCE: CIE_v232_Hardening_Addendum.pdf §1.1 — embedding unavailable = pending, not pass (save allowed, publish blocked)
     # SOURCE: CIE_v232_Hardening_Addendum.pdf §1.3 — queued for retry when embedding service unavailable
     if request_vector is None:

@@ -189,12 +189,14 @@ class G4_VectorGate implements GateInterface
                 AuditLog::create([
                     'entity_type' => 'sku',
                     'entity_id'   => $sku->id,
-                    'action'      => 'vector_similarity_warn',
+                    // SOURCE: CIE_v231_Developer_Build_Pack.pdf audit_log schema — action ENUM
+                    'action'      => 'gate_fail',
                     'field_name'  => 'G4_VECTOR',
                     'old_value'   => null,
                     'new_value'   => json_encode([
                         'status' => 'warn',
                         'mode' => 'fail_soft_warn',
+                        'detail' => 'vector_similarity_warn: fail-soft, content saved with warning',
                     ]),
                     'actor_id'    => 'SYSTEM',
                     'actor_role'  => 'system',

@@ -2,13 +2,15 @@
 // SOURCE: CIE_v232_Hardening_Addendum.pdf §6.2 / §6.3
 // SOURCE: CIE_v232_UI_Restructure_Instructions.docx Section 5
 // SOURCE: CIE_v232_Developer_Amendment_Pack_v2.docx §§4.1, 4.2, 5; Trap 2 | CIE_v232_UI_Restructure_Instructions.docx §2.1 | CIE_v232_Semrush_CSV_Import_Spec.docx §§1, 3.2, 3.3 | CIE_v232_Writer_View.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import api, { writerEditApi, configApi } from '../services/api';
+import api, { writerEditApi, configApi, skuApi } from '../services/api';
+import { AppContext } from '../App';
 import THEME from '../theme';
 import TierBanner from '../components/TierBanner/TierBanner';
 import TierFieldTooltip from '../components/TierBanner/TierFieldTooltip';
 import { TIER_FIELD_MAP } from '../lib/tierFieldMap';
+import { canAssignCluster, canModifyConfig } from '../lib/rbac';
 
 const C = THEME;
 
@@ -437,31 +439,67 @@ const counterText = (field, value, answerBlockMin, answerBlockMax, fieldRanges) 
         if (answerBlockMin == null || answerBlockMax == null) return `${len} / —`;
         return `${len}/${answerBlockMin}-${answerBlockMax}`;
     }
+    if (field === 'description') {
+        const min = (fieldRanges || getDefaultFieldRanges()).description?.min;
+        const wc = countWords(value);
+        if (min != null) return `${wc} words (min ${min})`;
+        return `${wc} words`;
+    }
     const range = (fieldRanges || getDefaultFieldRanges())[field] || { min: null, max: null };
     if (range.min != null && range.max != null) return `${len}/${range.min}-${range.max}`;
     if (range.max != null) return `${len}/max ${range.max}`;
     return `${len}/—`;
 };
 
-const shouldShowCounter = (field) => field === 'title' || field === 'answer_block';
+const clusterBandForRank = (index) => (['high', 'medium', 'low'][index] ?? 'low');
+
+const countWords = (text) =>
+    String(text || '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean).length;
+
+const shouldShowCounter = (field) =>
+    field === 'title' || field === 'answer_block' || field === 'description';
 
 const counterColor = (field, value, answerBlockMin, answerBlockMax, fieldRanges) => {
     const len = String(value || '').length;
+    const ranges = fieldRanges || getDefaultFieldRanges();
     if (field === 'answer_block') {
-        if (answerBlockMax != null && len > answerBlockMax) return '#C62828';
-        return '#6B6B6B';
+        if (answerBlockMax != null && len > answerBlockMax) return THEME.red;
+        if (
+            answerBlockMin != null &&
+            len >= answerBlockMin &&
+            (answerBlockMax == null || len <= answerBlockMax)
+        ) {
+            return THEME.green;
+        }
+        if (answerBlockMin != null && len >= Math.max(1, answerBlockMin - 40)) return THEME.amber;
+        return THEME.textMid;
     }
     if (field === 'title') {
-        const max = (fieldRanges || getDefaultFieldRanges()).title?.max;
-        if (max != null && len > max) return '#C62828';
-        return '#6B6B6B';
+        const max = ranges.title?.max;
+        if (max != null && len > max) return THEME.red;
+        if (len >= 50) return THEME.green;
+        if (len >= 25) return THEME.amber;
+        return THEME.textMid;
     }
-    return '#6B6B6B';
+    if (field === 'description') {
+        const min = ranges.description?.min;
+        const wc = countWords(value);
+        if (min != null && wc >= min) return THEME.green;
+        if (min != null && wc >= Math.max(1, Math.floor(min * 0.5))) return THEME.amber;
+        if (min != null && wc > 0) return THEME.amber;
+        return THEME.textMid;
+    }
+    return THEME.textMid;
 };
 
 const WriterEdit = () => {
     const { skuId } = useParams();
     const navigate = useNavigate();
+    const { user } = useContext(AppContext);
+    const canReadConfig = canModifyConfig(user);
 
     const [sku, setSku] = useState(null);
     const [tier, setTier] = useState('');
@@ -492,6 +530,11 @@ const WriterEdit = () => {
 
     useEffect(() => {
         let cancelled = false;
+        if (!canReadConfig) {
+            return () => {
+                cancelled = true;
+            };
+        }
         configApi
             .get()
             .then((res) => {
@@ -533,7 +576,7 @@ const WriterEdit = () => {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [canReadConfig]);
 
     const [suggestionsOpen, setSuggestionsOpen] = useState(true);
     const [suggestions, setSuggestions] = useState([]);
@@ -545,6 +588,18 @@ const WriterEdit = () => {
     const [aiSuggestLoading, setAiSuggestLoading] = useState(false);
     const [aiSuggestResponse, setAiSuggestResponse] = useState(null);
     const [aiSuggestError, setAiSuggestError] = useState('');
+    const [clusterSuggestLoading, setClusterSuggestLoading] = useState(false);
+    const [clusterSuggestions, setClusterSuggestions] = useState([]);
+    const [clusterSuggestError, setClusterSuggestError] = useState('');
+
+    const currentUser = useMemo(() => {
+        try {
+            return JSON.parse(sessionStorage.getItem('cie_user') || 'null');
+        } catch {
+            return null;
+        }
+    }, []);
+    const mayAssignCluster = canAssignCluster(currentUser);
 
     const isReadonly = TIER_FIELD_MAP[tier]?.readonly === true;
     const requiredFields = useMemo(
@@ -575,7 +630,11 @@ const WriterEdit = () => {
                     title: item?.title || '',
                     description: item?.description || item?.long_description || '',
                     specification: item?.specification || item?.description || item?.long_description || '',
-                    answer_block: item?.answer_block || item?.short_description || '',
+                    answer_block:
+                        item?.answer_block ||
+                        item?.ai_answer_block ||
+                        item?.short_description ||
+                        '',
                     best_for: pickList(item?.best_for, item?.bestFor),
                     not_for: pickList(item?.not_for, item?.notFor),
                     expert_authority: item?.expert_authority || item?.expert_authority_name || '',
@@ -750,6 +809,7 @@ const WriterEdit = () => {
                 const body = {
                     sku_id: skuId,
                     tier: tier.toUpperCase(),
+                    cluster_id: sku?.cluster_id || sku?.primary_cluster_id || null,
                     title: values.title,
                     description: values.description,
                     specification: values.specification,
@@ -800,11 +860,24 @@ const WriterEdit = () => {
         setValues((prev) => ({ ...prev, [field]: nextValue }));
     };
 
+    const buildContentPayload = () => ({
+        lock_version: sku?.lock_version,
+        title: values.title,
+        description: values.description,
+        long_description: values.description,
+        answer_block: values.answer_block,
+        ai_answer_block: values.answer_block,
+        best_for: toList(values.best_for),
+        not_for: toList(values.not_for),
+        expert_authority: values.expert_authority,
+    });
+
     const handleSubmit = async () => {
-        // SOURCE: Amendment Pack §4.2 — Submit calls publish endpoint directly
+        // SOURCE: Amendment Pack §4.2 — persist content then publish (publish re-validates from DB).
         setPublishError('');
         setPublishBusy(true);
         try {
+            await api.put(`/v1/sku/${encodeURIComponent(skuId)}/content`, buildContentPayload());
             const res = await api.post(`/v1/sku/${encodeURIComponent(skuId)}/publish`);
             if (res.status >= 200 && res.status < 300) {
                 // After successful publish: redirect to queue with success message
@@ -845,6 +918,48 @@ const WriterEdit = () => {
             setAiSuggestResponse({ error: msg, fields_editable: true });
         } finally {
             setAiSuggestLoading(false);
+        }
+    };
+
+    const handleClusterSuggest = async () => {
+        setClusterSuggestLoading(true);
+        setClusterSuggestError('');
+        try {
+            const res = await writerEditApi.clusterSuggest(skuId);
+            const data = res?.data?.data ?? res?.data ?? {};
+            const list = Array.isArray(data?.clusters) ? data.clusters : [];
+            if (data?.fallback || (data?.error && list.length === 0)) {
+                setClusterSuggestions([]);
+                setClusterSuggestError(
+                    'Cluster suggestions are temporarily unavailable. Try again later.'
+                );
+                return;
+            }
+            setClusterSuggestions(list.slice(0, 3));
+        } catch {
+            setClusterSuggestions([]);
+            setClusterSuggestError('Could not load cluster suggestions.');
+        } finally {
+            setClusterSuggestLoading(false);
+        }
+    };
+
+    const handleApplyCluster = async (clusterId) => {
+        if (!mayAssignCluster || !clusterId) return;
+        setClusterSuggestError('');
+        try {
+            await skuApi.update(skuId, {
+                primary_cluster_id: clusterId,
+                lock_version: sku?.lock_version,
+            });
+            setSku((prev) => ({
+                ...prev,
+                cluster_id: clusterId,
+                primary_cluster_id: clusterId,
+            }));
+            setClusterSuggestions([]);
+        } catch {
+            setClusterSuggestError('Could not assign cluster. Check permissions or try again.');
         }
     };
 
@@ -938,6 +1053,128 @@ const WriterEdit = () => {
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <div style={{ width: '70%', minWidth: 0 }}>
                     <TierBanner tier={tier} />
+                    {normalizeTier(tier) !== 'kill' && (
+                        <div className="card" style={{ marginBottom: 12 }}>
+                            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: C.text, marginBottom: 8 }}>
+                                Cluster assignment
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: C.textMid, marginBottom: 10 }}>
+                                Current:{' '}
+                                <span style={{ color: C.text, fontWeight: 600 }}>
+                                    {sku?.primaryCluster?.name ||
+                                        sku?.primaryCluster?.category ||
+                                        sku?.cluster_id ||
+                                        sku?.primary_cluster_id ||
+                                        'Unassigned'}
+                                </span>
+                            </div>
+                            {!isReadonly && (
+                                <>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary btn-sm"
+                                        disabled={clusterSuggestLoading}
+                                        onClick={handleClusterSuggest}
+                                        style={{ marginBottom: 8 }}
+                                    >
+                                        {clusterSuggestLoading ? 'Finding clusters…' : 'Suggest cluster'}
+                                    </button>
+                                    {clusterSuggestError && (
+                                        <p style={{ color: C.textMid, fontSize: '0.68rem', marginBottom: 8 }}>
+                                            {clusterSuggestError}
+                                        </p>
+                                    )}
+                                    {clusterSuggestions.length > 0 && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                            {clusterSuggestions.map((row, idx) => {
+                                                const band = clusterBandForRank(idx);
+                                                const meta = PRIORITY_META[band] || PRIORITY_META.medium;
+                                                const cid = row?.cluster_id || '';
+                                                const label =
+                                                    row?.cluster_name ||
+                                                    row?.category ||
+                                                    cid ||
+                                                    'Suggested cluster';
+                                                return (
+                                                    <div
+                                                        key={cid || idx}
+                                                        style={{
+                                                            border: `1px solid ${C.border}`,
+                                                            borderRadius: 6,
+                                                            padding: 10,
+                                                            background: C.muted,
+                                                        }}
+                                                    >
+                                                        <div
+                                                            style={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'space-between',
+                                                                gap: 8,
+                                                            }}
+                                                        >
+                                                            <div>
+                                                                <span
+                                                                    style={{
+                                                                        fontSize: '0.58rem',
+                                                                        fontWeight: 700,
+                                                                        padding: '2px 6px',
+                                                                        borderRadius: 3,
+                                                                        background: meta.bg,
+                                                                        color: meta.color,
+                                                                        border: `1px solid ${meta.color}`,
+                                                                        marginRight: 6,
+                                                                    }}
+                                                                >
+                                                                    {meta.badgeText}
+                                                                </span>
+                                                                <span
+                                                                    style={{
+                                                                        fontSize: '0.72rem',
+                                                                        fontWeight: 600,
+                                                                        color: C.text,
+                                                                    }}
+                                                                >
+                                                                    {label}
+                                                                </span>
+                                                            </div>
+                                                            {mayAssignCluster && cid && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-secondary btn-sm"
+                                                                    onClick={() => handleApplyCluster(cid)}
+                                                                >
+                                                                    Apply
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        {cid && (
+                                                            <div
+                                                                style={{
+                                                                    fontSize: '0.65rem',
+                                                                    color: C.textMid,
+                                                                    marginTop: 4,
+                                                                    fontFamily: 'var(--mono)',
+                                                                }}
+                                                            >
+                                                                {cid}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                    {!mayAssignCluster && clusterSuggestions.length > 0 && (
+                                        <p style={{ fontSize: '0.65rem', color: C.textMid, marginTop: 8 }}>
+                                            Only an SEO Governor can apply a cluster. Share these suggestions with
+                                            your governor.
+                                        </p>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
                     {chsData && (
                         <div className="card" style={{ marginBottom: 12 }}>
                             <div style={{ fontSize: '0.82rem', fontWeight: 700, color: C.text, marginBottom: 10 }}>

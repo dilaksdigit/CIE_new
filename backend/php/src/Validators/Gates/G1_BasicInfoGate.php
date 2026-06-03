@@ -6,6 +6,7 @@ namespace App\Validators\Gates;
 
 use App\Models\Sku;
 use App\Enums\GateType;
+use App\Support\BusinessRules;
 use App\Validators\GateResult;
 use App\Validators\GateInterface;
 use Illuminate\Support\Facades\DB;
@@ -51,6 +52,28 @@ class G1_BasicInfoGate implements GateInterface
                     'user_message' => 'The selected product group is not recognised. Choose from the approved list.'
                 ]
             );
+        }
+
+        // SOURCE: CIE_v2_3_Enforcement_Edition.pdf — Gate G1: Intent-first title
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8
+        $blockedPrefixes = (string) BusinessRules::get('gates.g1_blocked_title_prefixes', '');
+        $title = strtolower(trim((string) ($sku->title ?? '')));
+        foreach (explode(',', $blockedPrefixes) as $prefix) {
+            $prefix = strtolower(trim($prefix));
+            if ($prefix !== '' && str_starts_with($title, $prefix)) {
+                return new GateResult(
+                    gate: GateType::G1_BASIC_INFO,
+                    passed: false,
+                    reason: 'Title starts with blocked brand/attribute prefix',
+                    blocking: true,
+                    metadata: [
+                        'error_code' => 'G1_INTENT_TITLE',
+                        'field' => 'title',
+                        'detail' => 'Title starts with brand or attribute term: ' . $prefix,
+                        'user_message' => 'Start your title with what this product solves or is used for, not the brand or product type.',
+                    ]
+                );
+            }
         }
 
         // GAP_LOG: Title/description presence checks were in G1 but are not part of G1 per ENF§2.1. Architect to decide: move to pre-validation or create separate check.

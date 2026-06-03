@@ -48,7 +48,8 @@ class RefreshGoldenGateStatusCommand extends Command
             : self::GOLDEN_CODES;
 
         if (!$this->option('no-seed')) {
-            $this->info('Applying golden seed data (titles + content) on DB: ' . config('database.connections.mysql.database'));
+            $default = config('database.default', 'pgsql');
+            $this->info('Applying golden seed data (titles + content) on DB: ' . config('database.connections.' . $default . '.database'));
             $this->applyGoldenSeedData($codes);
             $this->applyGoldenIntentData($codes);
             BusinessRules::invalidateCache();

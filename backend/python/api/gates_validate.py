@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from typing import Any
 
 from .schemas_validate import (
@@ -19,6 +20,20 @@ from .schemas_validate import (
 _logger = logging.getLogger(__name__)
 
 
+def _ensure_dotenv() -> None:
+    """Load repo/backend .env when gates_validate is used outside api.main import order."""
+    try:
+        from dotenv import load_dotenv
+
+        _api_dir = os.path.dirname(os.path.abspath(__file__))
+        _backend = os.path.dirname(os.path.dirname(_api_dir))
+        _root = os.path.dirname(_backend)
+        load_dotenv(os.path.join(_root, ".env"), override=False)
+        load_dotenv(os.path.join(_backend, ".env"), override=False)
+    except ImportError:
+        pass
+
+
 class BusinessRules:
     """Read-through cache for the business_rules table (mirrors PHP BusinessRules facade)."""
     _cache: dict[str, Any] | None = None
@@ -27,34 +42,47 @@ class BusinessRules:
     def get(cls, key: str, default=None):
         if cls._cache is None:
             cls._load()
-        val = cls._cache.get(key)
+        val = cls._cache.get(key) if cls._cache is not None else None
+        if val is None:
+            val = cls._fetch_one(key)
+            if val is not None:
+                if cls._cache is None:
+                    cls._cache = {}
+                cls._cache[key] = val
         if val is None:
             if default is not None:
                 return default
+            if key == "gates.vector_similarity_min":
+                env_raw = (os.environ.get("VECTOR_SIMILARITY_THRESHOLD") or "0.72").strip()
+                return float(env_raw)
             raise RuntimeError(f"Business rule key not found: {key}")
         return val
 
     @classmethod
-    def _load(cls):
-        cls._cache = {}
+    def _fetch_one(cls, key: str):
+        """Per-key DB read when bulk cache load failed or row was missing."""
+        _ensure_dotenv()
         try:
-            db = _get_db()
-            cur = db.cursor()
-            cur.execute("SELECT rule_key, value, value_type FROM business_rules")
-            for row in cur.fetchall():
-                raw = row["value"]
-                vtype = (row.get("value_type") or "string").lower()
-                if vtype == "integer":
-                    raw = int(raw)
-                elif vtype == "float":
-                    raw = float(raw)
-                elif vtype == "boolean":
-                    raw = raw.lower() in ("true", "1", "yes")
-                cls._cache[row["rule_key"]] = raw
-            cur.close()
-            db.close()
+            from src.utils.business_rules import get_business_rule
+
+            return get_business_rule(key)
+        except Exception as exc:
+            _logger.warning("BusinessRules: single-key fetch failed for %s: %s", key, exc)
+            return None
+
+    @classmethod
+    def _load(cls):
+        _ensure_dotenv()
+        try:
+            from src.utils.business_rules import load_all_business_rules
+
+            loaded = load_all_business_rules()
+            cls._cache = loaded
+            if not loaded:
+                _logger.warning("BusinessRules: business_rules table returned 0 rows")
         except Exception as exc:
             _logger.warning("BusinessRules: could not load from DB: %s", exc)
+            cls._cache = None
 
     @classmethod
     def invalidate(cls):
@@ -89,9 +117,16 @@ def log_audit_event(
         cur = db.cursor()
         action_val = event if not detail else f"{event}|{detail}"
         cur.execute(
-            "INSERT INTO audit_log (entity_type, entity_id, action, actor_id, actor_role, timestamp, created_at) "
-            "VALUES (%s, %s, %s, %s, %s, NOW(), NOW())",
-            (etype, sku_id, action_val[:255] if action_val else event, str(aid)[:100], str(role)[:30]),
+            "INSERT INTO audit_log (id, entity_type, entity_id, action, actor_id, actor_role, timestamp, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())",
+            (
+                str(uuid.uuid4()),
+                etype,
+                sku_id,
+                action_val[:255] if action_val else event,
+                str(aid)[:100],
+                str(role)[:30],
+            ),
         )
         db.commit()
         cur.close()
@@ -129,9 +164,16 @@ def _primary_intent_valid(primary: str | None) -> bool:
 
 def _get_db():
     """PEP-249 connection — same pattern as run_decay_escalation.py."""
-    from src.utils.mysql_connect import pymysql_connect_dict_cursor
+    from src.utils.db_connect import connect_dict_cursor
 
-    return pymysql_connect_dict_cursor()
+    return connect_dict_cursor()
+
+
+def _cursor(db):
+    """Dict rows (cluster_id keys, etc.) — required for SELECT result access."""
+    from src.utils.db_connect import cursor_dict
+
+    return cursor_dict(db)
 
 
 def get_master_cluster_ids() -> set:
@@ -145,7 +187,7 @@ def get_master_cluster_ids() -> set:
     """
     try:
         db = _get_db()
-        cur = db.cursor()
+        cur = _cursor(db)
         cur.execute("SELECT cluster_id FROM cluster_master WHERE is_active = TRUE")
         rows = cur.fetchall()
         cur.close()
@@ -168,6 +210,53 @@ def get_master_cluster_ids() -> set:
     return ids
 
 
+def resolve_cluster_master_id(cluster_id: str) -> str | None:
+    """
+    Map clusters.id (UUID) or cluster_master.cluster_id (CLU-*) to an active master cluster_id.
+    SOURCE: G1_BasicInfoGate.php — primary_cluster_id UUID resolves via clusters.name = cluster_master.cluster_id.
+    """
+    cid = (cluster_id or "").strip()
+    if not cid:
+        return None
+    db = None
+    cur = None
+    try:
+        db = _get_db()
+        cur = _cursor(db)
+        cur.execute(
+            """
+            SELECT cluster_id
+            FROM cluster_master
+            WHERE is_active = TRUE AND cluster_id = %s
+            LIMIT 1
+            """,
+            (cid,),
+        )
+        row = cur.fetchone()
+        if row:
+            return str(row["cluster_id"])
+        cur.execute(
+            """
+            SELECT cm.cluster_id
+            FROM clusters c
+            INNER JOIN cluster_master cm ON cm.cluster_id = c.name AND cm.is_active = TRUE
+            WHERE c.id = %s
+            LIMIT 1
+            """,
+            (cid,),
+        )
+        row = cur.fetchone()
+        return str(row["cluster_id"]) if row else None
+    except Exception as exc:
+        _logger.warning("resolve_cluster_master_id failed for %s: %s", cid, exc)
+        return None
+    finally:
+        if cur is not None:
+            cur.close()
+        if db is not None:
+            db.close()
+
+
 def run_g1(data: SkuValidateRequest, master_ids: set[str]) -> FailureItem | None:
     """G1: cluster_id exists in master cluster list. SOURCE: ENF§7.2 — gate key G1_cluster_id."""
     cid = (data.cluster_id or "").strip()
@@ -179,8 +268,9 @@ def run_g1(data: SkuValidateRequest, master_ids: set[str]) -> FailureItem | None
             detail="cluster_id is missing or empty.",
             user_message="Cluster assignment is required. Please select a cluster from the master list.",
         )
-    # SOURCE: CIE_v2_3_Enforcement_Edition.pdf Section 1.1
-    if cid not in master_ids:
+    # SOURCE: G1_BasicInfoGate.php — Writer UI sends clusters.id UUID; master list is CLU-* business ids.
+    resolved = resolve_cluster_master_id(cid)
+    if not resolved or resolved not in master_ids:
         return FailureItem(
             gate="G1_cluster_id",
             error_code="CIE_G1_INVALID_CLUSTER",
@@ -491,7 +581,7 @@ def _queue_vector_retry(sku_id, description: str, cluster_id: str) -> None:
         cur = db.cursor()
         cur.execute(
             "INSERT INTO vector_retry_queue (sku_id, description, cluster_id, retry_count, max_retries, next_retry_at, status, created_at) "
-            "VALUES (%s, %s, %s, 0, 5, DATE_ADD(NOW(), INTERVAL 5 MINUTE), 'queued', NOW())",
+            "VALUES (%s, %s, %s, 0, 5, NOW() + INTERVAL '5 minutes', 'queued', NOW())",
             (sku_id or "", description[:65535], cluster_id or ""),
         )
         db.commit()

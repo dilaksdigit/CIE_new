@@ -1,0 +1,145 @@
+{
+  "name": "W5 Gate Validation",
+  "id": "W5_gate_validation",
+  "nodes": [
+    {
+      "id": "Webhook_GateValidate",
+      "name": "Gate Validate Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "w5/gate-validate",
+        "responseMode": "onReceived",
+        "options": {
+          "responseData": "={{ {\"received\": true} }}"
+        }
+      }
+    },
+    {
+      "id": "HTTP_Validate",
+      "name": "PHP validate G1-G7",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [540, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PHP_API_URL }}/api/v1/sku/{{$json[\"sku_id\"]}}/validate",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 30000
+        },
+        "bodyParametersJson": "={{ {\"sku_id\": $json[\"sku_id\"], \"action\": $json[\"action\"] || \"publish\"} }}"
+      }
+    },
+    {
+      "id": "IF_Pass",
+      "name": "Validation pass?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [800, 300],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json[\"status\"] || $json[\"publish_allowed\"] }}",
+              "operation": "equal",
+              "value2": "pass"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "HTTP_Gate_Passed",
+      "name": "Notify gate passed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1060, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PHP_API_URL }}/api/v1/sku/{{$json[\"sku_id\"]}}/publish",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 30000
+        },
+        "bodyParametersJson": "={{ {\"action\": \"publish\", \"timestamp\": $now.toISO()} }}"
+      }
+    },
+    {
+      "id": "HTTP_Gate_Failed",
+      "name": "Log validation failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1060, 420],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PHP_API_URL }}/api/v1/audit-logs",
+        "responseFormat": "json",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 30000
+        },
+        "bodyParametersJson": "={{ {\"entity_type\": \"sku\", \"entity_id\": $json[\"sku_id\"], \"action\": \"gate_validation_failed\", \"failures\": $json[\"failures\"] || $json[\"gates\"] } }}"
+      }
+    },
+    {
+      "id": "Sticky_Note_Amazon",
+      "name": "Amazon SP-API: DEFERRED per DECISION-001 (CLAUDE.md §4). Do not add Amazon integration to this workflow in v2.3.2.",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [100, 40],
+      "parameters": {
+        "noteContent": "Amazon SP-API: DEFERRED per DECISION-001 (CLAUDE.md §4).\nW5: PHP validate → pass → publish; fail → audit log.\nError handling §2.5: 30s timeout, retry 3x on 5xx."
+      }
+    }
+  ],
+  "connections": {
+    "Gate Validate Webhook": {
+      "main": [
+        [
+          {
+            "node": "PHP validate G1-G7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PHP validate G1-G7": {
+      "main": [
+        [
+          {
+            "node": "Validation pass?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation pass?": {
+      "main": [
+        [
+          {
+            "node": "Notify gate passed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log validation failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "w5-gate-validation-v1"
+}

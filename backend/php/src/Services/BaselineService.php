@@ -44,7 +44,7 @@ class BaselineService
      */
     public function fetchGscMetrics(string $url): ?array
     {
-        $base = rtrim(env('CIE_ENGINE_BASE_URL', 'http://localhost:8000/api/v1'), '/');
+        $base = rtrim((string) config('services.python_worker.api_v1_base'), '/');
         $endpoint = $base . '/baseline/gsc-metrics';
         try {
             $client = Http::timeout(30)->acceptJson();
@@ -67,7 +67,7 @@ class BaselineService
      */
     public function fetchGa4Metrics(string $url): ?array
     {
-        $base = rtrim(env('CIE_ENGINE_BASE_URL', 'http://localhost:8000/api/v1'), '/');
+        $base = rtrim((string) config('services.python_worker.api_v1_base'), '/');
         $endpoint = $base . '/baseline/ga4-metrics';
         try {
             $client = Http::timeout(30)->acceptJson();

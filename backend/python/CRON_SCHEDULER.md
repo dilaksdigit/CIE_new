@@ -2,7 +2,7 @@
 
 ## Manual (before first GSC/GA4 weekly sync)
 
-- **Shopify → `sku_master` URLs** (§6.1 `shopify_url` / `shopify_product_id`): apply `database/migrations/107_add_missing_columns_to_sku_master.sql` to `cie_v232` (e.g. `mysql ... < ...` or `python scripts/run_migration_107.py` from `backend/python`), then run  
+- **Shopify → `sku_master` URLs** (§6.1 `shopify_url` / `shopify_product_id`): apply `database/postgres/migrations/107_add_missing_columns_to_sku_master.sql` on PostgreSQL (e.g. `docker-compose exec -T db psql -U cie_user -d cie_v232 -f /docker-entrypoint-migrations/107_add_missing_columns_to_sku_master.sql` or `python scripts/run_migration_107.py` from `backend/python`), then run  
   `python -m src.jobs.shopify_product_sync`  
   Env: `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_ADMIN_ACCESS_TOKEN`, optional `GSC_PROPERTY` (public `shopify_url` uses same scheme+host as GSC when set). Backfills NULL `sku_content` meta/product/alt fields only.
 

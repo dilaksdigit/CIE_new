@@ -1,0 +1,7 @@
+CREATE TABLE sku_vectors (
+ id CHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+ sku_id CHAR(36) NOT NULL,
+ vector JSON NOT NULL,
+ updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+ FOREIGN KEY (sku_id) REFERENCES skus(id) ON DELETE CASCADE
+);

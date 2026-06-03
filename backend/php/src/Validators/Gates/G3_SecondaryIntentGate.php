@@ -24,6 +24,23 @@ class G3_SecondaryIntentGate implements GateInterface
         return trim(preg_replace('/[^a-z0-9]+/', '_', $raw), '_');
     }
 
+    /**
+     * Resolve tier max-secondary rule with backward-compatible key fallbacks.
+     * Prevents validator exceptions when newer seed keys are missing.
+     */
+    private function resolveTierMaxSecondary(string $tier): int
+    {
+        $legacyGlobal = (int) BusinessRules::get('gates.secondary_intent_max', 3);
+        if ($tier === TierType::HARVEST->value) {
+            return (int) BusinessRules::get(
+                'gates.harvest_max_secondary',
+                BusinessRules::get('gates.harvest_max_secondary_intents', $legacyGlobal)
+            );
+        }
+
+        return (int) BusinessRules::get("gates.{$tier}_max_secondary", $legacyGlobal);
+    }
+
     public function validate(Sku $sku): GateResult
     {
         $tier = $sku->tier instanceof TierType ? $sku->tier->value : strtolower((string) $sku->tier);
@@ -50,8 +67,7 @@ class G3_SecondaryIntentGate implements GateInterface
                     'Secondary intents are optional for Harvest-tier SKUs.'
                 );
             }
-            // SOURCE: CIE_Master_Developer_Build_Spec.docx §5.2 — must throw on missing key.
-            $maxHarvest = (int) BusinessRules::get('gates.harvest_max_secondary');
+            $maxHarvest = $this->resolveTierMaxSecondary(TierType::HARVEST->value);
             if (count($secondaries) > $maxHarvest) {
                 return new GateResult(
                     gate: GateType::G3_SECONDARY_INTENT,
@@ -160,8 +176,9 @@ class G3_SecondaryIntentGate implements GateInterface
             }
         }
 
-        // SOURCE: CIE_Master_Developer_Build_Spec §5 — max secondary counts from business_rules (gates.{tier}_max_secondary)
-        $maxSecondary = (int) BusinessRules::get('gates.' . $tier . '_max_secondary');
+        // SOURCE: CIE_Master_Developer_Build_Spec §5 — max secondary counts from business_rules.
+        // Backward-compatible fallback avoids hard failure on partially migrated environments.
+        $maxSecondary = $this->resolveTierMaxSecondary($tier);
         if (($tier === TierType::HERO->value || $tier === TierType::SUPPORT->value) && $count > $maxSecondary) {
             $msg = "You can select a maximum of {$maxSecondary} secondary intents for this tier. Remove the extras and keep the most relevant ones.";
             return new GateResult(

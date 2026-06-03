@@ -17,7 +17,7 @@
 
 2. **Apply migration** (so G4/G7 can use answer block and expert authority):
    ```bash
-   mysql -u root -p your_db < database/migrations/037_add_ai_answer_block_and_expert_authority_to_skus.sql
+   docker-compose exec -T db psql -U cie_user -d cie_v232 -f /docker-entrypoint-migrations/037_add_ai_answer_block_and_expert_authority_to_skus.sql
    ```
    If columns already exist, skip or run once (remove duplicate ALTER if needed).
 

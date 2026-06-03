@@ -1,5 +1,7 @@
 # CIE v2.3.2 - Complete System Architecture & Connection Map
 
+> **Database:** PostgreSQL 16 is system of record (`DECISION-013`). Use port **5432** and `database/postgres/` for schema — not legacy MySQL paths.
+
 ## 🏗️ System Architecture Overview
 
 ```
@@ -63,7 +65,7 @@
                        │ FROM PHP
                        │
         ┌──────────────▼──────────────┐
-        │    🐘 MySQL 8.0 - PORT 3306 │
+        │    🐘 PostgreSQL 16 - PORT 5432 │
         │                             │
         │  cie_v232 database          │
         │  ┌──────────────────────┐  │
@@ -596,7 +598,7 @@ Local Development (Current)
   ├─ Frontend: localhost:8080
   ├─ PHP: localhost:9000
   ├─ Python: localhost:5000
-  └─ MySQL: localhost:3306
+  └─ PostgreSQL: localhost:5432
 
 Docker Compose (Staging)
   ├─ Container: frontend
@@ -622,7 +624,7 @@ Kubernetes (Production Ready)
   │   ├─ HPA: Queue depth metric
   │   └─ Service: ClusterIP
   │
-  ├─ StatefulSet: MySQL
+  ├─ StatefulSet: PostgreSQL
   │   ├─ PVC: 100GB+
   │   └─ Backup: Daily
   │
@@ -667,7 +669,7 @@ Kubernetes (Production Ready)
       [PHP]   [PHP]   [PHP]   [PHP]
       API #1  API #2  API #3  API #4
       
-              (Shared MySQL + Redis)
+              (Shared PostgreSQL + Redis)
               
          ┌────────┬────────┬────────┐
          ↓        ↓        ↓        ↓
@@ -677,7 +679,7 @@ Kubernetes (Production Ready)
     Concurrency:
     • 3-5 PHP instances (stateless)
     • 2-3 Python workers (processing queue)
-    • 1 MySQL primary, 1-2 replicas
+    • 1 PostgreSQL primary, 1-2 replicas
     • 1 Redis instance (or cluster)
 ```
 
@@ -689,8 +691,8 @@ Kubernetes (Production Ready)
 |-----------|--------|-------|--------|
 | **Frontend → PHP** | Hardcoded localhost | Via VITE_API_URL env | ✅ |
 | **PHP → Python** | ❌ None | HTTP via PythonWorkerClient | ✅ |
-| **PHP → MySQL** | ✅ Implicit | ✅ Explicit via PDO | ✅ |
-| **Python → MySQL** | ❌ Missing | ✅ Configured | ✅ |
+| **PHP → PostgreSQL** | ✅ Implicit | ✅ Explicit via PDO (pgsql) | ✅ |
+| **Python → PostgreSQL** | ✅ Configured | ✅ psycopg2 (`db_connect.py`) | ✅ |
 | **Both → Redis** | ❌ None (in-mem) | ✅ Redis service | ✅ |
 | **External APIs** | ✅ Config only | ✅ Called from Python | ✅ |
 | **Validation Gates** | ❌ Incomplete | ✅ Full G1-G5 pipeline | ✅ |

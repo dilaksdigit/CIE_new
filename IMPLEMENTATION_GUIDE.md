@@ -24,12 +24,14 @@
 
 ## Overview
 
+> **Database (DECISION-013):** PostgreSQL 16 is the **only** system of record. Use `DB_CONNECTION=pgsql` and port **5432**. Legacy SQL under `database/migrations/` is MySQL-dialect **reference**; greenfield schema is applied from `database/postgres/` (see `database/postgres/README.md`).
+
 CIE v2.3.2 is built as a distributed system with three main components:
 
 - **PHP Backend** (Port 9000): Core business logic, validation gates, RBAC, database orchestration
 - **Python Backend** (Port 5000): AI engines, vector validation, ERP sync jobs, brief generation
 - **React Frontend** (Port 3000/8080): Modern SPA for SKU management, audits, reporting
-- **MySQL Database** (Port 3306): Primary data store
+- **PostgreSQL Database** (Port 5432): Primary data store
 - **Redis** (Port 6379): Queue management, caching, sessions
 
 ---
@@ -44,7 +46,7 @@ Ensure you have the following installed on your system:
 - **Node.js** (16.x or later) & npm/yarn
 - **PHP** (8.1+) & Composer (local development only)
 - **Python** (3.9+) & pip & virtualenv
-- **MySQL Client** (8.0+) — for manual queries
+- **PostgreSQL Client** (`psql`) — for manual queries
 - **Redis CLI** (optional) — for queue inspection
 
 ### System Requirements
@@ -150,9 +152,9 @@ APP_DEBUG=true
 LOG_LEVEL=debug
 
 # Database
-DB_CONNECTION=mysql
+DB_CONNECTION=pgsql
 DB_HOST=db                    # Use service name (docker-compose)
-DB_PORT=3306
+DB_PORT=5432
 DB_DATABASE=cie_v232
 DB_USERNAME=cie_user
 DB_PASSWORD=cie_password
@@ -181,11 +183,13 @@ VITE_PYTHON_API_URL=http://localhost:5000
 FLASK_ENV=development
 FLASK_DEBUG=True
 
+DB_CONNECTION=pgsql
 DB_HOST=db
-DB_PORT=3306
+DB_PORT=5432
 DB_DATABASE=cie_v232
-DB_USER=cie_user
+DB_USERNAME=cie_user
 DB_PASSWORD=cie_password
+DATABASE_URL=postgresql://cie_user:cie_password@db:5432/cie_v232
 
 REDIS_HOST=redis
 REDIS_PORT=6379
@@ -257,22 +261,21 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-**Core Dependencies (`requirements.txt`):**
+**Core dependencies (`requirements.txt`) — PostgreSQL via `psycopg2-binary`, FastAPI worker:**
 ```
-Flask==2.3.0
-Flask-CORS==4.0.0
-Flask-Limiter==3.3.0
-openai==0.27.0+
-anthropic==0.3.0+
-google-generativeai==0.3.0
-numpy==1.24.0+
-pandas==2.0.0+
-redis==5.0.0
-requests==2.31.0
-pymysql==1.1.0
-python-dotenv==1.0.0
-pydantic==1.10.0
+fastapi>=0.115
+uvicorn>=0.34
+psycopg2-binary>=2.9
+openai>=1.12
+anthropic>=0.18
+google-generativeai>=0.3
+numpy>=1.26
+pandas>=2.2
+redis>=5.0
+python-dotenv>=1.0
+pydantic>=2.12
 ```
+(`pymysql` is not used; `src/utils/db_connect.py` connects with PostgreSQL.)
 
 ### Step 3.3: Verify Python Environment
 
@@ -309,43 +312,46 @@ npm run dev          # Should start on http://localhost:5173
 
 ## Phase 5: Database Initialization
 
-### Step 5.1: Start MySQL Container
+### Step 5.1: Start PostgreSQL Container
 
 ```bash
 docker-compose up -d db
 ```
 
-Wait for MySQL to initialize (check logs):
+Wait for PostgreSQL to initialize (check logs):
 ```bash
-docker-compose logs db | grep "ready for connections"
+docker-compose logs db | grep "database system is ready to accept connections"
 ```
 
-### Step 5.2: Run Migrations
+### Step 5.2: Schema (automatic on first `docker-compose up`)
 
-Option A: Using Make (if Makefile available):
+On **first** start of the `db` service, PostgreSQL runs init scripts in order:
+
+1. `database/postgres/init/00_extensions.sql`
+2. `01_migrations_bootstrap.sql` (all `database/postgres/migrations/*.sql`)
+3. `02_manual_trigger_compat.sql`
+4. `03_spec_indexes.sql` (spec-native indexes — DECISION-014)
+
+See `database/postgres/README.md`. **Do not** apply legacy `database/migrations/*.sql` with the MySQL client.
+
+To apply one migration file manually:
 ```bash
-make migrate
+docker-compose exec -T db psql -U cie_user -d cie_v232 -f /docker-entrypoint-migrations/166_ensure_semrush_imports_table.sql
 ```
 
-Option B: Manual execution:
+Verify indexes:
 ```bash
-docker-compose exec db mysql -u cie_user -p cie_v232 < database/migrations/001_create_users_table.sql
-docker-compose exec db mysql -u cie_user -p cie_v232 < database/migrations/002_create_roles_table.sql
-# Continue for all migration files sequentially
+python scripts/verify_pg_indexes.py
 ```
 
-### Step 5.3: Seed Development Data
+### Step 5.3: Seed development data
 
-```bash
-make seed
-# Or manually:
-docker-compose exec db mysql -u cie_user -p cie_v232 < database/seeds/005_seed_golden_test_data.sql
-```
+Run SQL/scripts under `database/seeds/` per `DEPLOYMENT_RUNBOOK.md` (PostgreSQL only).
 
 ### Step 5.4: Verify Database Connection
 
 ```bash
-docker-compose exec db mysql -u cie_user -p -e "SELECT COUNT(*) FROM users;"
+docker-compose exec db psql -U cie_user -d cie_v232 -c "SELECT COUNT(*) FROM users;"
 ```
 
 ---
@@ -375,7 +381,7 @@ docker-compose ps
 
 # Expected output:
 # NAME                   STATUS              PORTS
-# cie-db                 Up 2 minutes        3306/tcp
+# cie-db                 Up 2 minutes        5432/tcp
 # cie-redis              Up 2 minutes        6379/tcp
 # cie-php-api            Up 1 minute         9000/tcp
 # cie-python-worker      Up 1 minute         5000/tcp
@@ -401,7 +407,7 @@ docker-compose logs frontend      # Frontend logs
 | Frontend | http://localhost:3000 | React SPA |
 | PHP API | http://localhost:9000/api/health | Core API |
 | Python API | http://localhost:5000/health | AI/Jobs |
-| MySQL | localhost:3306 | Database |
+| PostgreSQL | localhost:5432 | Database (`DB_CONNECTION=pgsql`) |
 | Redis | localhost:6379 | Queue/Cache |
 
 ### Step 7.2: Enable Hot Reload (Frontend)
@@ -532,11 +538,10 @@ docker-compose logs redis
 **Solution**:
 ```bash
 # Check current schema
-docker-compose exec db mysql -u cie_user -p cie_v232 -e "SHOW TABLES;"
+docker-compose exec db psql -U cie_user -d cie_v232 -c "\dt"
 
 # If corrupted, backup and reset
-docker-compose exec db mysql -u cie_user -p cie_v232 < database/schema/clean_slate.sql
-docker-compose exec db mysql -u cie_user -p cie_v232 < database/migrations/001_*.sql
+docker-compose exec php-api php artisan migrate:fresh --seed
 ```
 
 ---
@@ -638,10 +643,10 @@ For issues or questions:
 1. Check **Troubleshooting** section above
 2. Review logs: `docker-compose logs <service>`
 3. Verify environment variables in `.env`
-4. Check database connectivity: `docker-compose exec db mysql -u cie_user -p`
+4. Check database connectivity: `docker-compose exec db psql -U cie_user -d cie_v232 -c "SELECT 1"`
 
 ---
 
 **Project**: CIE v2.3.2 — Catalog Intelligence Engine  
-**Date Updated**: February 2026  
-**Status**: Production Ready
+**Date Updated**: June 2026  
+**Status**: Production Ready (PostgreSQL 16 per DECISION-013)

@@ -104,6 +104,7 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [100, 40],
+      "notes": "DECISION-001: Amazon SP-API deploy is DEFERRED. See GAP_LOG.md DECISION-001 for full deferral record. SOURCE: CIE_Integration_Specification.pdf Section 2.1. Do not enable without project owner sign-off and SP-API credential setup.",
       "parameters": {
         "noteContent": "Amazon SP-API: DEFERRED per DECISION-001 (CLAUDE.md §4).\nDo not add Amazon integration to this workflow in v2.3.2."
       }

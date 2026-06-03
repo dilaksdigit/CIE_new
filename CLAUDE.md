@@ -67,7 +67,7 @@ Amazon references in other spec documents are future-state, not current build re
 | AI Services | Python FastAPI | Vector similarity, title engine, AI audit runner |
 | Workflows | N8N | Channel deployment, ERP sync, audit scheduling |
 | Frontend | React | 15 routes, light theme, desktop only (1280px+) |
-| Database | MySQL (utf8mb4) | All tables defined in canonical schema |
+| Database | PostgreSQL 16 | System of record (`DECISION-013`); legacy MySQL SQL in `database/migrations/` for reference |
 | Code Generation | Cursor | All code generated via Drift-Safe Master Loop |
 
 ---
@@ -158,7 +158,8 @@ Fail:  bg #FFEBEE, border #EF9A9A, text #C62828
 
 ## 9. DATABASE KEY RULES
 
-- Charset: utf8mb4 on all tables and columns
+- Engine: PostgreSQL 16 (`DB_CONNECTION=pgsql`); apply schema via `database/postgres/`
+- Text encoding: UTF-8 on all tables and columns
 - audit_log table is IMMUTABLE: UPDATE and DELETE are blocked at database trigger level
 - Foreign keys enforced on all relationships
 - Tier stored as ENUM('hero','support','harvest','kill') — lowercase, no variants
@@ -333,8 +334,9 @@ These components are finalised. Any change requires formal Change Protocol.
 
 ```env
 # Database
+DB_CONNECTION=pgsql
 DB_HOST=
-DB_PORT=3306
+DB_PORT=5432
 DB_DATABASE=cie_v232
 DB_USERNAME=
 DB_PASSWORD=

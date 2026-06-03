@@ -66,6 +66,8 @@ export const writerEditApi = {
     publish: (skuId, data) => api.put(`/v1/sku/${skuId}/content`, data),
     // SOURCE: CIE_Master_Developer_Build_Spec.docx §4.4 — AI content pre-fill
     suggest: (skuId) => api.post(`/v1/sku/${skuId}/suggest`),
+    // SOURCE: CIE_v232_Hardening_Addendum — cluster assistant (no numeric scores in UI)
+    clusterSuggest: (skuId) => api.get(`/v1/sku/${skuId}/cluster-suggest`),
 };
 
 /**
@@ -74,12 +76,10 @@ export const writerEditApi = {
  * Step 2: If all gates pass (200), PUT /v1/sku/{skuId}/content to persist content.
  */
 export async function publishSku(skuId, contentPayload) {
-    await api.post(`/v1/sku/${skuId}/validate`, {
-        sku_id: skuId,
-        action: 'publish',
-        ...contentPayload,
-    });
-    await api.put(`/v1/sku/${skuId}/content`, contentPayload);
+    if (contentPayload && Object.keys(contentPayload).length > 0) {
+        await api.put(`/v1/sku/${skuId}/content`, contentPayload);
+    }
+    await api.post(`/v1/sku/${skuId}/publish`);
     return { ok: true };
 }
 
@@ -206,6 +206,13 @@ export const faqApi = {
 // ====== ERP Sync (Admin) — manual trigger ======
 export const erpSyncApi = {
     sync: (payload) => api.post('/admin/erp-sync', payload),
+};
+
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2.4 — admin user management
+export const usersApi = {
+    list: () => api.get('/admin/users'),
+    create: (payload) => api.post('/admin/users', payload),
+    update: (id, payload) => api.put(`/admin/users/${id}`, payload),
 };
 
 // ====== Bulk Ops (Admin) — zero hardcode; summary + execution from API ======

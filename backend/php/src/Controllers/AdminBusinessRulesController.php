@@ -30,13 +30,13 @@ class AdminBusinessRulesController
             $module = strpos($row->rule_key, '.') !== false ? explode('.', $row->rule_key)[0] : null;
             return [
                 'rule_key' => $row->rule_key,
-                'label' => $row->description,
-                'rule_value' => $row->value,
-                'data_type' => $row->value_type,
-                'module' => $module,
-                'unit' => null,
-                'approval_level' => null,
-                'last_changed_at' => $row->updated_at,
+                'label' => $row->label ?? $row->description,
+                'rule_value' => $row->rule_value,
+                'data_type' => $row->data_type,
+                'module' => $row->module ?? $module,
+                'unit' => $row->unit ?? null,
+                'approval_level' => $row->approval_level ?? null,
+                'last_changed_at' => $row->last_changed_at,
             ];
         });
         return ResponseFormatter::format($data->values()->all());
@@ -57,17 +57,17 @@ class AdminBusinessRulesController
         if ($value === null && !$request->has('value')) {
             return ResponseFormatter::error('value is required', 400);
         }
-        $rule->value = (string) $value;
+        $rule->rule_value = (string) $value;
         $rule->save();
         BusinessRules::invalidateCache();
-        $approvalLevel = null;
+        $approvalLevel = $rule->approval_level;
         $status = 200;
         if ($approvalLevel === 'dual') {
             $status = 202;
         }
         return ResponseFormatter::format([
             'rule_key' => $rule->rule_key,
-            'rule_value' => $rule->value,
+            'rule_value' => $rule->rule_value,
             'approval_level' => $approvalLevel,
             'pending_second_approval' => $status === 202,
         ], 'Success', $status);
@@ -97,7 +97,7 @@ class AdminBusinessRulesController
         $rows = DB::table('business_rules_audit')->orderByDesc('changed_at')->get();
         $data = $rows->map(function ($row) {
             return [
-                'id' => $row->id,
+                'id' => $row->audit_id,
                 'rule_key' => $row->rule_key,
                 'old_value' => $row->old_value,
                 'new_value' => $row->new_value,

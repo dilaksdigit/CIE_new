@@ -18,23 +18,7 @@ from api.main import build_validation_response  # noqa: E402
 from api.schemas_validate import SkuValidateRequest  # noqa: E402
 
 
-@pytest.fixture
-def rules_cache(monkeypatch):
-    """In-memory BusinessRules so tests do not require MySQL."""
-    # Round 2 audit F3.1 — avoid literal threshold token in source; default encodes spec seed (7/10 + 2/100).
-    _vec_thr = 7 / 10 + 2 / 100
-    cache = {
-        "gates.answer_block_min_chars": 250,
-        "gates.answer_block_max_chars": 300,
-        "gates.best_for_min_entries": 2,
-        "gates.not_for_min_entries": 1,
-        "gates.vector_similarity_min": _vec_thr,
-        "gates.description_word_count_min": 50,
-    }
-    monkeypatch.setattr(BusinessRules, "_cache", cache)
-
-
-def test_harvest_g3_gate_row_not_applicable(rules_cache):
+def test_harvest_g3_gate_row_not_applicable():
     """SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf §3.1 — Harvest G3 is N/A in API gate surface."""
     data = SkuValidateRequest(
         sku_id="CBL-RED-3C-2M",
@@ -57,7 +41,7 @@ def test_harvest_g3_gate_row_not_applicable(rules_cache):
     assert resp["gates"]["G3_secondary_intents"]["status"] == "not_applicable"
 
 
-def test_harvest_cbl_red_3c_2m_no_gate_failures(rules_cache):
+def test_harvest_cbl_red_3c_2m_no_gate_failures():
     """CBL-RED-3C-2M (Harvest): G1/G2/G6 path; G4/G5/G7 suspended — expect no blocking failures."""
     data = SkuValidateRequest(
         sku_id="CBL-RED-3C-2M",
@@ -77,7 +61,7 @@ def test_harvest_cbl_red_3c_2m_no_gate_failures(rules_cache):
     assert out["failures"] == [], f"unexpected failures: {out['failures']}"
 
 
-def test_harvest_cbl_red_3c_2m_validation_response_gate_matrix(rules_cache):
+def test_harvest_cbl_red_3c_2m_validation_response_gate_matrix():
     """SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf §3.1 Harvest row — FIX: TS-08 explicit gate statuses."""
     data = SkuValidateRequest(
         sku_id="CBL-RED-3C-2M",
@@ -108,7 +92,7 @@ def test_harvest_cbl_red_3c_2m_validation_response_gate_matrix(rules_cache):
     assert resp["publish_allowed"] is True
 
 
-def test_kill_flr_arc_blk_175_any_validate_g61_blocked(rules_cache):
+def test_kill_flr_arc_blk_175_any_validate_g61_blocked():
     """FLR-ARC-BLK-175 (Kill): ENF§2.1 G6.1 — any edit / validate attempt is blocked (CIE_G6_1_KILL_EDIT_BLOCKED)."""
     data = SkuValidateRequest(
         sku_id="FLR-ARC-BLK-175",
@@ -129,7 +113,7 @@ def test_kill_flr_arc_blk_175_any_validate_g61_blocked(rules_cache):
     assert "CIE_G6_1_KILL_EDIT_BLOCKED" in codes
 
 
-def test_kill_flr_arc_validation_response_fixture_surface(rules_cache):
+def test_kill_flr_arc_validation_response_fixture_surface():
     """SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf Kill fixture — FIX: TS-09 publish + suspended gates + channel contract."""
     data = SkuValidateRequest(
         sku_id="FLR-ARC-BLK-175",
@@ -167,7 +151,7 @@ def test_kill_flr_arc_validation_response_fixture_surface(rules_cache):
     assert ch_exp["active_channels"] == 0
 
 
-def test_kill_sku_validation_completeness(rules_cache):
+def test_kill_sku_validation_completeness():
     """SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf Kill fixture
     FIX: TS-09 — API vs UI: publish/save flags and golden channel expectations."""
     data = SkuValidateRequest(
@@ -208,7 +192,7 @@ def test_kill_sku_validation_completeness(rules_cache):
     assert ch_exp["active_channels"] == 0
 
 
-def test_kill_with_content_fields_g61_blocked(rules_cache):
+def test_kill_with_content_fields_g61_blocked():
     """Kill tier with content mutation → CIE_G6_1_KILL_EDIT_BLOCKED (ENF§2.1 G6.1)."""
     data = SkuValidateRequest(
         sku_id="KILL-TEST",
@@ -229,7 +213,7 @@ def test_kill_with_content_fields_g61_blocked(rules_cache):
     assert "CIE_G6_1_KILL_EDIT_BLOCKED" in codes
 
 
-def test_hero_shd_gls_cne_20_g4_char_limit(rules_cache):
+def test_hero_shd_gls_cne_20_g4_char_limit():
     """SHD-GLS-CNE-20: answer_block 242 chars < 250 → CIE_G4_CHAR_LIMIT."""
     # Golden fixture documents 242 chars < 250 — use exact length so test is stable
     answer = "x" * 242
@@ -252,7 +236,7 @@ def test_hero_shd_gls_cne_20_g4_char_limit(rules_cache):
     assert f.error_code == "CIE_G4_CHAR_LIMIT"
 
 
-def test_support_blb_led_b22_8w_g5_bestfor_count(rules_cache):
+def test_support_blb_led_b22_8w_g5_bestfor_count():
     """BLB-LED-B22-8W: empty not_for → CIE_G5_BESTFOR_COUNT."""
     data = SkuValidateRequest(
         sku_id="BLB-LED-B22-8W",

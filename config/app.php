@@ -3,7 +3,10 @@
 return [
     'name' => env('APP_NAME', 'CIE'),
     'env' => env('APP_ENV', 'local'),
-    'debug' => (bool) env('APP_DEBUG', true),
+    // SOURCE: P0 security — never honor APP_DEBUG in production/staging (stack traces leak secrets)
+    'debug' => in_array(env('APP_ENV', 'production'), ['production', 'staging'], true)
+        ? false
+        : filter_var(env('APP_DEBUG', false), FILTER_VALIDATE_BOOLEAN),
     'url' => env('APP_URL', 'http://localhost'),
     'timezone' => 'UTC',
     'locale' => 'en',

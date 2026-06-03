@@ -25,6 +25,12 @@ info:
     All validation is server-side. The PHP CMS never bypasses the Python Engine.
     Auth: internal bearer tokens per service. No public access.
 
+    ## Integrators (GAP-ROUTES-01)
+    **Authoritative contract:** repository root `cie_v231_openapi.yaml` — all PHP routes in
+    `backend/php/routes/api.php` are documented there. Run
+    `python scripts/verify_openapi_route_parity.py` before release.
+    This file is a v2.3.2 CMS/engine extension copy; prefer the root spec for new integrations.
+
 # SOURCE: INSTRUCTION 2 — cie_v231_openapi.yaml servers block
 servers:
   - url: https://cie.internal.example.com/api/v1
@@ -770,6 +776,105 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WeeklyScoresResponse'
+
+  # SOURCE: GAP-ROUTES-01 — synced from cie_v231_openapi.yaml (integrator callbacks)
+  /admin/sync-failed:
+    post:
+      summary: ERP sync failure callback (N8N W1)
+      tags: [ERP Integration]
+      servers:
+        - url: https://cie.internal.example.com/api
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Failure recorded
+
+  /admin/users:
+    get:
+      summary: List users (admin)
+      tags: [CMS Auth]
+      servers:
+        - url: https://cie.internal.example.com/api
+      responses:
+        '200':
+          description: User list
+    post:
+      summary: Create user (admin)
+      tags: [CMS Auth]
+      servers:
+        - url: https://cie.internal.example.com/api
+      responses:
+        '201':
+          description: User created
+
+  /admin/users/{id}:
+    put:
+      summary: Update user (admin)
+      tags: [CMS Auth]
+      servers:
+        - url: https://cie.internal.example.com/api
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: User updated
+
+  /skus/{sku_code}/channel-deployed:
+    post:
+      summary: Record successful channel deployment (N8N W6)
+      tags: [Enforcement]
+      servers:
+        - url: https://cie.internal.example.com/api
+      parameters:
+        - name: sku_code
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, status, timestamp]
+              properties:
+                channel: { type: string, enum: [shopify, gmc] }
+                status: { type: string }
+                timestamp: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Deploy recorded
+
+  /skus/{sku_code}/channel-failed:
+    post:
+      summary: Record failed channel deployment (N8N W6)
+      tags: [Enforcement]
+      servers:
+        - url: https://cie.internal.example.com/api
+      parameters:
+        - name: sku_code
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, error]
+              properties:
+                channel: { type: string, enum: [shopify, gmc] }
+                error: { type: string }
+      responses:
+        '200':
+          description: Failure recorded
 
 components:
   securitySchemes:

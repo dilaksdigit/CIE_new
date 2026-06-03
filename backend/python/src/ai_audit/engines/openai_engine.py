@@ -6,14 +6,11 @@ from openai import AsyncOpenAI
 
 class OpenAIEngine:
     def __init__(self):
+        # SOURCE: CLAUDE.md — LOCAL_LLM_MODE must never reroute AI Citation Audit
         local_mode = os.environ.get("LOCAL_LLM_MODE", "").strip().lower() == "true"
-        base_url = os.environ.get("LOCAL_LLM_BASE_URL", None) if local_mode else None
-        api_key = os.getenv("OPENAI_API_KEY") or (
-            "local-dummy-key" if local_mode else None
-        )
+        base_url = None
+        api_key = os.getenv("OPENAI_API_KEY")
         kwargs = {"api_key": api_key}
-        if base_url:
-            kwargs["base_url"] = base_url
         self.client = AsyncOpenAI(**kwargs)
     
     async def query(self, prompt: str) -> dict:

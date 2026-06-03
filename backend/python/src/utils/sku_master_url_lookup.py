@@ -13,7 +13,7 @@ from typing import Dict, Optional, Tuple
 
 from urllib.parse import urlparse
 
-from utils.mysql_connect import pymysql_connect_dict_cursor
+from utils.db_connect import connect_dict_cursor
 from utils.url_utils import normalise_url
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ class SkuUrlLookup:
 def log_sku_master_url_diagnostics() -> None:
     """Log counts and sample shopify_url values (§9.3 / ops visibility)."""
     try:
-        db = pymysql_connect_dict_cursor()
+        db = connect_dict_cursor()
         try:
             cur = db.cursor()
             cur.execute(
@@ -90,7 +90,7 @@ def log_sku_master_url_diagnostics() -> None:
 
 def load_sku_url_lookup() -> SkuUrlLookup:
     lookup = SkuUrlLookup()
-    db = pymysql_connect_dict_cursor()
+    db = connect_dict_cursor()
     try:
         cur = db.cursor()
         cur.execute(
@@ -126,9 +126,10 @@ def load_sku_url_lookup() -> SkuUrlLookup:
                         )
         return lookup
     except Exception as exc:
-        err_no = getattr(exc, "args", [None])[0]
         msg = str(exc).lower()
-        if err_no == 1054 or "shopify_url" in msg and "unknown column" in msg:
+        from utils.db_errors import is_unknown_column
+
+        if is_unknown_column(exc) or ("shopify_url" in msg and "unknown column" in msg):
             logger.warning(
                 "sku_master.shopify_url unavailable (%s). Run migration 107_add_missing_columns_to_sku_master.sql. "
                 "URL matching disabled until column exists.",

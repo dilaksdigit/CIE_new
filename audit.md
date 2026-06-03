@@ -3,6 +3,8 @@
 **Auditor:** Claude Code (automated static analysis)
 **Scope:** Full codebase — backend PHP, backend Python, database, frontend, tests, infrastructure
 
+> **Superseded for database operations (2026-06):** System of record is **PostgreSQL 16** (`DECISION-013`). Sections below that describe MySQL 8.0, `pymysql`, port 3306, or `mysqladmin` reflect the pre-migration audit snapshot. For current setup use `database/postgres/README.md`, `.env.example` (`DB_CONNECTION=pgsql`), and operator guides (`IMPLEMENTATION_GUIDE.md`, `QUICK_START_GUIDE.md`).
+
 ---
 
 ## 1. Executive Summary
@@ -31,14 +33,14 @@ The Content Intelligence Engine (CIE) is a multi-tier content governance platfor
 | Backend API (primary) | PHP + Laravel Framework | PHP ^8.1, Laravel ^10.0 |
 | Backend Worker (AI/ML) | Python + FastAPI | Python 3.x, FastAPI 0.115.6 |
 | Frontend | React + Vite | React 18.2.0, Vite 7.3.1 |
-| Database | MySQL | 8.0 (docker-compose) |
+| Database | PostgreSQL | 16 (docker-compose; see banner above for report age) |
 | Cache / Queue | Redis | 7-alpine |
 | Reverse Proxy | nginx | alpine |
 
 ### Key Dependencies
 **PHP:** `guzzlehttp/guzzle ^7.5`, `league/fractal ^0.20`, `predis/predis ^2.1`, `monolog/monolog ^3.3`, `respect/validation ^2.2`, `vlucas/phpdotenv ^5.5`
 
-**Python:** `fastapi==0.115.6`, `uvicorn==0.34.0`, `openai==1.12.0`, `anthropic==0.18.0`, `google-generativeai==0.3.2`, `pydantic==2.12.5`, `psycopg2-binary==2.9.9` (unused — MySQL is the DB), `pymysql` (used in code), `redis==5.0.1`, `numpy==1.26.4`
+**Python:** `fastapi==0.115.6`, `uvicorn==0.34.0`, `openai==1.12.0`, `anthropic==0.18.0`, `google-generativeai==0.3.2`, `pydantic==2.12.5`, `psycopg2-binary==2.9.9` (PostgreSQL — `src/utils/db_connect.py`), `redis==5.0.1`, `numpy==1.26.4`
 
 **Frontend:** `axios ^1.6.7`, `react-router-dom ^6.22.0`, `recharts ^2.12.0`, `clsx ^2.1.0`
 
@@ -48,7 +50,7 @@ Browser → nginx → PHP API (Laravel, port 8080)
                          ↓ HTTP (Guzzle)
                Python Worker (FastAPI, port 8000)
                          ↓
-              MySQL 8.0 + Redis 7
+              PostgreSQL 16 + Redis 7
 ```
 
 The PHP API handles all HTTP routing, RBAC, SKU CRUD, and orchestration. The Python worker provides:

@@ -1,0 +1,7 @@
+-- Alias key for spec vector.similarity_threshold (gates.vector_similarity_min remains canonical for code).
+
+INSERT INTO business_rules (rule_key, rule_value, data_type, module, label, description, approver_roles)
+SELECT 'vector.similarity_threshold', '0.72', 'decimal', 'vector', 'Vector Similarity Threshold',
+       'Cosine similarity threshold (alias for gates.vector_similarity_min per spec)', 'admin'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM business_rules WHERE rule_key = 'vector.similarity_threshold');

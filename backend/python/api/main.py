@@ -8,7 +8,7 @@ import json
 import logging
 import os
 
-import pymysql.err
+from src.utils.db_errors import is_unknown_column
 
 # Load .env from project root and backend so GSC/GA4 config is set (backend/.env often holds GA4_PROPERTY_ID, GSC_SITE_URL, GOOGLE_APPLICATION_CREDENTIALS)
 _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -86,10 +86,16 @@ def validate_suggest_response(response: Dict[str, Any]) -> Dict[str, Any]:
 
 # -------- App and in-memory queues (unchanged behavior) --------
 
+# SOURCE: P0 — disable OpenAPI UI in production/staging (reduces attack surface)
+_app_env = (os.environ.get("APP_ENV") or os.environ.get("CIE_APP_ENV") or "local").lower()
+_production_like = _app_env in ("production", "staging")
 app = FastAPI(
     title="CIE Python Worker API",
     version="1.0.0",
     description="Unified Python API: embed, similarity, validate, queue (replaces Flask).",
+    docs_url=None if _production_like else "/docs",
+    redoc_url=None if _production_like else "/redoc",
+    openapi_url=None if _production_like else "/openapi.json",
 )
 
 
@@ -132,6 +138,27 @@ from api.schemas_validate import (
 )
 
 
+@app.on_event("startup")
+def _preload_business_rules() -> None:
+    try:
+        BusinessRules.invalidate()
+        threshold = BusinessRules.get("gates.vector_similarity_min")
+        count = len(BusinessRules._cache or {})
+        logger.info("BusinessRules preloaded: %d keys (vector threshold=%s)", count, threshold)
+    except Exception as exc:
+        logger.warning("BusinessRules preload failed (env fallback active for vector): %s", exc)
+
+    try:
+        from src.vector.cluster_init import _auto_init_enabled, init_missing_cluster_vectors
+
+        if _auto_init_enabled():
+            embedded = init_missing_cluster_vectors(limit=25)
+            if embedded:
+                logger.info("Cluster vectors auto-initialized: %d cluster(s)", embedded)
+    except Exception as exc:
+        logger.warning("Cluster vector auto-init skipped: %s", exc)
+
+
 # -------- Routes (paths and response structure identical to Flask) --------
 
 
@@ -161,6 +188,15 @@ PENDING_MESSAGE = (
     "but publishing is paused until validation completes (typically within 30 minutes)."
 )
 
+
+def _vector_similarity_threshold() -> float:
+    """SOURCE: MASTER§5.2 / CLAUDE.md §11 — BusinessRules first; env fallback for fail-soft paths."""
+    try:
+        return float(BusinessRules.get("gates.vector_similarity_min"))
+    except Exception:
+        raw = (os.environ.get("VECTOR_SIMILARITY_THRESHOLD") or "0.72").strip()
+        return float(raw)
+
 ALLOWED_AUDIT_CATEGORIES = frozenset(
     {"cables", "lampshades", "bulbs", "pendants", "floor_lamps"}
 )
@@ -169,11 +205,11 @@ ALLOWED_AUDIT_CATEGORIES = frozenset(
 def _weekly_audit_background(category: str, run_id: str) -> None:
     """SOURCE: CIE_Master_Developer_Build_Spec.docx §12.1 — delegates to weekly_service.run_weekly_audit."""
     try:
-        from src.utils.mysql_connect import pymysql_connect_dict_cursor
+        from src.utils.db_connect import connect_dict_cursor
         from src.ai_audit.weekly_service import run_weekly_audit
 
         brand = (os.environ.get("CIE_AUDIT_BRAND_NAME") or "CIE").strip() or "CIE"
-        db = pymysql_connect_dict_cursor()
+        db = connect_dict_cursor()
         try:
             run_weekly_audit(db, category, brand, run_id=run_id)
         finally:
@@ -239,7 +275,7 @@ def sku_similarity(body: SimilarityRequest, _auth: Optional[str] = Header(defaul
         return JSONResponse(status_code=400, content={"error": "description and cluster_id required"})
     verify_service_token(_auth)
     try:
-        threshold = float(BusinessRules.get('gates.vector_similarity_min'))
+        threshold = _vector_similarity_threshold()
         sku_vector = get_embedding(description)
         result = validate_cluster_match(sku_vector, cluster_id, threshold=threshold)
         # SOURCE: CIE_v232_Hardening_Addendum.pdf §1.1 — None embedding → pending from validate_cluster_match
@@ -303,9 +339,15 @@ def sku_similarity(body: SimilarityRequest, _auth: Optional[str] = Header(defaul
             cluster_id,
             "engine_unavailable",
         )
+        try:
+            pending_threshold = _vector_similarity_threshold()
+        except Exception:
+            pending_threshold = float(
+                (os.environ.get("VECTOR_SIMILARITY_THRESHOLD") or "0.72").strip()
+            )
         return {
             "cosine_similarity": None,
-            "threshold": float(BusinessRules.get('gates.vector_similarity_min')),
+            "threshold": pending_threshold,
             "status": "pending",
             "message": PENDING_MESSAGE,
         }
@@ -427,8 +469,8 @@ def _build_audit_results_envelope(category: str, run_id: Optional[str] = None) -
                         """,
                         (rid, cat),
                     )
-                except pymysql.err.OperationalError as exc:
-                    if exc.args[0] != 1054:
+                except Exception as exc:
+                    if not is_unknown_column(exc):
                         raise
                     cur.execute(
                         """
@@ -453,8 +495,8 @@ def _build_audit_results_envelope(category: str, run_id: Optional[str] = None) -
                         """,
                         (cat,),
                     )
-                except pymysql.err.OperationalError as exc:
-                    if exc.args[0] != 1054:
+                except Exception as exc:
+                    if not is_unknown_column(exc):
                         raise
                     cur.execute(
                         """
@@ -1071,9 +1113,9 @@ def baseline_ga4_metrics(body: BaselineUrlRequest):
 # SOURCE: CIE_Master_Developer_Build_Spec.docx Phase 2 Item 2.1
 #   "returns 200 with verified property list using service account credentials"
 def _db_connect():
-    from src.utils.mysql_connect import pymysql_connect_dict_cursor
+    from src.utils.db_connect import connect_dict_cursor
 
-    return pymysql_connect_dict_cursor()
+    return connect_dict_cursor()
 
 
 def _gsc_verify_last_sync_date() -> Optional[str]:
@@ -1355,9 +1397,9 @@ async def ai_agent_cluster_suggest(request: Request):
     # Round 2 audit A5.2 — reasoning + cluster label from DB
     cluster_details: dict = {}
     try:
-        from src.utils.mysql_connect import pymysql_connect_dict_cursor
+        from src.utils.db_connect import connect_dict_cursor
 
-        conn = pymysql_connect_dict_cursor()
+        conn = connect_dict_cursor()
         try:
             with conn.cursor() as cur:
                 try:
@@ -1457,9 +1499,9 @@ async def update_suggestion_status(sku_id: str, suggestion_id: str, request: Req
         return JSONResponse(content={"error": "Suggestion not found"}, status_code=404)
 
     new_status = "rejected" if status == "dismissed" else "pending"
-    from src.utils.mysql_connect import pymysql_connect_dict_cursor
+    from src.utils.db_connect import connect_dict_cursor
 
-    conn = pymysql_connect_dict_cursor()
+    conn = connect_dict_cursor()
     affected = 0
     try:
         with conn.cursor() as cur:

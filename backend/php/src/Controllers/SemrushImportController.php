@@ -138,6 +138,10 @@ class SemrushImportController
         }
 
         $filter = $request->query('filter');
+        $hasPosition = Schema::hasColumn('semrush_imports', 'position');
+        $hasPrevPosition = Schema::hasColumn('semrush_imports', 'prev_position');
+        $hasSearchVolume = Schema::hasColumn('semrush_imports', 'search_volume');
+        $hasSkuCode = Schema::hasColumn('semrush_imports', 'sku_code');
         $maxBatch = DB::table('semrush_imports')->selectRaw('MAX(import_batch) as mb')->value('mb');
         if ($maxBatch === null) {
             if ($filter === 'quick_wins') {
@@ -153,6 +157,9 @@ class SemrushImportController
         }
 
         if ($filter === 'quick_wins') {
+            if (!$hasPosition || !$hasSkuCode) {
+                return response()->json(['filter' => 'quick_wins', 'rows' => []], 200);
+            }
             // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §3.1 — prefer keyword_diff column when present
             $diffCol = null;
             if (Schema::hasColumn('semrush_imports', 'keyword_diff')) {
@@ -164,20 +171,26 @@ class SemrushImportController
                 ->join('skus', 'skus.sku_code', '=', 'semrush_imports.sku_code')
                 ->where('semrush_imports.import_batch', $maxBatch)
                 ->whereBetween('semrush_imports.position', [11, 30])
-                ->whereRaw('(semrush_imports.search_volume IS NULL OR semrush_imports.search_volume > 500)')
-                ->whereIn(DB::raw('LOWER(TRIM(skus.tier))'), ['hero', 'support']);
+                ->whereIn('skus.tier', ['hero', 'support']);
+            if ($hasSearchVolume) {
+                $quickWins->whereRaw('(semrush_imports.search_volume IS NULL OR semrush_imports.search_volume > 500)');
+            }
             if ($diffCol !== null) {
                 $quickWins->whereRaw("({$diffCol} IS NULL OR {$diffCol} < 40)");
             }
             $quickWins = $quickWins
-                ->select(
-                    'semrush_imports.keyword',
-                    'semrush_imports.position',
-                    'semrush_imports.prev_position',
-                    'semrush_imports.search_volume',
-                    'semrush_imports.sku_code',
-                    'skus.tier as tier'
-                )
+                ->select('semrush_imports.keyword', 'semrush_imports.position', 'semrush_imports.sku_code', 'skus.tier as tier');
+            if ($hasPrevPosition) {
+                $quickWins->addSelect('semrush_imports.prev_position');
+            } else {
+                $quickWins->selectRaw('NULL AS prev_position');
+            }
+            if ($hasSearchVolume) {
+                $quickWins->addSelect('semrush_imports.search_volume');
+            } else {
+                $quickWins->selectRaw('NULL AS search_volume');
+            }
+            $quickWins = $quickWins
                 ->orderBy('semrush_imports.position')
                 ->limit(500)
                 ->get();
@@ -185,20 +198,22 @@ class SemrushImportController
         }
 
         if ($filter === 'rank_movement') {
+            if (!$hasPrevPosition || !$hasPosition) {
+                return response()->json(['filter' => 'rank_movement', 'rows' => []], 200);
+            }
             // SOURCE: CIE_v232_FINAL_Developer_Instruction.docx §5.6 — filters work on /review/semrush
             // SOURCE: CLAUDE.md §13 — Semrush CSV can include sku_code; tier resolved via join to skus
             $movement = DB::table('semrush_imports')
                 ->leftJoin('skus', 'skus.sku_code', '=', 'semrush_imports.sku_code')
                 ->where('semrush_imports.import_batch', $maxBatch)
                 ->whereNotNull('prev_position')
-                ->select(
-                    'semrush_imports.keyword',
-                    'semrush_imports.position',
-                    'semrush_imports.prev_position',
-                    'semrush_imports.search_volume',
-                    'semrush_imports.sku_code',
-                    'skus.tier as tier'
-                )
+                ->select('semrush_imports.keyword', 'semrush_imports.position', 'semrush_imports.prev_position', 'semrush_imports.sku_code', 'skus.tier as tier');
+            if ($hasSearchVolume) {
+                $movement->addSelect('semrush_imports.search_volume');
+            } else {
+                $movement->selectRaw('NULL AS search_volume');
+            }
+            $movement = $movement
                 ->orderByRaw('(semrush_imports.position - semrush_imports.prev_position) ASC')
                 ->limit(500)
                 ->get();

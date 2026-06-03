@@ -12,7 +12,10 @@ class BusinessRule extends Model
 {
     protected $table = 'business_rules';
 
-    protected $fillable = ['rule_key', 'value', 'value_type', 'description'];
+    protected $primaryKey = 'rule_key';
+    public $incrementing = false;
+    protected $keyType = 'string';
+    protected $fillable = ['rule_key', 'rule_value', 'data_type', 'module', 'label', 'description', 'approver_roles'];
 
     protected static function booted(): void
     {

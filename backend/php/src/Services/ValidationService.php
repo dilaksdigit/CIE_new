@@ -2,19 +2,19 @@
 // SOURCE: CIE_Master_Developer_Build_Spec.docx §7.1 Gate Response Format
 namespace App\Services;
 
+use App\Models\Cluster;
 use App\Models\Intent;
 use App\Models\Sku;
+use App\Models\SkuGateStatus;
 use App\Models\SkuIntent;
 use App\Models\ValidationLog;
 use App\Enums\ValidationStatus;
 use App\Support\BusinessRules;
-use App\Validators\GateValidator;
 use Illuminate\Support\Facades\Log;
 
 class ValidationService
 {
-    protected $validator;
-    private $pythonClient;
+    private PythonWorkerClient $pythonClient;
     // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec §8.3 Intent Taxonomy Lookup Table
     // SOURCE: CIE_v231_Developer_Build_Pack §intent_taxonomy — intent_key → label mapping
     // These are the ONLY valid intent keys. Any other value must fail G2 validation.
@@ -30,24 +30,28 @@ class ValidationService
         'replacement' => 'Replacement / Refill',
     ];
 
-    // SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §7.2 — gate response key contract
-    private const OPENAPI_GATE_KEY_MAP = [
-        'G1_BASIC_INFO'        => 'G1_cluster_id',
-        'G2_INTENT'            => 'G2_primary_intent',
-        'G3_SECONDARY_INTENT'  => 'G3_secondary_intents',
-        'G4_ANSWER_BLOCK'      => 'G4_answer_block',
-        'G4_VECTOR'            => 'vector_check',
-        'G5_BEST_NOT_FOR'      => 'G5_best_not_for',
-        'G5_TECHNICAL'         => 'G5_best_not_for',
-        'G6_COMMERCIAL_POLICY' => 'G6_tier_tag',
-        'G6_TIER_TAG'          => 'G6_tier_tag',
-        'G6_1_TIER_LOCK'       => 'G6_1_tier_lock',
-        'G7_EXPERT'            => 'G7_expert_authority',
+    // SOURCE: DECISION-011 — persist sku_gate_status using legacy gate_code values for portfolio UI.
+    private const OPENAPI_TO_GATE_CODE = [
+        'G1_cluster_id' => 'G1_BASIC_INFO',
+        'G2_primary_intent' => 'G2_INTENT',
+        'G3_secondary_intents' => 'G3_SECONDARY_INTENT',
+        'G4_answer_block' => 'G4_ANSWER_BLOCK',
+        'G5_best_not_for' => 'G5_BEST_NOT_FOR',
+        'G6_tier_tag' => 'G6_TIER_TAG',
+        'G6_1_tier_lock' => 'G6_1_TIER_LOCK',
+        'G7_expert_authority' => 'G7_EXPERT',
     ];
 
-    public function __construct(GateValidator $validator, PythonWorkerClient $pythonClient)
+    private const LEGACY_INTENT_KEY_ALIASES = [
+        'safety_compliance' => 'regulatory',
+        'regulatory_safety' => 'regulatory',
+        'inspiration_style' => 'inspiration',
+        'installation_how_to' => 'installation',
+        'replacement_refill' => 'replacement',
+    ];
+
+    public function __construct(PythonWorkerClient $pythonClient)
     {
-        $this->validator = $validator;
         $this->pythonClient = $pythonClient;
     }
 
@@ -133,91 +137,101 @@ class ValidationService
     }
 
     /**
-     * Full validation pipeline for a SKU.
-     * Uses GateValidator keys: overall_status, can_publish, gates. Returns all failures with error_code, detail, user_message.
+     * Full validation pipeline for a SKU — delegates to Python POST /api/v1/sku/validate (DECISION-011).
      */
     public function validate(Sku $sku, bool $preserveStatus = false, string $action = 'save'): array
     {
         Log::info("Starting validation for SKU {$sku->id}", ['sku_code' => $sku->sku_code]);
 
         try {
-            // SOURCE: openapi.yaml SkuValidateRequest — action must be consumed by validator contract (save|publish).
-            // Current behavior: gates run identically for save/publish; distinction is response-level save_allowed vs publish_allowed.
-            $validationResults = $this->validator->validateAll($sku, $preserveStatus, $action);
-            $gates = $validationResults['gates'] ?? [];
-            $resultRows = $validationResults['results'] ?? [];
-            $overallStatus = $validationResults['overall_status'] ?? 'invalid';
-            $canPublish = $validationResults['can_publish'] ?? false;
-
-            $vectorValidation = null;
-            foreach ($gates as $g) {
-                $gateKey = $g['gate'] ?? $g['gate_name'] ?? '';
-                $name = $g['gate_name'] ?? $g['gate'] ?? '';
-                if (stripos((string) $gateKey, 'VECTOR') !== false || stripos((string) $name, 'vector') !== false) {
-                    $vectorValidation = [
-                        'gate' => $gateKey,
-                        'valid' => $g['passed'] ?? false,
-                        'blocking' => $g['blocking'] ?? true,
-                        'reason' => $g['reason'] ?? '',
-                    ];
-                    break;
-                }
+            $tier = $sku->tier instanceof \App\Enums\TierType
+                ? $sku->tier->value
+                : strtolower((string) ($sku->tier ?? ''));
+            if ($tier === 'kill') {
+                return [
+                    'valid' => false,
+                    'status' => ValidationStatus::INVALID,
+                    'kill_blocked' => true,
+                    'http_status' => 403,
+                    'openapi_validation_body' => [
+                        'status' => 'fail',
+                        'gates' => [],
+                        'vector_check' => ['status' => 'not_applicable', 'user_message' => null],
+                        'degraded_mode' => false,
+                        'save_allowed' => false,
+                        'publish_allowed' => false,
+                    ],
+                ];
             }
 
-            $status = ValidationStatus::tryFrom(strtoupper((string) $overallStatus)) ?? ValidationStatus::INVALID;
-            $nextAction = $validationResults['next_action'] ?? 'Fix validation errors before publication';
-            $isDegraded = !empty(array_filter($gates, fn($g) => ($g['metadata']['degraded'] ?? false)));
+            $payload = $this->buildSkuValidatePayload($sku, $action);
+            $proxy = $this->pythonClient->validateSkuGates($payload);
+            $httpStatus = (int) ($proxy['http_status'] ?? 500);
+            $body = is_array($proxy['body'] ?? null) ? $proxy['body'] : [];
 
-            // SOURCE: CIE_Master_Developer_Build_Spec §7.1 — list every failed gate row (supports multiple G5 failures)
-            // SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec §7.3 — only documented CIE_* gate codes; no synthetic CIE_G5-style codes
-            $failures = [];
-            foreach ($resultRows as $g) {
-                if (! ($g['passed'] ?? true)) {
-                    $errorCode = $g['error_code'] ?? ($g['metadata']['error_code'] ?? null);
-                    if ($errorCode === null || $errorCode === '') {
-                        // SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec §7.3 — only 12 defined CIE_ codes permitted.
-                        // Missing error_code is a gate implementation bug, not a user-facing error.
-                        Log::error('Gate failed without error_code — gate implementation bug', [
-                            'sku_id' => $sku->id,
-                            'gate'   => $g['gate'] ?? $g['gate_name'] ?? 'unknown',
-                        ]);
-                        $errorCode = null;
-                    }
-                    $gateEnum = (string) ($g['gate'] ?? '');
-                    $failures[] = [
-                        'gate'         => self::OPENAPI_GATE_KEY_MAP[$gateEnum] ?? $gateEnum,
-                        'error_code'   => $errorCode,
-                        'detail'       => $g['detail'] ?? ($g['metadata']['detail'] ?? '') ?: ($g['reason'] ?? $g['user_message'] ?? ''),
-                        'user_message' => $g['user_message'] ?? ($g['metadata']['user_message'] ?? '') ?: ($g['reason'] ?? ''),
-                    ];
-                }
+            if (!$preserveStatus) {
+                $this->persistSkuGateStatusFromOpenApiBody($sku, $body);
             }
 
-            $validationLog = ValidationLog::create([
-                'sku_id' => $sku->id,
-                'user_id' => auth()->id() ?? null,
-                'validation_status' => $status->value,
-                'results_json' => json_encode(array_merge($validationResults, ['vector' => $vectorValidation])),
-                'passed' => $status === ValidationStatus::VALID,
-            ]);
+            $topStatus = strtolower((string) ($body['status'] ?? 'fail'));
+            $status = match ($topStatus) {
+                'pass' => ValidationStatus::VALID,
+                'pending' => ValidationStatus::DEGRADED,
+                default => ValidationStatus::INVALID,
+            };
 
-            Log::info("Validation complete for SKU {$sku->id}", ['status' => $status, 'validation_log_id' => $validationLog->id]);
+            $failures = $this->extractFailuresFromOpenApiBody($body);
+            $vectorCheck = is_array($body['vector_check'] ?? null) ? $body['vector_check'] : [];
+            $vectorStatus = strtolower((string) ($vectorCheck['status'] ?? 'pass'));
+            $vectorValidation = [
+                'gate' => 'G4_VECTOR',
+                'valid' => in_array($vectorStatus, ['pass', 'warn'], true),
+                'blocking' => $vectorStatus === 'fail',
+                'reason' => (string) ($vectorCheck['user_message'] ?? ''),
+            ];
 
-            // SOURCE: CIE_v232_Hardening_Addendum.pdf Patch 1 — include warnings when gate passed but warn_only (e.g. vector below threshold)
+            $canPublish = (bool) ($body['publish_allowed'] ?? false);
+            $isDegraded = (bool) ($body['degraded_mode'] ?? false) || $topStatus === 'pending';
+            $nextAction = match ($topStatus) {
+                'pass' => $vectorStatus === 'warn'
+                    ? 'Gates passed; resolve vector similarity warning before publishing.'
+                    : 'All gates passed.',
+                'pending' => 'Validation pending — publishing paused until the service completes.',
+                default => 'Fix validation errors before publication',
+            };
+
+            $validationLogId = null;
+            try {
+                $validationLog = ValidationLog::create([
+                    'sku_id' => $sku->id,
+                    'user_id' => auth()->id() ?? null,
+                    'validation_status' => $status->value,
+                    'results_json' => json_encode($body),
+                    'passed' => $status === ValidationStatus::VALID,
+                ]);
+                $validationLogId = $validationLog->id;
+            } catch (\Throwable $logEx) {
+                Log::warning("Validation log write failed for SKU {$sku->id}: {$logEx->getMessage()}");
+            }
+
+            Log::info("Validation complete for SKU {$sku->id}", ['status' => $status, 'validation_log_id' => $validationLogId]);
+
             $warnings = [];
-            foreach ($resultRows as $g) {
-                if (($g['passed'] ?? false) && !empty($g['metadata']['warn_only'])) {
-                    $msg = $g['metadata']['user_message'] ?? $g['reason'] ?? 'Content may not fully match expected topic.';
-                    $warnings[] = ['field' => 'description', 'message' => $msg];
-                }
+            if ($vectorStatus === 'warn') {
+                $warnings[] = [
+                    'field' => 'description',
+                    'message' => (string) ($vectorCheck['user_message'] ?? 'Your content may not align with the intent. Consider revising.'),
+                ];
             }
+
+            $responseHttp = $httpStatus >= 500 ? 500 : ($topStatus === 'fail' ? 400 : 200);
 
             return [
                 'valid' => $status === ValidationStatus::VALID,
                 'status' => $status,
-                'validation_log_id' => $validationLog->id,
-                'results' => $gates,
-                'gates' => $gates,
+                'validation_log_id' => $validationLogId,
+                'results' => $body['gates'] ?? [],
+                'gates' => $body['gates'] ?? [],
                 'failures' => $failures,
                 'warnings' => $warnings,
                 'next_action' => $nextAction,
@@ -225,8 +239,8 @@ class ValidationService
                 'ai_validation_pending' => $isDegraded,
                 'vector_validation' => $vectorValidation,
                 'action' => $action,
-                'http_status' => ($status === ValidationStatus::VALID || ($status === ValidationStatus::DEGRADED && empty($failures))) ? 200 : 400,
-                'openapi_validation_body' => $this->buildOpenApiValidationBody($validationResults),
+                'http_status' => $responseHttp,
+                'openapi_validation_body' => $this->normalizeOpenApiValidationBody($body),
             ];
         } catch (\Exception $e) {
             Log::error("Validation failed for SKU {$sku->id}: {$e->getMessage()}");
@@ -255,11 +269,208 @@ class ValidationService
     }
 
     /**
+     * SOURCE: openapi.yaml SkuValidateRequest — map persisted/in-memory SKU to Python validate payload.
+     */
+    protected function buildSkuValidatePayload(Sku $sku, string $action): array
+    {
+        $clusterId = null;
+        if ($sku->relationLoaded('primaryCluster') && $sku->primaryCluster) {
+            $clusterId = $sku->primaryCluster->name;
+        } elseif (!empty($sku->primary_cluster_id)) {
+            $rawCluster = (string) $sku->primary_cluster_id;
+            if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $rawCluster)) {
+                $cluster = $sku->relationLoaded('primaryCluster') ? $sku->primaryCluster : Cluster::find($rawCluster);
+                $clusterId = $cluster?->name;
+                if ($clusterId === null || $clusterId === '') {
+                    $clusterId = \Illuminate\Support\Facades\DB::table('clusters')
+                        ->where('id', $rawCluster)
+                        ->value('name');
+                }
+            } else {
+                // Draft validate may set business cluster_id directly on the in-memory SKU.
+                $clusterId = $rawCluster;
+            }
+        }
+
+        $primaryIntent = null;
+        $secondaryIntents = [];
+        if ($sku->relationLoaded('skuIntents')) {
+            foreach ($sku->skuIntents as $si) {
+                $name = (string) ($si->intent->name ?? '');
+                $key = $this->intentNameToApiKey($name);
+                if ($key === null || $key === '') {
+                    continue;
+                }
+                if ($si->is_primary) {
+                    $primaryIntent = $key;
+                } else {
+                    $secondaryIntents[] = $key;
+                }
+            }
+        }
+
+        $tier = $sku->tier instanceof \App\Enums\TierType
+            ? $sku->tier->value
+            : strtolower((string) ($sku->tier ?? ''));
+
+        return [
+            'sku_id' => (string) ($sku->sku_code ?? $sku->id),
+            'cluster_id' => $clusterId,
+            'tier' => $tier !== '' ? $tier : null,
+            'primary_intent' => $primaryIntent,
+            'secondary_intents' => $secondaryIntents,
+            'title' => $sku->title,
+            'description' => $sku->long_description,
+            'answer_block' => $sku->ai_answer_block,
+            'best_for' => $this->normalizeStringList($sku->best_for ?? []),
+            'not_for' => $this->normalizeStringList($sku->not_for ?? []),
+            'expert_authority' => $sku->expert_authority ?? null,
+            'action' => in_array($action, ['save', 'publish'], true) ? $action : 'save',
+        ];
+    }
+
+    protected function persistSkuGateStatusFromOpenApiBody(Sku $sku, array $body): void
+    {
+        $gates = is_array($body['gates'] ?? null) ? $body['gates'] : [];
+        $skuKey = (string) ($sku->sku_code ?? $sku->id);
+
+        foreach ($gates as $openapiKey => $gate) {
+            if (!is_array($gate)) {
+                continue;
+            }
+            $gateCode = self::OPENAPI_TO_GATE_CODE[$openapiKey] ?? null;
+            if ($gateCode === null) {
+                continue;
+            }
+            try {
+                SkuGateStatus::updateOrCreate(
+                    ['sku_id' => $skuKey, 'gate_code' => $gateCode],
+                    [
+                        'status' => strtolower((string) ($gate['status'] ?? 'fail')),
+                        'error_code' => $gate['error_code'] ?? null,
+                        'error_message' => $gate['detail'] ?? $gate['user_message'] ?? null,
+                        'checked_at' => now(),
+                    ]
+                );
+            } catch (\Throwable $e) {
+                Log::warning('sku_gate_status persist failed', [
+                    'sku_id' => $skuKey,
+                    'gate' => $gateCode,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $vector = is_array($body['vector_check'] ?? null) ? $body['vector_check'] : [];
+        if ($vector !== []) {
+            try {
+                SkuGateStatus::updateOrCreate(
+                    ['sku_id' => $skuKey, 'gate_code' => 'G4_VECTOR'],
+                    [
+                        'status' => strtolower((string) ($vector['status'] ?? 'pending')),
+                        'error_code' => null,
+                        'error_message' => $vector['user_message'] ?? null,
+                        'checked_at' => now(),
+                    ]
+                );
+            } catch (\Throwable $e) {
+                Log::warning('sku_gate_status vector persist failed', ['sku_id' => $skuKey, 'error' => $e->getMessage()]);
+            }
+        }
+    }
+
+    /**
+     * @return list<array{gate: string, error_code: ?string, detail: string, user_message: string}>
+     */
+    protected function extractFailuresFromOpenApiBody(array $body): array
+    {
+        $failures = [];
+        foreach ((array) ($body['gates'] ?? []) as $gateKey => $gate) {
+            if (!is_array($gate) || strtolower((string) ($gate['status'] ?? '')) !== 'fail') {
+                continue;
+            }
+            $failures[] = [
+                'gate' => (string) $gateKey,
+                'error_code' => $gate['error_code'] ?? null,
+                'detail' => (string) ($gate['detail'] ?? ''),
+                'user_message' => (string) ($gate['user_message'] ?? $gate['detail'] ?? ''),
+            ];
+        }
+
+        $vector = is_array($body['vector_check'] ?? null) ? $body['vector_check'] : [];
+        if (strtolower((string) ($vector['status'] ?? '')) === 'fail') {
+            $failures[] = [
+                'gate' => 'vector_check',
+                'error_code' => null,
+                'detail' => (string) ($vector['user_message'] ?? 'Vector validation failed'),
+                'user_message' => (string) ($vector['user_message'] ?? ''),
+            ];
+        }
+
+        return $failures;
+    }
+
+    protected function normalizeOpenApiValidationBody(array $body): array
+    {
+        return [
+            'status' => $body['status'] ?? 'fail',
+            'gates' => is_array($body['gates'] ?? null) ? $body['gates'] : [],
+            'vector_check' => is_array($body['vector_check'] ?? null)
+                ? $body['vector_check']
+                : ['status' => 'pass', 'user_message' => null],
+            'degraded_mode' => (bool) ($body['degraded_mode'] ?? false),
+            'save_allowed' => (bool) ($body['save_allowed'] ?? true),
+            'publish_allowed' => (bool) ($body['publish_allowed'] ?? false),
+        ];
+    }
+
+    protected function intentNameToApiKey(string $name): ?string
+    {
+        $key = strtolower(trim((string) preg_replace('/[^a-z0-9]+/', '_', $name), '_'));
+        if ($key === '') {
+            return null;
+        }
+        $key = self::LEGACY_INTENT_KEY_ALIASES[$key] ?? $key;
+
+        if (array_key_exists($key, self::INTENT_TAXONOMY_MAP)) {
+            return $key;
+        }
+
+        foreach (self::INTENT_TAXONOMY_MAP as $canonical => $label) {
+            $labelKey = strtolower(trim((string) preg_replace('/[^a-z0-9]+/', '_', $label), '_'));
+            if ($labelKey === $key) {
+                return $canonical;
+            }
+        }
+
+        return $key;
+    }
+
+    /**
+     * @param mixed $value
+     * @return list<string>
+     */
+    protected function normalizeStringList($value): array
+    {
+        if (is_array($value)) {
+            return array_values(array_filter(array_map(static fn ($v) => trim((string) $v), $value), static fn ($v) => $v !== ''));
+        }
+        if (is_string($value) && $value !== '') {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                return $this->normalizeStringList($decoded);
+            }
+        }
+
+        return [];
+    }
+
+    /**
      * SOURCE: CIE_v2.3.1_Enforcement_Dev_Spec.pdf §7.2, openapi.yaml SkuValidateRequest — optional draft payload merged in-memory for gate evaluation (not persisted here).
      */
     public function validateSku(string $id, array $draft = [])
     {
-        $sku = Sku::with(['skuIntents.intent'])->findOrFail($id);
+        $sku = Sku::with(['skuIntents.intent', 'primaryCluster'])->findOrFail($id);
         $action = strtolower((string) ($draft['action'] ?? 'save'));
         if (!in_array($action, ['save', 'publish'], true)) {
             $action = 'save';

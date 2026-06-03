@@ -18,12 +18,22 @@ class RBACMiddleware
         'CHANNEL_MANAGER',
         'FINANCE',
         'CONTENT_LEAD',
+        'KPI_REVIEWER',
         'AI_OPS',
         'ADMIN',
     ];
 
     /** RBAC-03: Exact response body for admin-only route denial (CLAUDE.md Section 10). */
     private const ADMIN_DENIED_JSON = ['error' => 'Access denied. Admin role required.'];
+
+    /**
+     * Compatibility aliases for contract role names used in route guards.
+     * Keeps existing 8-role hierarchy intact while allowing writer/reviewer naming.
+     */
+    private const ROLE_ALIASES = [
+        'CONTENT_WRITER' => ['CONTENT_EDITOR', 'PRODUCT_SPECIALIST'],
+        'KPI_REVIEWER' => ['KPI_REVIEWER', 'CONTENT_LEAD', 'SEO_GOVERNOR'],
+    ];
 
     public function handle(Request $request, Closure $next, ...$allowedRoles)
     {
@@ -40,7 +50,7 @@ class RBACMiddleware
             return response()->json(['error' => 'Forbidden - No role assigned'], 403);
         }
 
-        $allowedRoles = array_map('strtoupper', $allowedRoles);
+        $allowedRoles = $this->normalizeAllowedRoles($allowedRoles);
 
         if (in_array(self::ROLE_ADMIN, $roleNames)) {
             return $next($request);
@@ -60,6 +70,29 @@ class RBACMiddleware
         }
 
         return $next($request);
+    }
+
+    /**
+     * Expand contract aliases to internal RBAC role names.
+     *
+     * @param array<int, string> $allowedRoles
+     * @return array<int, string>
+     */
+    private function normalizeAllowedRoles(array $allowedRoles): array
+    {
+        $expanded = [];
+        foreach ($allowedRoles as $role) {
+            $roleName = strtoupper((string) $role);
+            if (isset(self::ROLE_ALIASES[$roleName])) {
+                foreach (self::ROLE_ALIASES[$roleName] as $mapped) {
+                    $expanded[] = strtoupper($mapped);
+                }
+                continue;
+            }
+            $expanded[] = $roleName;
+        }
+
+        return array_values(array_unique($expanded));
     }
 
     /**

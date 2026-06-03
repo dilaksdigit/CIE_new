@@ -1,6 +1,7 @@
 <?php
 namespace App\Services;
 
+use App\Enums\TierType;
 use App\Models\Sku;
 use App\Models\StaffEffortLog;
 use App\Models\ValidationLog;
@@ -22,7 +23,7 @@ class ExecutiveReportService
             'hero_citation_rate' => $this->calculateHeroCitationRate(),
             'staff_rework_rate' => $this->calculateReworkRate($startOfWeek),
             'tier_coverage_pct' => $this->calculateTierCoverage(),
-            'hero_readiness_avg' => Sku::where('tier', 'HERO')->avg('readiness_score') ?? 0,
+            'hero_readiness_avg' => Sku::where('tier', TierType::HERO->value)->avg('readiness_score') ?? 0,
             'kill_sku_effort_hours' => StaffEffortLog::where('tier', 'KILL')->where('logged_at', '>=', $startOfWeek)->sum('hours_spent')
         ];
     }
@@ -38,7 +39,7 @@ class ExecutiveReportService
 
     private function calculateHeroCitationRate(): float
     {
-        $heroSkus = Sku::where('tier', 'HERO')->get();
+        $heroSkus = Sku::where('tier', TierType::HERO->value)->get();
         if ($heroSkus->isEmpty()) return 0.0;
         
         $citedCount = $heroSkus->where('score_citation', '>', 0)->count();
@@ -60,7 +61,7 @@ class ExecutiveReportService
         $total = Sku::count();
         if ($total <= 0) return 0.0;
         
-        $tiered = Sku::whereIn('tier', ['HERO', 'SUPPORT', 'HARVEST', 'KILL'])->count();
+        $tiered = Sku::whereIn('tier', array_column(TierType::cases(), 'value'))->count();
         return round(($tiered / $total) * 100, 2);
     }
 }

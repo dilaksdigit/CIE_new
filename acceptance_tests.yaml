@@ -1,0 +1,185 @@
+# acceptance_tests.yaml — CIE v2.3.2 Golden SKU Acceptance Tests
+# SOURCE: CIE_Doc4b_Golden_Test_Data_Pack.pdf
+# Automated mapping: tests/ACCEPTANCE_COVERAGE.md · backend/python/tests/test_golden_*.py
+
+meta:
+  target_count: 72
+  automated_python: 75
+  automated_php: 6
+  manual_staging: 3
+
+tests:
+  # --- Stage 1: Gate matrix (10 golden SKUs) ---
+  - id: AT-001
+    sku: CBL-BLK-3C-1M
+    stage: gate_results
+    automated: test_golden_all_pass_publish_allowed
+    given: Hero SKU, all fields complete
+    when: POST validate action=publish
+    then: { publish_allowed: true, overall: ALL_PASS }
+
+  - id: AT-002
+    sku: CBL-GLD-3C-1M
+    stage: gate_results
+    automated: test_golden_all_pass_publish_allowed
+    then: { publish_allowed: true, overall: ALL_PASS }
+
+  - id: AT-003
+    sku: CBL-WHT-2C-3M
+    stage: gate_results
+    automated: test_golden_all_pass_publish_allowed
+    then: { publish_allowed: true, overall: ALL_PASS }
+
+  - id: AT-004
+    sku: CBL-RED-3C-2M
+    stage: gate_results
+    automated: test_golden_sku_gate_matrix_definitive
+    given: Harvest SKU
+    then: { gates.G3_secondary_intents: not_applicable, overall: HARVEST_PASS }
+
+  - id: AT-005
+    sku: SHD-TPE-DRM-35
+    stage: gate_results
+    automated: test_golden_all_pass_publish_allowed
+    then: { publish_allowed: true, overall: ALL_PASS }
+
+  - id: AT-006
+    sku: SHD-GLS-CNE-20
+    stage: gate_results
+    automated: test_golden_sku_gate_matrix_definitive
+    given: Hero SKU, answer_block < 250 chars
+    then: { gates.G4_answer_block: fail, publish_allowed: false }
+
+  - id: AT-007
+    sku: BLB-LED-E27-4W
+    stage: gate_results
+    automated: test_golden_all_pass_publish_allowed
+    then: { publish_allowed: true, overall: ALL_PASS }
+
+  - id: AT-008
+    sku: BLB-LED-B22-8W
+    stage: gate_results
+    automated: test_golden_sku_gate_matrix_definitive
+    given: Support SKU, not_for empty
+    then: { gates.G4_answer_block: fail, gates.G5_best_not_for: fail, publish_allowed: false }
+
+  - id: AT-009
+    sku: PND-SET-BRS-3L
+    stage: gate_results
+    automated: test_golden_all_pass_publish_allowed
+    then: { publish_allowed: true, overall: ALL_PASS }
+
+  - id: AT-010
+    sku: FLR-ARC-BLK-175
+    stage: gate_results
+    automated: test_golden_sku_gate_matrix_definitive
+    given: Kill-tier SKU
+    then: { gates.G6_1_tier_lock: fail, publish_allowed: false, save_allowed: false }
+
+  # --- Stage 3: Channel decisions ---
+  - id: AT-011
+    sku: CBL-BLK-3C-1M
+    stage: channel_decisions
+    automated: test_golden_channel_decision_snapshot
+    then: { own_website.decision: COMPETE, own_website.readiness: ">=85" }
+
+  - id: AT-012
+    sku: FLR-ARC-BLK-175
+    stage: channel_decisions
+    automated: test_golden_kill_zero_active_channels
+    then: { active_channels: 0 }
+
+  # --- Stage 4: Maturity ---
+  - id: AT-013
+    stage: maturity
+    automated: test_golden_maturity_total_matches_pack
+    then: { components_sum_to_total: true }
+
+  # --- Stage 5: Title validation ---
+  - id: AT-014
+    sku: CBL-BLK-3C-1M
+    stage: title_validation
+    automated: test_golden_title_validation_flags_present_for_hero
+    then: { starts_with_intent: true, shopify_length_valid: true }
+
+  # --- Stage 6: ERP tier (manual staging) ---
+  - id: AT-015
+    stage: erp_tier
+    automated: manual
+    script: scripts/e2e_publish_flow_check.py
+    then: { tier_history_row: created_after_erp_sync }
+
+  # --- P3: N8N / Shopify deploy (static + wire) ---
+  - id: AT-N8N-01
+    stage: channel_deploy
+    automated: scripts/e2e_n8n_shopify_deploy_static.py
+    then: { shopify_workflow: shopify-deploy, payload_keys: all_required }
+
+  - id: AT-N8N-02
+    stage: channel_deploy
+    automated: tests/php/Feature/ChannelDeployE2eTest.php
+    then: { hmac_webhook: shopify-deploy, http_status: 200 }
+
+  # --- Edge cases (12) ---
+  - id: AT-EDGE-01
+    stage: edge_case
+    automated: test_answer_block_249_chars_fails_g4
+    then: { gates.G4_answer_block: fail }
+
+  - id: AT-EDGE-02
+    stage: edge_case
+    automated: test_vector_similarity_warn_not_block
+    then: { vector_check.status: warn, save_allowed: true }
+
+  - id: AT-EDGE-03
+    stage: edge_case
+    automated: test_answer_block_exactly_250_chars_passes
+    then: { gates.G4_answer_block: pass }
+
+  - id: AT-EDGE-04
+    stage: edge_case
+    automated: test_answer_block_exactly_300_chars_passes
+    then: { gates.G4_answer_block: pass }
+
+  - id: AT-EDGE-05
+    stage: edge_case
+    automated: test_answer_block_301_chars_fails_g4
+    then: { gates.G4_answer_block: fail }
+
+  - id: AT-EDGE-06
+    stage: edge_case
+    automated: test_secondary_intent_same_as_primary_fails_g3
+    then: { error_code: CIE_G3_SECONDARY_DUPLICATE }
+
+  - id: AT-EDGE-07
+    stage: edge_case
+    automated: test_cluster_id_not_in_master_list_fails_g1
+    then: { error_code: CIE_G1_INVALID_CLUSTER }
+
+  - id: AT-EDGE-08
+    stage: edge_case
+    automated: test_hero_without_expert_authority_fails_g7
+    then: { error_code: CIE_G7_AUTHORITY_MISSING }
+
+  - id: AT-EDGE-09
+    stage: edge_case
+    automated: test_harvest_sku_g4_g5_g7_not_applicable
+    then: { gates.G4_answer_block: not_applicable }
+
+  - id: AT-EDGE-10
+    stage: edge_case
+    automated: test_kill_sku_blocks_edit
+    then: { save_allowed: false, publish_allowed: false }
+
+  # --- RBAC / PHP ---
+  - id: AT-RBAC-01
+    stage: rbac
+    automated: RbacEndpointMatrixTest
+    then: { writer_denied: /api/admin/users }
+
+  - id: AT-CHAN-01
+    stage: channel_governor
+    automated: ChannelGovernorTest
+    then: { kill_tier: all_channels_skip, amazon_key_absent: true }
+
+# Remaining manual (staging): Shopify round-trip, GMC feed, live RBAC tokens — see P3.3–P3.4

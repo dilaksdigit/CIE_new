@@ -16,7 +16,7 @@ CIE is an enterprise-grade product content management system designed for scale 
 - **Backend (Governance)**: [PHP 8.1+](file:///c:/Dilaksan/CIE/cie-v232/backend/php) (Laravel 9+ core patterns)
 - **Backend (Intelligence)**: [Python 3.11+](file:///c:/Dilaksan/CIE/cie-v232/backend/python) (FastAPI, LangChain)
 - **Frontend**: [React 18.2+](file:///c:/Dilaksan/CIE/cie-v232/frontend) (Vite, Zustand, Tailwind CSS)
-- **Database**: MySQL 8.0 & Redis 7.0
+- **Database**: PostgreSQL 16 & Redis 7.0 (`DB_CONNECTION=pgsql` — see `database/postgres/README.md`)
 - **AI/ML**: OpenAI, Anthropic, Google Vertex AI
 
 ## 📂 Project Structure
@@ -47,14 +47,14 @@ CIE is an enterprise-grade product content management system designed for scale 
    ```bash
    cp .env.example .env
    ```
-2. **Launch Services**:
+2. **Launch Services** (first boot applies PostgreSQL schema from `database/postgres/init/`):
    ```bash
    docker-compose up -d --build
    ```
-3. **Initialize Data**:
+3. **Verify database**:
    ```bash
-   make migrate
-   make seed
+   docker-compose exec db psql -U cie_user -d cie_v232 -c "\dt"
+   python scripts/verify_pg_indexes.py
    ```
 4. **Access Services**:
    - Frontend: http://localhost:3000

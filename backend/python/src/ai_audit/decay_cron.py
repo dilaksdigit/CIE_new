@@ -395,13 +395,16 @@ def _create_decay_brief(db, sku: Dict[str, Any]) -> None:
 
 def default_brief_generate_hook(payload: Dict[str, Any]) -> None:
     """
-    Default hook: POST to Python worker /queue/brief-generation so brief content is actually generated.
-    Set CIE_PYTHON_WORKER_URL (e.g. http://python-worker:5000) if worker is on another host.
+    Default hook: POST to Python worker /api/v1/brief/generate.
+    Set CIE_PYTHON_WORKER_URL or PYTHON_WORKER_URL (default port 8000 / uvicorn) if worker is on another host.
     """
     try:
         import requests
-        base_url = os.environ.get("CIE_PYTHON_WORKER_URL", "http://localhost:5000").rstrip("/")
-        url = f"{base_url}/queue/brief-generation"
+        base_url = os.environ.get(
+            "CIE_PYTHON_WORKER_URL",
+            os.environ.get("PYTHON_WORKER_URL", os.environ.get("PYTHON_API_URL", "http://localhost:8000")),
+        ).rstrip("/")
+        url = f"{base_url}/api/v1/brief/generate"
         sku_id = payload.get("sku_id")
         title = payload.get("sku_title") or payload.get("sku_code") or ""
         if not sku_id or not title:
@@ -409,7 +412,7 @@ def default_brief_generate_hook(payload: Dict[str, Any]) -> None:
             return
         resp = requests.post(
             url,
-            json={"sku_id": sku_id, "title": title},
+            json={"sku_id": sku_id, "failing_questions": []},
             timeout=5,
         )
         if resp.status_code in (200, 202):

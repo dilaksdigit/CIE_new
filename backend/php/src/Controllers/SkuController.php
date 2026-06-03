@@ -144,8 +144,9 @@ class SkuController {
             'primary_intent' => $primaryIntent,
             'secondary_intents' => array_values($secondary),
             'title' => (string) ($sku->title ?? ''),
+            'short_description' => (string) ($sku->short_description ?? ''),
             'description' => (string) ($sku->long_description ?? ''),
-            'answer_block' => (string) ($sku->ai_answer_block ?? ''),
+            'answer_block' => $this->resolveAnswerBlockForApi($sku),
             'best_for' => self::parseListAttribute($sku->best_for),
             'not_for' => self::parseListAttribute($sku->not_for),
             'expert_authority' => (string) ($sku->expert_authority ?? ''),
@@ -175,7 +176,7 @@ class SkuController {
     }
 
     /**
-     * SOURCE: GateValidator + sku_gate_status — latest gate audit snapshot
+     * SOURCE: Python validate + sku_gate_status — latest gate audit snapshot
      */
     private function loadGateStatusRowsForSku(Sku $sku): array
     {
@@ -344,11 +345,13 @@ class SkuController {
                     $allowed  = ['problem_solving', 'compatibility', 'specification'];
                     $provided = (array) $request->input('secondary_intents');
 
-                    if (count($provided) > 1) {
+                    // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 5.3 — gates.harvest_max_secondary_intents
+                    $harvestMaxIntents = (int) \App\Support\BusinessRules::get('gates.harvest_max_secondary_intents', 1);
+                    if (count($provided) > $harvestMaxIntents) {
                         return response()->json([
                             'status'     => 'fail',
                             'error_code' => 'HARVEST_SECONDARY_INTENT_LIMIT',
-                            'detail'     => 'Harvest-tier SKU allows max 1 secondary intent.',
+                            'detail'     => "Harvest-tier SKU allows max {$harvestMaxIntents} secondary intent(s).",
                         ], 422);
                     }
 
@@ -373,6 +376,9 @@ class SkuController {
                 ], 409);
             }
 
+            // OpenAPI / writer UI field names → skus table columns (ai_answer_block, long_description).
+            $this->mergeOpenApiContentFieldsIntoRequest($request);
+
             // 3.2 Permission matrix: only allow fields this role may edit
             $allowedFields = $this->permissionService->allowedSkuUpdateFields(auth()->user());
             $updateData = [];
@@ -380,6 +386,11 @@ class SkuController {
                 if ($field === 'lock_version') continue;
                 if ($request->has($field)) {
                     $updateData[$field] = $request->input($field);
+                }
+            }
+            foreach (['best_for', 'not_for'] as $listField) {
+                if (isset($updateData[$listField]) && is_array($updateData[$listField])) {
+                    $updateData[$listField] = json_encode(array_values($updateData[$listField]));
                 }
             }
             $updateData['lock_version'] = ($sku->lock_version ?? 1) + 1;
@@ -539,8 +550,8 @@ class SkuController {
             return response()->json($body, $statusCode);
         }
 
-        // RBAC: role must be permitted to publish.
-        if (!$user || !$user->can('publish_sku')) {
+        // RBAC: role must be permitted to publish (PermissionService matrix — User has no Gate/can()).
+        if (!$this->permissionService->canPublishSku($user, $sku)) {
             return response()->json(['error' => 'Insufficient permissions'], 403);
         }
 
@@ -995,11 +1006,27 @@ class SkuController {
      */
     public function queueToday(Request $request) {
         $tierFilter = $request->query('tier');
-        $q = Sku::query()->select([
-            'id', 'sku_code', 'title', 'tier', 'validation_status', 'updated_at',
-            'short_description', 'long_description', 'best_for', 'not_for', 'margin_percent',
-            'decay_status', 'content_score', 'readiness_score', 'ai_answer_block', 'expert_authority',
-        ]);
+        $optionalColumns = [
+            'short_description',
+            'long_description',
+            'best_for',
+            'not_for',
+            'margin_percent',
+            'decay_status',
+            'content_score',
+            'readiness_score',
+            'ai_answer_block',
+            'expert_authority',
+        ];
+
+        $selectColumns = ['id', 'sku_code', 'title', 'tier', 'validation_status', 'updated_at'];
+        foreach ($optionalColumns as $column) {
+            if (Schema::hasColumn('skus', $column)) {
+                $selectColumns[] = $column;
+            }
+        }
+
+        $q = Sku::query()->select($selectColumns);
         if (Schema::hasColumn('skus', 'is_active')) {
             $q->where('is_active', true);
         }
@@ -1158,6 +1185,30 @@ class SkuController {
         return ContentBrief::where('sku_id', $skuId)->whereIn('status', ['open', 'OPEN'])->exists();
     }
 
+    /**
+     * Writer GET /sku/{id} — answer_block for G4; legacy rows may only have long_description (006 seed).
+     */
+    private function resolveAnswerBlockForApi(Sku $sku): string
+    {
+        $block = trim((string) ($sku->ai_answer_block ?? ''));
+        if ($block !== '') {
+            return $block;
+        }
+
+        return trim((string) ($sku->long_description ?? ''));
+    }
+
+    /** Map SkuValidateRequest keys onto skus columns before permission-filtered update. */
+    private function mergeOpenApiContentFieldsIntoRequest(Request $request): void
+    {
+        if ($request->has('answer_block') && !$request->has('ai_answer_block')) {
+            $request->merge(['ai_answer_block' => $request->input('answer_block')]);
+        }
+        if ($request->has('description') && !$request->has('long_description')) {
+            $request->merge(['long_description' => $request->input('description')]);
+        }
+    }
+
     private function addCamelCaseAliases(array $arr): array
     {
         if (array_key_exists('primary_cluster', $arr)) {
@@ -1170,7 +1221,7 @@ class SkuController {
     }
 
     /**
-     * Batch-load canonical gate statuses from sku_gate_status (populated by GateValidator).
+     * Batch-load canonical gate statuses from sku_gate_status (populated by ValidationService after Python validate).
      * Returns array keyed by sku_code, each value an array of row objects.
      */
     private function batchLoadGateStatuses(array $skuCodes): array
@@ -1810,7 +1861,7 @@ class SkuController {
                 $required = ['title', 'short_description', 'long_description', 'best_for', 'not_for'];
                 break;
             case 'HARVEST':
-                $required = ['title', 'long_description'];
+                $required = ['title'];
                 break;
             default:
                 return [0, 0];

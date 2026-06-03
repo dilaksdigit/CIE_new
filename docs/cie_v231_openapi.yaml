@@ -14,6 +14,10 @@ info:
     ## Authentication
     Internal bearer tokens per service. No public access.
 
+    ## Integrators
+    Prefer repository root `cie_v231_openapi.yaml` (canonical, route-parity verified).
+    Run `python scripts/verify_openapi_route_parity.py` before integration work.
+
 servers:
   - url: https://cie.internal.example.com/api/v1
     description: Production

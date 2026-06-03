@@ -1,4 +1,5 @@
 <?php
+// SOURCE: CIE_Master_Developer_Build_Spec.docx Section 5.1 — business_rules schema
 
 namespace App\Controllers;
 
@@ -6,14 +7,13 @@ use App\Support\BusinessRules;
 use App\Utils\ResponseFormatter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 
 /**
  * CIE config API — GET/PUT system configuration (gate thresholds, tier weights, etc.).
  * GET: Returns BusinessRules from DB grouped by module (readiness, scoring, content, gates, etc.)
- *      so frontend has zero hard-coded thresholds. Merges with storage/app/cie_config.json if present.
- * PUT: Admin-only; writes to cie_config.json (non-threshold overrides).
+ *      so frontend has zero hard-coded thresholds.
+ * PUT: Admin-only; writes directly to business_rules.
  */
 class ConfigController
 {
@@ -44,35 +44,6 @@ class ConfigController
         ],
     ];
 
-    /**
-     * Threshold-like keys must come from business_rules only.
-     */
-    private const FILE_BLOCKED_TOP_LEVEL_KEYS = [
-        'gate_thresholds',
-        'tier_score_weights',
-        'channel_thresholds',
-        'readiness',
-        'gates',
-        'tier',
-        'scoring',
-        'kpi',
-        'decay',
-        'chs',
-    ];
-
-    private function configPath(): string
-    {
-        return storage_path('app/cie_config.json');
-    }
-
-    private function stripThresholdOverrides(array $config): array
-    {
-        foreach (self::FILE_BLOCKED_TOP_LEVEL_KEYS as $key) {
-            unset($config[$key]);
-        }
-        return $config;
-    }
-
     private function groupedConfigFromBusinessRules(): array
     {
         $out = [
@@ -98,29 +69,6 @@ class ConfigController
         return $out;
     }
 
-    private function fileConfig(): array
-    {
-        $path = $this->configPath();
-        if (!File::exists($path)) {
-            return [];
-        }
-        return json_decode(File::get($path), true) ?: [];
-    }
-
-    private function mergeFileOverrides(array $groupedConfig): array
-    {
-        $file = $this->fileConfig();
-        foreach (['gate_thresholds', 'tier_score_weights', 'channel_thresholds', 'audit_settings'] as $group) {
-            if (!isset($groupedConfig[$group])) {
-                $groupedConfig[$group] = [];
-            }
-            if (isset($file[$group]) && is_array($file[$group])) {
-                $groupedConfig[$group] = array_merge($groupedConfig[$group], $file[$group]);
-            }
-        }
-        return $groupedConfig;
-    }
-
     private function persistGroupedRules(array $input): void
     {
         if (!Schema::hasTable('business_rules')) {
@@ -139,8 +87,8 @@ class ConfigController
                 DB::table('business_rules')
                     ->where('rule_key', $ruleKey)
                     ->update([
-                        'value' => is_scalar($value) ? (string) $value : json_encode($value),
-                        'updated_at' => now(),
+                        'rule_value' => is_scalar($value) ? (string) $value : json_encode($value),
+                        'last_changed_at' => now(),
                     ]);
             }
         }
@@ -149,23 +97,13 @@ class ConfigController
 
     public function index()
     {
-        $config = $this->groupedConfigFromBusinessRules();
-        $config = $this->mergeFileOverrides($config);
-        return ResponseFormatter::format($config);
+        return ResponseFormatter::format($this->groupedConfigFromBusinessRules());
     }
 
     public function update(Request $request)
     {
         $input = $request->all();
         $this->persistGroupedRules($input);
-
-        // Keep file-based overrides for any keys not directly mapped to business_rules.
-        $existing = $this->fileConfig();
-        $merged = array_merge($existing, $this->stripThresholdOverrides($input));
-        File::put($this->configPath(), json_encode($merged, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-
-        // Return canonical shape expected by frontend after persistence.
-        $fresh = $this->mergeFileOverrides($this->groupedConfigFromBusinessRules());
-        return ResponseFormatter::format($fresh);
+        return ResponseFormatter::format($this->groupedConfigFromBusinessRules());
     }
 }

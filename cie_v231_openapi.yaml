@@ -16,9 +16,13 @@ info:
 
 servers:
   - url: https://cie.internal.example.com/api/v1
-    description: Production
+    description: Production — primary PHP CMS + engine proxy routes
   - url: https://cie-staging.internal.example.com/api/v1
-    description: Staging
+    description: Staging — primary PHP CMS + engine proxy routes
+  - url: https://cie.internal.example.com/api
+    description: Integration callbacks and legacy aliases (no /v1 prefix)
+  - url: https://cie-staging.internal.example.com/api
+    description: Staging — integration callbacks (no /v1 prefix)
 
 security:
   - BearerAuth: []
@@ -38,6 +42,22 @@ tags:
     description: ERP data sync and tier recomputation
   - name: CMS TierChange
     description: Manual tier change dual-approval workflow (portfolio + finance)
+  - name: CMS Auth
+    description: Login and session — PHP CMS
+  - name: CMS Queue
+    description: Writer queue and AI assist — PHP CMS
+  - name: CMS Scores
+    description: KPI reviewer weekly scores — PHP CMS
+  - name: Semrush
+    description: Semrush CSV import and performance loop — PHP CMS
+  - name: Channel Deploy
+    description: N8N / worker deployment callbacks — PHP CMS
+  - name: Admin Users
+    description: Admin user provisioning — PHP CMS
+  - name: Admin Bulk Ops
+    description: Admin bulk operations — PHP CMS
+  - name: Shopify Admin
+    description: Shopify product pull (admin) — PHP CMS
 
 paths:
   /sku/{sku_id}/validate:
@@ -816,6 +836,404 @@ paths:
       responses:
         '200':
           description: Status updated
+
+  # ── GAP-ROUTES-01 (2026-06) — runtime parity: backend/php/routes/api.php ──
+
+  /auth/login:
+    post:
+      summary: Authenticate user and obtain bearer token
+      tags: [CMS Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+      responses:
+        '200':
+          description: Authentication successful
+        '401':
+          description: Invalid credentials
+
+  /auth/register:
+    post:
+      summary: Public registration (disabled — admin creates users)
+      tags: [CMS Auth]
+      security: []
+      responses:
+        '403':
+          description: Self-registration disabled
+
+  /sku/{sku_id}:
+    get:
+      summary: Get SKU by id or sku_code
+      tags: [CMS Queue]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: SKU detail
+        '404':
+          description: SKU not found
+
+  /sku/{sku_id}/suggest:
+    post:
+      summary: AI Agent content pre-fill suggestions
+      description: SOURCE CIE_Master_Developer_Build_Spec.docx §15 — writer AI assist.
+      tags: [CMS Queue]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Suggested field values or fail-soft envelope
+
+  /sku/{sku_id}/titles:
+    post:
+      summary: Generate title candidates for SKU
+      tags: [CMS Queue]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Title candidates
+
+  /sku/{sku_id}/cluster-suggest:
+    get:
+      summary: Cluster assignment suggestions for SKU
+      tags: [CMS Queue]
+      parameters:
+        - name: sku_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Cluster suggestions
+
+  /faq/templates:
+    get:
+      summary: List FAQ templates
+      tags: [CMS Queue]
+      responses:
+        '200':
+          description: FAQ templates
+
+  /sku/{id}/faq:
+    post:
+      summary: Save FAQ responses for SKU
+      tags: [CMS Queue]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: FAQ saved
+
+  /gsc/status:
+    get:
+      summary: Google Search Console integration health (proxies engine /gsc/verify)
+      tags: [ERP Integration]
+      responses:
+        '200':
+          description: Connection status
+
+  /ga4/status:
+    get:
+      summary: Google Analytics 4 integration health (proxies engine /ga4/health)
+      tags: [ERP Integration]
+      responses:
+        '200':
+          description: Connection status
+
+  /review/weekly-scores:
+    get:
+      summary: KPI reviewer weekly scores (read-only view)
+      tags: [CMS Scores]
+      responses:
+        '200':
+          description: Weekly KPI scores
+
+  /briefs/{brief_id}/suggest-revision:
+    post:
+      summary: Suggest content revision for a brief
+      tags: [AI Audit]
+      parameters:
+        - name: brief_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Revision suggestion recorded
+
+  /audit-logs/filters:
+    get:
+      summary: Distinct filter values for audit log UI
+      tags: [Enforcement]
+      responses:
+        '200':
+          description: Filter metadata
+
+  /shopify/status:
+    get:
+      summary: Shopify pull integration status
+      tags: [Shopify Admin]
+      responses:
+        '200':
+          description: Status
+
+  /shopify/products:
+    get:
+      summary: List Shopify products (admin pull)
+      tags: [Shopify Admin]
+      responses:
+        '200':
+          description: Product list
+
+  /shopify/sync:
+    post:
+      summary: Trigger Shopify product sync
+      tags: [Shopify Admin]
+      responses:
+        '200':
+          description: Sync started or completed
+
+  /admin/bulk-ops/summary:
+    get:
+      summary: Bulk operations dashboard summary
+      tags: [Admin Bulk Ops]
+      responses:
+        '200':
+          description: Summary counts
+
+  /admin/bulk-ops/tier-change-requests:
+    get:
+      summary: List tier change requests for bulk ops
+      tags: [Admin Bulk Ops]
+      responses:
+        '200':
+          description: Request list
+
+  /admin/bulk-ops/cluster-assignment:
+    post:
+      summary: Bulk cluster assignment
+      tags: [Admin Bulk Ops]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Applied
+
+  /admin/bulk-ops/status-change:
+    post:
+      summary: Bulk validation status change
+      tags: [Admin Bulk Ops]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Applied
+
+  /admin/bulk-ops/faq-apply:
+    post:
+      summary: Bulk apply FAQ templates
+      tags: [Admin Bulk Ops]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Applied
+
+  /admin/bulk-ops/export:
+    get:
+      summary: Export bulk-ops dataset
+      tags: [Admin Bulk Ops]
+      responses:
+        '200':
+          description: Export file or JSON
+
+  /admin/semrush-import:
+    post:
+      summary: Upload Semrush CSV (spec path without /v1)
+      description: CLAUDE.md §13 — sole v2.3.2 addendum exception path.
+      tags: [Semrush]
+      servers:
+        - url: https://cie.internal.example.com/api
+        - url: https://cie-staging.internal.example.com/api
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Import accepted
+        '400':
+          description: Validation failed
+        '403':
+          description: Non-admin role
+
+  /admin/erp-sync:
+    post:
+      summary: Legacy alias for ERP sync (same payload as POST /erp/sync)
+      tags: [ERP Integration]
+      servers:
+        - url: https://cie.internal.example.com/api
+        - url: https://cie-staging.internal.example.com/api
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ErpSyncPayload'
+      responses:
+        '200':
+          description: ERP sync completed
+
+  /admin/sync-failed:
+    post:
+      summary: ERP sync failure callback (N8N W1)
+      tags: [ERP Integration]
+      servers:
+        - url: https://cie.internal.example.com/api
+        - url: https://cie-staging.internal.example.com/api
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Failure recorded
+
+  /admin/users:
+    get:
+      summary: List users (admin)
+      tags: [Admin Users]
+      servers:
+        - url: https://cie.internal.example.com/api
+        - url: https://cie-staging.internal.example.com/api
+      responses:
+        '200':
+          description: User list
+    post:
+      summary: Create user (admin)
+      tags: [Admin Users]
+      servers:
+        - url: https://cie.internal.example.com/api
+        - url: https://cie-staging.internal.example.com/api
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '201':
+          description: User created
+
+  /admin/users/{id}:
+    put:
+      summary: Update user (admin)
+      tags: [Admin Users]
+      servers:
+        - url: https://cie.internal.example.com/api
+        - url: https://cie-staging.internal.example.com/api
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: User updated
+
+  /skus/{sku_code}/channel-deployed:
+    post:
+      summary: Record successful channel deployment (N8N W6 callback)
+      description: Full URL prefix /api (not /api/v1). Requires auth + HMAC per N8N_HMAC_VERIFY.md.
+      tags: [Channel Deploy]
+      servers:
+        - url: https://cie.internal.example.com/api
+        - url: https://cie-staging.internal.example.com/api
+      parameters:
+        - name: sku_code
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, status, timestamp]
+              properties:
+                channel: { type: string, enum: [shopify, gmc] }
+                status: { type: string }
+                timestamp: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Deploy recorded
+
+  /skus/{sku_code}/channel-failed:
+    post:
+      summary: Record failed channel deployment (N8N W6 callback)
+      tags: [Channel Deploy]
+      servers:
+        - url: https://cie.internal.example.com/api
+        - url: https://cie-staging.internal.example.com/api
+      parameters:
+        - name: sku_code
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, error]
+              properties:
+                channel: { type: string, enum: [shopify, gmc] }
+                error: { type: string }
+                retry_scheduled: { type: boolean }
+      responses:
+        '200':
+          description: Failure recorded
 
 components:
   securitySchemes:

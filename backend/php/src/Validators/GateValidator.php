@@ -1,4 +1,5 @@
 <?php
+// SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec.pdf Section 2.1
 namespace App\Validators;
 
 use App\Models\Sku;
@@ -46,15 +47,18 @@ class GateValidator
     ): void {
         $results[] = $result;
 
-        \App\Models\ValidationLog::create([
-            'sku_id' => $sku->id,
-            'gate_type' => $result->gate->value ?? (string) $result->gate,
-            'passed' => $result->passed,
-            'reason' => $result->reason,
-            'is_blocking' => $result->blocking,
-            'similarity_score' => $result->metadata['similarity'] ?? null,
-            'validated_by' => (function_exists('auth') && app()->bound('auth') && auth()->check()) ? auth()->id() : null,
-        ]);
+        try {
+            \App\Models\ValidationLog::create([
+                'sku_id' => $sku->id,
+                'gate_type' => $result->gate->value ?? (string) $result->gate,
+                'passed' => $result->passed,
+                'reason' => $result->reason,
+                'is_blocking' => $result->blocking,
+                'similarity_score' => $result->metadata['similarity'] ?? null,
+                'validated_by' => (function_exists('auth') && app()->bound('auth') && auth()->check()) ? auth()->id() : null,
+            ]);
+        } catch (\Throwable $e) {
+        }
 
         try {
             $status = 'pass';
@@ -120,6 +124,31 @@ class GateValidator
 
     public function validateAll(Sku $sku, bool $preserveStatus = false, string $action = 'save'): array
     {
+        // SOURCE: CIE_v2_3_1_Enforcement_Dev_Spec.pdf Section 2.1 — G6.1 Kill tier
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 7 — Kill = zero content effort, all fields blocked
+        $tier = $sku->tier instanceof TierType ? $sku->tier->value : strtolower((string) $sku->tier);
+        if ($tier === TierType::KILL->value) {
+            return [
+                'status' => 'blocked',
+                'overall_status' => 'BLOCKED',
+                'gates_failed' => [],
+                'kill_blocked' => true,
+                'message' => 'Kill-tier SKUs cannot be submitted for validation. Content editing is disabled for this SKU.',
+                'can_publish' => false,
+                'degraded_mode' => false,
+                'save_allowed' => false,
+                'publish_allowed' => false,
+                'gates' => [],
+                'vector_check' => ['status' => 'not_applicable', 'user_message' => null],
+                'results' => [],
+                'next_action' => 'Kill-tier SKU blocked.',
+            ];
+        }
+
+        // SOURCE: CIE_Master_Developer_Build_Spec.docx Section 8
+        // SLA REQUIREMENT: POST /api/v1/sku/validate must respond within 500ms.
+        // Monitor with application performance tooling. This comment marks the entry point for timing.
+        $validationStartTime = microtime(true);
         // SOURCE: openapi.yaml SkuValidateRequest — action is part of validate contract and must be consumed.
         // Current implementation keeps gate rules identical for save/publish; response flags control publish strictness.
         $this->action = in_array(strtolower($action), ['save', 'publish'], true) ? strtolower($action) : 'save';
@@ -353,7 +382,7 @@ class GateValidator
             $gatesKeyed[$key] = $g;
         }
 
-        return [
+        $response = [
             'sku_id'          => $sku->id,
             'status'          => strtolower($status->value),
             'overall_status'  => $status->value,
@@ -366,5 +395,15 @@ class GateValidator
             'results'         => $gatePayload,
             'next_action'     => $nextAction,
         ];
+
+        $elapsed = (microtime(true) - $validationStartTime) * 1000;
+        if ($elapsed > 500) {
+            \Log::warning('CIE gate validation exceeded 500ms SLA', [
+                'sku_id' => $sku->id ?? null,
+                'elapsed_ms' => round($elapsed, 2),
+            ]);
+        }
+
+        return $response;
     }
 }

@@ -93,7 +93,8 @@ const SkuEdit = () => {
         const fetchSku = async () => {
             try {
                 const response = await skuApi.get(id);
-                const skuData = response.data.data.sku;
+                const body = response.data?.data ?? response.data ?? {};
+                const skuData = body?.sku ?? body;
                 
                 // Check authorization AFTER loading SKU (viewer or no edit permission = read-only)
                 if (!user) {
@@ -430,14 +431,14 @@ const SkuEdit = () => {
                                 <div>
                                     <label className="field-label">
                                         Answer Block <GateChip id="gate-answer" pass={sku.gates?.G4?.passed || false} compact />
-                                        <span className="char-count">{sku.short_description?.length || 0}/{answerBlockMin != null && answerBlockMax != null ? `${answerBlockMin}-${answerBlockMax}` : '—'} chars</span>
+                                        <span className="char-count">{(sku.ai_answer_block || sku.answer_block || '').length}/{answerBlockMin != null && answerBlockMax != null ? `${answerBlockMin}-${answerBlockMax}` : '—'} chars</span>
                                     </label>
                                     <textarea
-                                        className={`field-textarea ${answerBlockMin !== null && sku.short_description && sku.short_description.length >= answerBlockMin ? 'valid' : 'invalid'}`}
+                                        className={`field-textarea ${answerBlockMin !== null && (sku.ai_answer_block || sku.answer_block || '').length >= answerBlockMin ? 'valid' : 'invalid'}`}
                                         rows={3}
-                                        value={sku.short_description || ''}
+                                        value={sku.ai_answer_block || sku.answer_block || ''}
                                         disabled={!canEditContent()}
-                                        onChange={(e) => setSku({ ...sku, short_description: e.target.value })}
+                                        onChange={(e) => setSku({ ...sku, ai_answer_block: e.target.value })}
                                         placeholder={answerBlockMin != null && answerBlockMax != null ? `Answer block (min ${answerBlockMin} chars, max ${answerBlockMax})` : 'Answer block (loading…)'}
                                     />
                                 </div>

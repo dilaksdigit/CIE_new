@@ -27,8 +27,8 @@
              │ HTTP (internal)                          │ Database
              ↓                                          ↓
 ┌──────────────────────────┐                 ┌──────────────────────┐
-│   PYTHON API (Flask)     │                 │   MySQL 8.0          │
-│ http://localhost:5000    │                 │ localhost:3306       │
+│   PYTHON API (FastAPI)   │                 │   PostgreSQL 16      │
+│ http://localhost:8000    │                 │ localhost:5432       │
 │ ┌──────────────────────┐ │                 │                      │
 │ │ Endpoints:           │ │                 │ Tables:              │
 │ │ /validate-vector     │ │                 │ - skus               │
@@ -196,7 +196,7 @@ GET /api/audit-result/{audit_id}
                                │ - Cluster ref   │
                                │ - Intents       │
                                └────────┬────────┘
-                                        │ MySQL
+                                        │ PostgreSQL
                                         ↓
                                     [Database]
 

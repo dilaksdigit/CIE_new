@@ -20,7 +20,7 @@
  * - KILL-tier SKUs: all edit disabled
  */
 
-const ROLES = {
+export const ROLES = {
     ADMIN: 'admin',
     SEO_GOVERNOR: 'seo_governor',
     CONTENT_EDITOR: 'content_editor',

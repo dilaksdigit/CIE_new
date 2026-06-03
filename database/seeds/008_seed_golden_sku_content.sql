@@ -8,7 +8,7 @@
 --
 -- Intentional test failures:
 --   SHD-GLS-CNE-20 : answer_block < 250 chars → G4 FAIL
---   BLB-LED-B22-8W : best_for has only 1 entry → G5 FAIL
+--   BLB-LED-B22-8W : not_for empty → G5 FAIL; ai_answer_block may be <250 chars → G4 FAIL if 008 only
 
 SET NAMES utf8mb4;
 
@@ -18,7 +18,7 @@ SET NAMES utf8mb4;
 UPDATE skus SET
   meta_title = 'Black Braided Pendant Cable Set 3-Core 1m with E27 Holder for Ceiling Light Installation',
   short_description = '3-core braided pendant cable set with E27 holder. Rated to 60W. Compatible with LED and CFL. Ideal for standard 2.4m ceilings. BS 7671 compliant. Free UK delivery.',
-  ai_answer_block = 'A 3-core braided pendant cable set with E27 holder connects a ceiling rose to a lampshade safely. Rated to 60W, compatible with LED and CFL bulbs. Choose 1m for standard 2.4m ceilings or 1.5m for period properties with higher ceilings.',
+  ai_answer_block = 'A 3-core braided pendant cable set with E27 holder connects a ceiling rose to a lampshade safely. Rated to 60W, compatible with LED and CFL bulbs. Choose 1m for standard 2.4m ceilings or 1.5m for period properties with higher ceilings. BS 7671 compliant wiring for DIY installs.',
   best_for = '["Standard ceiling pendant installations", "Kitchen island lighting", "Bedroom pendant upgrades", "Replacing old flex cable"]',
   not_for = '["Bathroom installations (not IP-rated)", "Outdoor use", "Heavy industrial fixtures over 5kg"]',
   long_description = 'A 3-core braided pendant cable set with E27 holder connects a ceiling rose to a lampshade safely and stylishly. The black braided fabric sleeve covers the inner conductors while providing a decorative finish suited to modern and industrial interiors. Rated to 60W, this cable is compatible with LED and CFL bulbs. Choose the 1m length for standard 2.4m ceiling rooms or opt for the 1.5m variant if you have period property ceilings. BS 7671 compliant for UK domestic installations. The set includes an E27 lamp holder, ceiling rose plate, and all required fixings.',
@@ -44,7 +44,7 @@ WHERE sku_code = 'CBL-GLD-3C-1M';
 UPDATE skus SET
   meta_title = 'White 2-Core Round Flex Cable 3m for Table Lamp and Floor Lamp Rewiring',
   short_description = 'White 2-core round flex cable, 3m length. Ideal for rewiring table lamps and floor lamps. CE marked. Bare ends for custom wiring.',
-  ai_answer_block = 'A 2-core white PVC flex cable at 3m length provides enough reach for most table lamp and floor lamp rewiring projects. Bare ends allow custom termination with your existing plug and lamp holder. CE marked for indoor domestic use.',
+  ai_answer_block = 'A 2-core white PVC flex cable at 3m length provides enough reach for most table lamp and floor lamp rewiring projects. Technical specs include bare ends for custom termination with your existing plug and lamp holder. CE marked for indoor domestic use only.',
   best_for = '["Table lamp rewiring", "Floor lamp cable extension"]',
   not_for = '["Ceiling pendant installations (needs 3-core)", "Outdoor use"]',
   long_description = 'A 2-core white PVC flex cable at 3m length provides enough reach for most table lamp and floor lamp rewiring projects. Bare ends allow custom termination with your existing plug and lamp holder. CE marked for indoor domestic use. The white round profile blends discreetly against skirting boards. Suitable for lamps rated up to 60W with LED or CFL bulbs. Not intended for ceiling pendant installations or outdoor use.',
@@ -57,7 +57,7 @@ WHERE sku_code = 'CBL-WHT-2C-3M';
 UPDATE skus SET
   meta_title = 'Taupe Fabric Drum Lampshade 35cm E27 B22 for Warm Glare-Free Living Room Lighting',
   short_description = 'Fabric drum shade in taupe, 35cm diameter. Creates warm, glare-free light for living rooms and bedrooms. Fits E27 and B22 pendants. Fire-retardant.',
-  ai_answer_block = 'A fabric drum lampshade in taupe diffuses light evenly for warm, glare-free illumination in living rooms and bedrooms. The 35cm diameter suits standard ceiling pendants and floor lamps with E27 or B22 ring fittings. Ideal for rooms where softened ambient lighting matters most.',
+  ai_answer_block = 'A fabric drum lampshade in taupe solves glare problems by diffusing light evenly for warm illumination in living rooms and bedrooms. The 35cm diameter suits standard ceiling pendants and floor lamps with E27 or B22 ring fittings. Ideal for softened ambient lighting.',
   best_for = '["Living rooms needing warm ambient light", "Bedrooms with low ceilings", "Replacing dated coolie or pleated shades", "Pairing with dimmer switches"]',
   not_for = '["Task lighting (too diffused)", "Kitchens needing directional light", "Outdoor use", "High-humidity bathrooms"]',
   long_description = 'A fabric drum lampshade in taupe diffuses light evenly for warm, glare-free illumination in living rooms and bedrooms. The 35cm diameter suits standard ceiling pendants and floor lamps with E27 or B22 ring fittings. Fire-retardant fabric meets BS EN 60598-1. The shade produces a soft, glare-free ambience ideal for relaxation spaces. Pair with an LED or CFL bulb rated up to 60W for energy-efficient warm white lighting.',
@@ -65,7 +65,7 @@ UPDATE skus SET
 WHERE sku_code = 'SHD-TPE-DRM-35';
 
 -- ---------------------------------------------------------------------------
--- 5. SHD-GLS-CNE-20 (Hero) — INTENTIONAL G4 FAIL (answer_block < 250 chars; golden_test_data.json ai_answer_block_chars=242)
+-- 5. SHD-GLS-CNE-20 (Hero) — INTENTIONAL G4 FAIL (answer_block 217 chars; golden_test_data.json ai_answer_block_chars=217)
 -- ---------------------------------------------------------------------------
 UPDATE skus SET
   meta_title = 'Opal Glass Cone Lampshade 20cm E27 for Kitchen Pendant and Modern Minimalist Interiors',
@@ -83,7 +83,7 @@ WHERE sku_code = 'SHD-GLS-CNE-20';
 UPDATE skus SET
   meta_title = 'LED Filament Bulb E27 4W 2700K Warm White 470 Lumens Dimmable Squirrel Cage',
   short_description = 'E27 LED filament bulb, 4W warm white 2700K. 470 lumens. Dimmable. Squirrel cage style. Fits pendant cable sets and table lamps.',
-  ai_answer_block = 'A 4W LED filament bulb with E27 screw cap produces 470 lumens of warm white light at 2700K, equivalent to a 40W incandescent. Fits standard E27 pendants, table lamps, and floor lamps. Dimmable with compatible trailing-edge dimmer switches.',
+  ai_answer_block = 'A 4W LED filament bulb with E27 screw cap produces 470 lumens of warm white light at 2700K, equivalent to a 40W incandescent. Compatible with standard E27 pendants, table lamps, and floor lamps. Dimmable with compatible trailing-edge dimmer switches.',
   best_for = '["E27 pendant cable sets", "Table lamp bulb replacement", "Vintage-style visible bulb displays"]',
   not_for = '["B22 bayonet fittings", "Outdoor unenclosed fixtures", "High-lumen task lighting needs"]',
   long_description = 'A 4W LED filament bulb with E27 cap produces warm white light at 2700K, delivering 470 lumens equivalent to a traditional 40W incandescent bulb. Fully dimmable with trailing-edge dimmer switches. Compatible with standard E27 screw fittings found in ceiling pendants, table lamps, and floor lamps across UK homes.',
@@ -109,7 +109,7 @@ WHERE sku_code = 'BLB-LED-B22-8W';
 UPDATE skus SET
   meta_title = 'Antique Brass 3-Light Pendant Cluster Set E27 for Kitchen Island and Dining Table Lighting',
   short_description = 'Brass 3-light pendant cluster set with E27 holders. Statement lighting for kitchen islands and dining tables. BS 7671 compliant. Adjustable drop length.',
-  ai_answer_block = 'A brass 3-light pendant cluster set creates balanced, statement illumination over kitchen islands and dining tables. Three independently adjustable E27 drops let you customise height and spread. Antique brass finish suits both period and contemporary interiors.',
+  ai_answer_block = 'A brass 3-light pendant cluster set solves uneven island lighting by creating balanced, statement illumination over kitchen islands and dining tables. Three independently adjustable E27 drops let you customise height and spread. Antique brass finish suits period and contemporary interiors.',
   best_for = '["Kitchen island statement lighting", "Dining table centrepiece", "Open-plan living areas", "Period property renovations"]',
   not_for = '["Low ceilings under 2.4m", "Bathrooms (not IP-rated)", "Single bulb requirements"]',
   long_description = 'A brass 3-light pendant cluster set creates balanced, statement illumination over kitchen islands and dining tables. Three independently adjustable E27 drops let you customise height and spread. Antique brass finish suits both period and contemporary interiors. BS 7671 compliant. Full installation hardware and instructions are included.',

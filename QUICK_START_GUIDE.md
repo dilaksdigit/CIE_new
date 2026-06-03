@@ -24,12 +24,19 @@ timeout 30  # seconds
 docker-compose ps
 ```
 
-### Step 3: Run Migrations
+### Step 3: Database schema (PostgreSQL)
+
+On **first** `docker-compose up`, the `db` service applies schema from `database/postgres/init/` (migrations + spec indexes). No MySQL client required.
+
 ```bash
-# Initialize database
-docker-compose exec php-api php artisan migrate
-docker-compose exec php-api php artisan db:seed
+# Verify PostgreSQL is ready
+docker-compose exec db psql -U cie_user -d cie_v232 -c "\dt"
+
+# Optional: verify spec indexes (DECISION-014)
+python scripts/verify_pg_indexes.py
 ```
+
+See `database/postgres/README.md`. Legacy `database/migrations/*.sql` is reference-only (DECISION-013).
 
 ### Step 4: Access Frontend
 ```
@@ -78,10 +85,10 @@ curl -X POST http://localhost:5000/validate-vector \
   -d '{"description":"test","cluster_id":"1"}'
 ```
 
-### MySQL Database (Port 3306)
+### PostgreSQL Database (Port 5432)
 ```bash
 # ✅ Connect from host
-mysql -h localhost -u cie_user -pcie_password -e "USE cie_v232; SHOW TABLES;"
+psql -h localhost -U cie_user -d cie_v232 -c "\dt"
 
 # Should show:
 # - skus
@@ -211,8 +218,8 @@ docker-compose logs -f python-worker
 ### Database Validation Logs
 ```bash
 # Check validation_logs table
-docker-compose exec php-api mysql -u cie_user -pcie_password \
-  -e "USE cie_v232; SELECT * FROM validation_logs ORDER BY created_at DESC LIMIT 5\G"
+docker-compose exec db psql -U cie_user -d cie_v232 \
+  -c "SELECT * FROM validation_logs ORDER BY created_at DESC LIMIT 5;"
 
 # Should show results from recent validations
 ```
@@ -256,9 +263,8 @@ docker-compose restart python-worker  # Restart
 # Check OpenAI key
 echo $OPENAI_API_KEY
 
-# Check cluster vectors exist
-docker-compose exec mysql-service mysql ... \
-  -e "SELECT COUNT(*) FROM cluster_vectors;"
+# Check cluster vectors exist (PostgreSQL — Docker service name: db)
+docker-compose exec db psql -U cie_user -d cie_v232 -c "SELECT COUNT(*) FROM cluster_vectors;"
 
 # Adjust threshold in .env if needed
 SIMILARITY_THRESHOLD=0.65
@@ -324,8 +330,8 @@ fi
 
 # Test 4: Database Connected
 echo -n "Test 4: Database connected... "
-if docker-compose exec -T php-api mysql -u cie_user -pcie_password \
-    -e "USE cie_v232; SELECT 1;" 2>/dev/null; then
+if docker-compose exec -T db psql -U cie_user -d cie_v232 \
+    -c "SELECT 1;" >/dev/null 2>&1; then
   echo -e "${GREEN}✓${NC}"
 else
   echo -e "${RED}✗${NC}"

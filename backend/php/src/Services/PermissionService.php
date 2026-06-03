@@ -40,102 +40,160 @@ class PermissionService
     /** Cluster assignment. SEO Governor only. */
     private const CLUSTER_FIELDS = ['primary_cluster_id'];
 
-    private function role(?Authenticatable $user): ?string
+    /**
+     * All assigned roles (matches RBACMiddleware multi-role behaviour).
+     *
+     * @return string[]
+     */
+    private function roles(?Authenticatable $user): array
     {
-        if (!$user) return null;
+        if (!$user) {
+            return [];
+        }
+
+        if (method_exists($user, 'relationLoaded') && method_exists($user, 'loadMissing')) {
+            $user->loadMissing('roles');
+            if ($user->roles && $user->roles->isNotEmpty()) {
+                return $user->roles
+                    ->pluck('name')
+                    ->map(fn ($n) => strtoupper((string) $n))
+                    ->unique()
+                    ->values()
+                    ->all();
+            }
+        }
+
         $role = $user->role ?? null;
-        return $role ? strtoupper((string) $role->name) : null;
+        if ($role) {
+            return [strtoupper((string) $role->name)];
+        }
+
+        return [];
+    }
+
+    private function hasAnyRole(?Authenticatable $user, array $allowed): bool
+    {
+        $allowed = array_map('strtoupper', $allowed);
+        return !empty(array_intersect($this->roles($user), $allowed));
+    }
+
+    private function hasRole(?Authenticatable $user, string $role): bool
+    {
+        return in_array(strtoupper($role), $this->roles($user), true);
     }
 
     /** Create/edit content fields. CONTENT_EDITOR, PRODUCT_SPECIALIST, CHANNEL_MANAGER. ADMIN has full access. */
     public function canEditContentFields(?Authenticatable $user): bool
     {
-        $r = $this->role($user);
-        if ($r === self::ROLE_ADMIN) return true;
-        return in_array($r, [self::ROLE_CONTENT_EDITOR, self::ROLE_PRODUCT_SPECIALIST, self::ROLE_CHANNEL_MANAGER], true);
+        if ($this->hasRole($user, self::ROLE_ADMIN)) {
+            return true;
+        }
+        return $this->hasAnyRole($user, [
+            self::ROLE_CONTENT_EDITOR,
+            self::ROLE_PRODUCT_SPECIALIST,
+            self::ROLE_CHANNEL_MANAGER,
+        ]);
     }
 
     /** Edit expert authority only. PRODUCT_SPECIALIST only (and ADMIN). */
     public function canEditExpertAuthority(?Authenticatable $user): bool
     {
-        $r = $this->role($user);
-        if ($r === self::ROLE_ADMIN) return true;
-        return $r === self::ROLE_PRODUCT_SPECIALIST;
+        if ($this->hasRole($user, self::ROLE_ADMIN)) {
+            return true;
+        }
+        return $this->hasRole($user, self::ROLE_PRODUCT_SPECIALIST);
     }
 
     /** Assign/change cluster_id. SEO_GOVERNOR only (and ADMIN). */
     public function canAssignCluster(?Authenticatable $user): bool
     {
-        $r = $this->role($user);
-        return $r === self::ROLE_ADMIN || $r === self::ROLE_SEO_GOVERNOR;
+        return $this->hasRole($user, self::ROLE_ADMIN)
+            || $this->hasRole($user, self::ROLE_SEO_GOVERNOR);
     }
 
     /** Modify 9-intent taxonomy. ADMIN only. */
     public function canModifyIntentTaxonomy(?Authenticatable $user): bool
     {
-        return $this->role($user) === self::ROLE_ADMIN;
+        return $this->hasRole($user, self::ROLE_ADMIN);
     }
 
     /** Modify cluster intent statements. SEO_GOVERNOR only (spec: only SEO_GOVERNOR). */
     public function canModifyClusterIntent(?Authenticatable $user): bool
     {
-        return $this->role($user) === self::ROLE_SEO_GOVERNOR;
+        return $this->hasRole($user, self::ROLE_SEO_GOVERNOR);
     }
 
     /** Publish SKU / submit for review. Editor, SEO Gov, Ch Mgr, CONTENT_LEAD (PH). */
     public function canPublishSku(?Authenticatable $user, $sku): bool
     {
-        if (!$user || !$sku) return false;
-        if ($sku->tier === \App\Enums\TierType::KILL) return false;
-        $r = $this->role($user);
-        if ($r === self::ROLE_ADMIN) return true;
-        return in_array($r, [
-            self::ROLE_CONTENT_EDITOR, self::ROLE_SEO_GOVERNOR, self::ROLE_CHANNEL_MANAGER, self::ROLE_CONTENT_LEAD,
-        ], true);
+        if (!$user || !$sku) {
+            return false;
+        }
+        if ($sku->tier === \App\Enums\TierType::KILL) {
+            return false;
+        }
+        if ($this->hasRole($user, self::ROLE_ADMIN)) {
+            return true;
+        }
+        return $this->hasAnyRole($user, [
+            self::ROLE_CONTENT_EDITOR,
+            self::ROLE_SEO_GOVERNOR,
+            self::ROLE_CHANNEL_MANAGER,
+            self::ROLE_CONTENT_LEAD,
+        ]);
     }
 
-    /** CONTENT_LEAD may only set validation_status (publish), not edit content. */
+    /** CONTENT_LEAD may only set validation_status (publish), not edit content — unless they hold other governance roles. */
     public function canOnlyPublish(?Authenticatable $user): bool
     {
-        return $this->role($user) === self::ROLE_CONTENT_LEAD;
+        if (!$this->hasRole($user, self::ROLE_CONTENT_LEAD)) {
+            return false;
+        }
+        if ($this->hasRole($user, self::ROLE_ADMIN)) {
+            return false;
+        }
+        return !$this->canEditContentFields($user)
+            && !$this->canAssignCluster($user)
+            && !$this->canModifyClusterIntent($user);
     }
 
     /** Run AI audit. AI_OPS, ADMIN. */
     public function canRunAIAudit(?Authenticatable $user): bool
     {
-        $r = $this->role($user);
-        return in_array($r, [self::ROLE_AI_OPS, self::ROLE_ADMIN], true);
+        return $this->hasAnyRole($user, [self::ROLE_AI_OPS, self::ROLE_ADMIN]);
     }
 
     /** Manage golden queries. Matrix: Editor, Ch Mgr, AI Ops, PH, Finance, Admin. */
     public function canManageGoldenQueries(?Authenticatable $user): bool
     {
-        $r = $this->role($user);
-        if ($r === self::ROLE_ADMIN) return true;
-        return in_array($r, [
-            self::ROLE_CONTENT_EDITOR, self::ROLE_CHANNEL_MANAGER, self::ROLE_AI_OPS,
-            self::ROLE_CONTENT_LEAD, self::ROLE_FINANCE,
-        ], true);
+        if ($this->hasRole($user, self::ROLE_ADMIN)) {
+            return true;
+        }
+        return $this->hasAnyRole($user, [
+            self::ROLE_CONTENT_EDITOR,
+            self::ROLE_CHANNEL_MANAGER,
+            self::ROLE_AI_OPS,
+            self::ROLE_CONTENT_LEAD,
+            self::ROLE_FINANCE,
+        ]);
     }
 
     /** Trigger tier recalculation. ADMIN + FINANCE only. */
     public function canTriggerTierRecalculation(?Authenticatable $user): bool
     {
-        $r = $this->role($user);
-        return $r === self::ROLE_ADMIN || $r === self::ROLE_FINANCE;
+        return $this->hasAnyRole($user, [self::ROLE_ADMIN, self::ROLE_FINANCE]);
     }
 
     /** ERP sync. Finance, Admin. */
     public function canTriggerERPSync(?Authenticatable $user): bool
     {
-        $r = $this->role($user);
-        return in_array($r, [self::ROLE_FINANCE, self::ROLE_ADMIN], true);
+        return $this->hasAnyRole($user, [self::ROLE_FINANCE, self::ROLE_ADMIN]);
     }
 
     /** Manage users/roles. ADMIN only. */
     public function canManageUsers(?Authenticatable $user): bool
     {
-        return $this->role($user) === self::ROLE_ADMIN;
+        return $this->hasRole($user, self::ROLE_ADMIN);
     }
 
     /** Content editors CANNOT override validation gate failures. */
@@ -147,13 +205,12 @@ class PermissionService
     /** View readiness / channel mappings. CHANNEL_MANAGER + any authenticated. */
     public function canViewReadiness(?Authenticatable $user): bool
     {
-        return $user && $this->role($user) !== null;
+        return $user && $this->roles($user) !== [];
     }
 
     public function canManageChannelMappings(?Authenticatable $user): bool
     {
-        $r = $this->role($user);
-        return $r === self::ROLE_ADMIN || $r === self::ROLE_CHANNEL_MANAGER;
+        return $this->hasAnyRole($user, [self::ROLE_ADMIN, self::ROLE_CHANNEL_MANAGER]);
     }
 
     /**
@@ -163,10 +220,9 @@ class PermissionService
      */
     public function allowedSkuUpdateFields(?Authenticatable $user): array
     {
-        $r = $this->role($user);
         $fields = ['lock_version'];
 
-        if ($r === self::ROLE_ADMIN) {
+        if ($this->hasRole($user, self::ROLE_ADMIN)) {
             return array_merge(
                 self::CONTENT_FIELDS,
                 self::EXPERT_AUTHORITY_FIELDS,

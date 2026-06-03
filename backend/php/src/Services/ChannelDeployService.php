@@ -46,7 +46,8 @@ class ChannelDeployService
         }
 
         $payload = $this->buildDeployPayload($sku);
-        $url = $baseUrl . '/webhook/shopify-deploy';
+        $webhookPath = trim((string) env('N8N_SHOPIFY_WEBHOOK_PATH', 'shopify-deploy'), '/');
+        $url = $baseUrl . '/webhook/' . $webhookPath;
         $skuIdStr = (string) $skuId;
 
         $auditLogger = function (string $event, array $payload) {
@@ -189,7 +190,8 @@ class ChannelDeployService
         }
 
         $payload = $this->buildDeployPayload($sku);
-        $url = $baseUrl . '/webhook/gmc-deploy';
+        $webhookPath = trim((string) env('N8N_GMC_WEBHOOK_PATH', 'gmc-deploy'), '/');
+        $url = $baseUrl . '/webhook/' . $webhookPath;
         $attempt = 0;
         $serverErrorAttempt = 0;
         $serverErrorBackoff = [30, 60, 120];
