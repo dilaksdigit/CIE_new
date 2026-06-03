@@ -48,6 +48,17 @@ const escapeCsvCell = (val) => {
 /** API returns mixed-case ValidationStatus (e.g. pending, VALID, INVALID). Normalize for stat filters. */
 const validationStatusUpper = (sku) => String(sku?.validation_status ?? '').trim().toUpperCase();
 
+// SOURCE: CIE_v232_UI_Restructure_Instructions.docx §2.1 — portfolio table tier order (matches Writer Queue)
+const TIER_ORDER = { hero: 0, support: 1, harvest: 2, kill: 3 };
+
+const sortSkusByTier = (list) =>
+    [...list].sort((a, b) => {
+        const tierA = TIER_ORDER[String(a?.tier ?? '').toLowerCase()] ?? 99;
+        const tierB = TIER_ORDER[String(b?.tier ?? '').toLowerCase()] ?? 99;
+        if (tierA !== tierB) return tierA - tierB;
+        return String(a?.sku_code ?? a?.title ?? '').localeCompare(String(b?.sku_code ?? b?.title ?? ''));
+    });
+
 const Dashboard = () => {
     const { user } = useContext(AppContext);
     const canReadConfig = canModifyConfig(user);
@@ -98,7 +109,7 @@ const Dashboard = () => {
                     fetchSummary(),
                 ]);
                 if (!cancelled) {
-                    const skuData = extractApiArray(skuRes);
+                    const skuData = sortSkusByTier(extractApiArray(skuRes));
                     setSkus(skuData);
                 }
             } catch (err) {
@@ -441,11 +452,12 @@ const Dashboard = () => {
                                     <td>
                                         <div className="flex gap-4 flex-wrap">
                                             {getGatesForTier(sku.tier).map(g => (
-                                                <GateChip 
-                                                    key={g.id} 
-                                                    id={g.id} 
-                                                    pass={sku.gates?.[g.id]?.passed || false} 
-                                                    compact 
+                                                <GateChip
+                                                    key={g.id}
+                                                    id={g.id}
+                                                    pass={sku.gates?.[g.id]?.passed || false}
+                                                    status={sku.gates?.[g.id]?.status}
+                                                    compact
                                                 />
                                             ))}
                                         </div>

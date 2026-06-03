@@ -852,7 +852,9 @@ const WriterEdit = () => {
     const requiredGateKeys = gatedRequiredFields.flatMap((f) => gateKeysForField(f));
     const relevantGates = requiredGateKeys.map((k) => gates[k]).filter(Boolean);
     const hasGateData = relevantGates.length > 0;
-    const allRequiredPass = hasGateData && relevantGates.every((g) => g.status === 'pass');
+    // SOURCE: CLAUDE.md §11 — vector warn/pending are fail-soft: show Submit when no hard gate fail
+    const allRequiredPass = hasGateData && !relevantGates.some((g) => g.status === 'fail');
+    const allGatesStrictPass = hasGateData && relevantGates.every((g) => g.status === 'pass');
     const progressPct =
         progressTotalRequired > 0 ? Math.round((progressCompletedCount / progressTotalRequired) * 100) : 0;
 
@@ -1205,7 +1207,7 @@ const WriterEdit = () => {
                             </div>
                         </div>
                         <div style={{ height: 7, borderRadius: 999, background: THEME.border, overflow: 'hidden' }}>
-                            <div style={{ width: `${progressPct}%`, height: '100%', background: allRequiredPass ? THEME.green : THEME.accent }} />
+                            <div style={{ width: `${progressPct}%`, height: '100%', background: allGatesStrictPass ? THEME.green : allRequiredPass ? THEME.amber : THEME.accent }} />
                         </div>
                     </div>
 

@@ -131,14 +131,21 @@ const SkuList = () => {
                                 <td><span className={`badge tier-${(sku.tier || '').toUpperCase()}`}>{(sku.tier || '').toUpperCase()}</span></td>
                                 <td><span className={`status-badge ${sku.validation_status}`}>{sku.validation_status}</span></td>
                                 <td>
-                                    {sku.vector_gate_status === 'pass' ? (
+                                    {(sku.gates?.VEC?.status ?? sku.vector_gate_status) === 'pass' ? (
                                         <span style={{
                                             color: '#2E7D32',
                                             fontWeight: 600, fontSize: '13px'
                                         }}>
                                             Good
                                         </span>
-                                    ) : sku.vector_gate_status === 'fail' ? (
+                                    ) : (sku.gates?.VEC?.status ?? sku.vector_gate_status) === 'fail' ? (
+                                        <span style={{
+                                            color: '#C62828',
+                                            fontWeight: 600, fontSize: '13px'
+                                        }}>
+                                            Fail
+                                        </span>
+                                    ) : (sku.gates?.VEC?.status ?? sku.vector_gate_status) === 'warn' ? (
                                         <span style={{
                                             color: '#E65100',
                                             fontWeight: 600, fontSize: '13px'

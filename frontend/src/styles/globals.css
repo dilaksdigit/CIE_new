@@ -407,6 +407,12 @@ body {
   color: var(--green);
 }
 
+.gate-chip.warn {
+  background: #FFF8E1;
+  border: 1px solid #FFCC80;
+  color: #E65100;
+}
+
 .gate-chip.fail {
   background: var(--red-bg);
   border: 1px solid #EF9A9A;

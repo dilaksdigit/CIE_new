@@ -78,7 +78,22 @@ class SkuController {
             });
         }
 
-        $skuCollection = $query->get();
+        $skuCollection = $query->get()
+            ->sortBy(fn ($sku) => strtolower((string) ($sku->sku_code ?? '')))
+            ->sortBy(function ($sku) {
+                $tier = $sku->tier instanceof \App\Enums\TierType
+                    ? strtolower($sku->tier->value)
+                    : strtolower(trim((string) ($sku->tier ?? '')));
+
+                return match ($tier) {
+                    'hero' => 0,
+                    'support' => 1,
+                    'harvest' => 2,
+                    'kill' => 3,
+                    default => 99,
+                };
+            })
+            ->values();
         $skuCodes = $skuCollection->pluck('sku_code')->filter()->values()->toArray();
         $allGateStatuses = $this->batchLoadGateStatuses($skuCodes);
 
@@ -129,7 +144,11 @@ class SkuController {
 
         $readiness = $this->readinessScoreService->computeReadiness($sku);
         $commercial = $this->buildCommercialSnapshot($sku);
-        $gateStatuses = $this->loadGateStatusRowsForSku($sku);
+        $skuCodeKey = (string) ($sku->sku_code ?? '');
+        $canonicalRows = $skuCodeKey !== ''
+            ? ($this->batchLoadGateStatuses([$skuCodeKey])[$skuCodeKey] ?? null)
+            : null;
+        $gateStatuses = $this->buildGateStatuses($sku, $canonicalRows);
         $auditStatus = $this->buildAuditStatusSnapshot($sku);
 
         // SOURCE: CIE_v232_Semrush_CSV_Import_Spec.docx §3.2 — writer suggestion cards use latest import_batch
@@ -156,6 +175,7 @@ class SkuController {
             'readiness' => $readiness,
             'audit_status' => $auditStatus,
             'gates' => $gateStatuses,
+            'vector_gate_status' => $this->deriveVectorGateStatus($sku),
             'semrush_imports' => $semrushImports,
         ], 200);
     }
@@ -1297,30 +1317,72 @@ class SkuController {
      */
     private function buildGateStatusesFromCanonical(array $rows, Sku $sku, string $tier): array
     {
-        $statusMap = [];
+        $rawByCode = [];
         foreach ($rows as $row) {
             $code = is_object($row) ? $row->gate_code : ($row['gate_code'] ?? '');
-            $status = is_object($row) ? $row->status : ($row['status'] ?? 'fail');
-            $statusMap[$code] = in_array($status, ['pass', 'warn'], true);
+            if ($code === '') {
+                continue;
+            }
+            $rawByCode[$code] = strtolower((string) (is_object($row) ? $row->status : ($row['status'] ?? 'fail')));
         }
+
+        $passFor = static function (string $code) use ($rawByCode): bool {
+            return in_array($rawByCode[$code] ?? '', ['pass', 'warn'], true);
+        };
 
         // G5: On success G5_TechnicalGate writes only G5_TECHNICAL=pass (never G5_BEST_NOT_FOR).
         // Treat G5 as passed when either Best-For/Not-For or Technical is pass so UI matches golden.
-        $g5Passed = ($statusMap['G5_BEST_NOT_FOR'] ?? false) || ($statusMap['G5_TECHNICAL'] ?? false);
+        $g5Passed = $passFor('G5_BEST_NOT_FOR') || $passFor('G5_TECHNICAL');
         // G6 = commercial policy (golden); tier_fields same source for Harvest display.
-        $g6Passed = $statusMap['G6_COMMERCIAL_POLICY'] ?? $this->tierFieldsComplete($sku, $tier);
+        $g6Passed = $passFor('G6_COMMERCIAL_POLICY') || $this->tierFieldsComplete($sku, $tier);
 
         return [
-            'G1'          => ['passed' => $statusMap['G1_BASIC_INFO'] ?? false],
-            'G2'          => ['passed' => $statusMap['G2_INTENT'] ?? false],
-            'G3'          => ['passed' => $statusMap['G3_SECONDARY_INTENT'] ?? false],
-            'G4'          => ['passed' => $statusMap['G4_ANSWER_BLOCK'] ?? false],
-            'G5'          => ['passed' => $g5Passed],
-            'G6'          => ['passed' => $g6Passed],
-            'tier_fields' => ['passed' => $g6Passed],
-            'G7'          => ['passed' => $statusMap['G7_EXPERT'] ?? false],
-            'VEC'         => ['passed' => $statusMap['G4_VECTOR'] ?? false],
+            'G1'          => $this->gateChipFromCanonical($rawByCode['G1_BASIC_INFO'] ?? null),
+            'G2'          => $this->gateChipFromCanonical($rawByCode['G2_INTENT'] ?? null),
+            'G3'          => $this->gateChipFromCanonical($rawByCode['G3_SECONDARY_INTENT'] ?? null),
+            'G4'          => $this->gateChipFromCanonical($rawByCode['G4_ANSWER_BLOCK'] ?? null),
+            'G5'          => ['passed' => $g5Passed, 'status' => $g5Passed ? 'pass' : 'fail'],
+            'G6'          => ['passed' => $g6Passed, 'status' => $g6Passed ? 'pass' : 'fail'],
+            'tier_fields' => ['passed' => $g6Passed, 'status' => $g6Passed ? 'pass' : 'fail'],
+            'G7'          => $this->gateChipFromCanonical($rawByCode['G7_EXPERT'] ?? null),
+            // SOURCE: CLAUDE.md §11 — vector warn/pending are fail-soft; portfolio chip must not show hard Fail
+            'VEC'         => $this->vecGateChipFromCanonical($rawByCode['G4_VECTOR'] ?? null, $sku),
         ];
+    }
+
+    /**
+     * @return array{passed: bool, status: string}
+     */
+    private function gateChipFromCanonical(?string $rawStatus): array
+    {
+        $s = strtolower(trim((string) $rawStatus));
+        $passed = in_array($s, ['pass', 'warn'], true);
+
+        return ['passed' => $passed, 'status' => $passed ? 'pass' : 'fail'];
+    }
+
+    /**
+     * Vector gate chip for portfolio / list UI (fail-soft semantics).
+     *
+     * @return array{passed: bool, status: string}
+     */
+    private function vecGateChipFromCanonical(?string $rawStatus, Sku $sku): array
+    {
+        $s = strtolower(trim((string) $rawStatus));
+        if ($s === 'pass') {
+            return ['passed' => true, 'status' => 'pass'];
+        }
+        if (in_array($s, ['warn', 'warning', 'pending'], true)) {
+            return ['passed' => true, 'status' => 'warn'];
+        }
+        if ($s === 'fail') {
+            return ['passed' => false, 'status' => 'fail'];
+        }
+        if ($this->isValidStatus($sku)) {
+            return ['passed' => true, 'status' => 'pass'];
+        }
+
+        return ['passed' => false, 'status' => 'fail'];
     }
 
     /**
@@ -1366,16 +1428,21 @@ class SkuController {
             ? true
             : $this->fallbackG2PrimaryIntentPasses($sku);
 
+        $vecChip = ['passed' => $hasVec, 'status' => $hasVec ? 'pass' : 'fail'];
+        if ($this->isValidStatus($sku) && $hasVec) {
+            $vecChip = ['passed' => true, 'status' => 'pass'];
+        }
+
         return [
-            'G1'          => ['passed' => $hasCluster],
-            'G2'          => ['passed' => $g2Passed],
-            'G3'          => ['passed' => $hasIntents],
-            'G4'          => ['passed' => $hasAnswerBlock],
-            'G5'          => ['passed' => $hasBestNotFor],
-            'G6'          => ['passed' => $g6TierPassed],
-            'tier_fields' => ['passed' => $g6TierPassed],
-            'G7'          => ['passed' => $hasG7],
-            'VEC'         => ['passed' => $hasVec],
+            'G1'          => ['passed' => $hasCluster, 'status' => $hasCluster ? 'pass' : 'fail'],
+            'G2'          => ['passed' => $g2Passed, 'status' => $g2Passed ? 'pass' : 'fail'],
+            'G3'          => ['passed' => $hasIntents, 'status' => $hasIntents ? 'pass' : 'fail'],
+            'G4'          => ['passed' => $hasAnswerBlock, 'status' => $hasAnswerBlock ? 'pass' : 'fail'],
+            'G5'          => ['passed' => $hasBestNotFor, 'status' => $hasBestNotFor ? 'pass' : 'fail'],
+            'G6'          => ['passed' => $g6TierPassed, 'status' => $g6TierPassed ? 'pass' : 'fail'],
+            'tier_fields' => ['passed' => $g6TierPassed, 'status' => $g6TierPassed ? 'pass' : 'fail'],
+            'G7'          => ['passed' => $hasG7, 'status' => $hasG7 ? 'pass' : 'fail'],
+            'VEC'         => $vecChip,
         ];
     }
 
@@ -1521,21 +1588,52 @@ class SkuController {
 
     private function deriveVectorGateStatus(Sku $sku): ?string
     {
-        if ($this->isValidStatus($sku)) return 'pass';
+        $tier = $sku->tier instanceof \App\Enums\TierType
+            ? strtoupper($sku->tier->value)
+            : strtoupper((string) ($sku->tier ?? ''));
+        if (in_array($tier, ['HARVEST', 'KILL'])) {
+            return 'pass';
+        }
+
+        $skuKey = (string) ($sku->sku_code ?? $sku->id);
+        if ($skuKey !== '' && Schema::hasTable('sku_gate_status')) {
+            try {
+                $raw = DB::table('sku_gate_status')
+                    ->where('sku_id', $skuKey)
+                    ->where('gate_code', 'G4_VECTOR')
+                    ->value('status');
+                if (is_string($raw) && $raw !== '') {
+                    $s = strtolower($raw);
+                    if ($s === 'pass') {
+                        return 'pass';
+                    }
+                    if (in_array($s, ['warn', 'warning', 'pending'], true)) {
+                        return 'warn';
+                    }
+                    if ($s === 'fail') {
+                        return 'fail';
+                    }
+                }
+            } catch (\Throwable $e) {
+                // fall through
+            }
+        }
+
+        if ($this->isValidStatus($sku)) {
+            return 'pass';
+        }
 
         $isDegraded = ($sku->validation_status instanceof ValidationStatus)
             ? $sku->validation_status === ValidationStatus::DEGRADED
             : strtoupper((string) ($sku->validation_status ?? '')) === 'DEGRADED';
 
-        if ($isDegraded) return 'pending';
-
-        $tier = $sku->tier instanceof \App\Enums\TierType
-            ? strtoupper($sku->tier->value)
-            : strtoupper((string) ($sku->tier ?? ''));
-        if (in_array($tier, ['HARVEST', 'KILL'])) return 'pass';
+        if ($isDegraded) {
+            return 'warn';
+        }
 
         // SOURCE: CIE_Master_Developer_Build_Spec.docx §5 + §7 (G6) — configurable minimum description words.
         $hasContent = !empty($sku->long_description) && str_word_count($sku->long_description ?? '') >= (int) BusinessRules::get('gates.description_min_words');
+
         return $hasContent ? null : 'fail';
     }
 

@@ -15,19 +15,30 @@ export const TierBadge = ({ tier, size = 'sm' }) => (
 
 // ─── GATE CHIP ──────────────────────────────────────
 // label = plain English field name (no gate codes in UI per CLAUDE.md §6 / UI restructure §6)
-export const GateChip = ({ id, pass, compact, label }) => (
-    <span
-        className={`gate-chip ${pass ? 'pass' : 'fail'} ${compact ? 'compact' : ''}`}
-        data-field-label={label || undefined}
-    >
-        {label ? (
-            <span className="gate-chip-label" style={{ marginRight: 6, fontWeight: 600, fontSize: compact ? '0.65rem' : '0.7rem' }}>
-                {label}
-            </span>
-        ) : null}
-        <span className="check">{pass ? 'Pass' : 'Fail'}</span>
-    </span>
-);
+// status: pass | warn | fail — warn/pending are fail-soft (CLAUDE.md §11), not hard Fail
+export const GateChip = ({ id, pass, status, compact, label }) => {
+    const resolved =
+        status === 'pass' || status === 'warn' || status === 'fail'
+            ? status
+            : pass
+              ? 'pass'
+              : 'fail';
+    const labelText = resolved === 'pass' ? 'Pass' : resolved === 'warn' ? 'Review' : 'Fail';
+    return (
+        <span
+            className={`gate-chip ${resolved} ${compact ? 'compact' : ''}`}
+            data-field-label={label || undefined}
+            data-gate-id={id || undefined}
+        >
+            {label ? (
+                <span className="gate-chip-label" style={{ marginRight: 6, fontWeight: 600, fontSize: compact ? '0.65rem' : '0.7rem' }}>
+                    {label}
+                </span>
+            ) : null}
+            <span className="check">{labelText}</span>
+        </span>
+    );
+};
 
 // ─── TRAFFIC LIGHT ──────────────────────────────────
 export const TrafficLight = ({ value }) => {

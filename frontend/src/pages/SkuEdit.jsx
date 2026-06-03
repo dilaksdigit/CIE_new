@@ -346,6 +346,7 @@ const SkuEdit = () => {
                         id={g.id}
                         label={g.label}
                         pass={sku.gates?.[g.id]?.passed || false}
+                        status={sku.gates?.[g.id]?.status}
                     />
                 ))}
                 <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
@@ -448,14 +449,14 @@ const SkuEdit = () => {
                             {sku.tier !== 'kill' && sku.tier !== 'KILL' && (
                             <div className="vector-panel">
                                 <div>
-                                    <div className="field-label">VECTOR — Semantic Similarity <GateChip id="gate-vector" pass={sku.vector_gate_status === 'pass'} compact /></div>
+                                    <div className="field-label">VECTOR — Semantic Similarity <GateChip id="gate-vector" pass={sku.gates?.VEC?.passed ?? sku.vector_gate_status === 'pass'} status={sku.gates?.VEC?.status ?? (sku.vector_gate_status === 'warn' ? 'warn' : sku.vector_gate_status === 'pass' ? 'pass' : sku.vector_gate_status === 'fail' ? 'fail' : undefined)} compact /></div>
                                     <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Description alignment with cluster intent</div>
                                 </div>
                                 <div style={{ textAlign: "right" }}>
-                                    <div className="vector-score" style={{ color: sku.vector_gate_status === 'pass' ? 'var(--green)' : 'var(--orange)' }}>
-                                        {sku.vector_gate_status === 'pass' ? 'Good' : sku.vector_gate_status === 'fail' ? 'Review' : '–'}
+                                    <div className="vector-score" style={{ color: (sku.gates?.VEC?.status ?? sku.vector_gate_status) === 'pass' ? 'var(--green)' : (sku.gates?.VEC?.status ?? sku.vector_gate_status) === 'fail' ? 'var(--red)' : 'var(--orange)' }}>
+                                        {(sku.gates?.VEC?.status ?? sku.vector_gate_status) === 'pass' ? 'Good' : (sku.gates?.VEC?.status ?? sku.vector_gate_status) === 'fail' ? 'Needs work' : (sku.gates?.VEC?.status ?? sku.vector_gate_status) === 'warn' ? 'Review' : '–'}
                                     </div>
-                                    <div className="vector-threshold">{sku.vector_gate_status === 'fail' ? 'Your content may not align with the intent. Consider revising.' : 'Description must align with product cluster intent.'}</div>
+                                    <div className="vector-threshold">{(sku.gates?.VEC?.status ?? sku.vector_gate_status) === 'fail' ? 'Your content may not align with the intent. Consider revising.' : 'Description must align with product cluster intent.'}</div>
                                 </div>
                             </div>
                             )}
